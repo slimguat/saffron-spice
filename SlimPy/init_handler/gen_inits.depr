@@ -1,0 +1,536 @@
+import numpy as np 
+import  matplotlib.pyplot as plt
+import datetime
+from pathlib import Path
+import os 
+from astropy.io import fits as fits_reader
+
+ 
+from ..fit_models import flat_inArg_multiGauss as Gauss
+from ..utils import get_celestial,quickview,getfiles
+from ..fit_functions import fit_pixel_multi
+from ..line_catalogue.catalogue import LineCatalogue 
+
+from ..fit_models import flat_inArg_multiGauss 
+from sunraster.instr.spice import read_spice_l2_fits
+import spice_utils.ias_spice_utils.utils as spu
+
+
+
+def gen_lock_params(init_params,lock_state,verbose=0):
+    """_summary_
+
+    Args:
+        init_params (_type_): _description_
+        lock_state (list): ["lockall",*list_of_distances] or list with [["free"],["block",wvl],["lock",with_line,distance]] 
+    """
+    lock_params = []
+    lock_quentities = []
+    if lock_state[0]=="lockall":
+        # if lock_state[1:]!=(len(init_params)//3)-1: raise ValueError("the lockall parameters doesn't match the number of lines")
+        lock_state2 = ["free"]
+        for i in range(1,len(init_params)//3):
+            lock_state2.append("lock")
+        lock_state = lock_state2
+        if verbose>=2:print("new lock_state:\n\t",lock_state)
+    if type(lock_state[0]) == list:
+        lock_state2 = []
+        for state in lock_state:
+            lock_state2.append(state[0])
+        lock_state = lock_state2
+        
+    for i,state in enumerate(lock_state):
+        if state=="free":
+            lock_params.extend(init_params[i*3:(i+1)*3]) 
+            lock_quentities.extend(["I","x","s"])
+        elif state in ["lock","block"]:      
+            lock_quentities.extend(["I","s"])
+            lock_params.extend(init_params[i*3:(i+1)*3:2])
+        else: raise ValueError(f"the value of the state ({state}) is not recognized") 
+    lock_params.append(init_params[-1])
+    lock_quentities.append("B")
+    return np.array(lock_params),lock_quentities
+def gen_lock_func(params, lock_state,verbose=0):
+    indent_level = 0
+    indent = "\t"
+    GBTL   = "\n"
+    actual_params = "\n"
+    params_i = 0
+    for i_line,state in enumerate(lock_state):
+        if state[0]=="free":
+            str_prm = f"params[{int(params_i)}],params[{int(params_i+1)}],params[{int(params_i+2)}],\n"
+            params_i+=3
+            
+        elif state[0]=="block":
+            str_prm = f"params[{int(params_i)}],{state[1]},params[{int(params_i+1)}],\n"
+            params_i+=2
+            
+        elif state[0]=="lock":
+            if lock_state[state[1]][0] in ["block","lock"]: raise ValueError("the state is linked to locked or a blocked value")
+            i_ref_line = state[1]
+            i_ref = 0
+            for i in range(i_ref_line+0):
+                # print(i,i_ref)
+                if lock_state[i][0] == "free":i_ref+=3
+                if lock_state[i][0] in ["lock","block"]:i_ref+=2                  
+            i_ref += 1
+            str_prm = f"params[{int(params_i)}],params[{i_ref}]+{state[2]},params[{int(params_i+1)}],"
+            params_i+=2
+            
+        else: raise ValueError(f"lock_state {state[0]} unknown")
+        actual_params+=str_prm
+    
+    actual_params += f"params[{int(len(params)-1)}]"
+    func_ext_name = ""; 
+    for state in lock_state:
+        func_ext_name+=f"_{state[0]}"
+        
+    str_function = f"def flat_inArg_multiGauss{func_ext_name}(x,*params):return(flat_inArg_multiGauss(x,{actual_params}))"
+    
+    if verbose >= 2: print("string function\n",str_function)
+    loc = {}    
+    exec(str_function,globals(),loc)
+    return loc
+def get_unlock_params(lock_params,lock_state,verbose=0):
+    unlock_param = []
+    params_i = 0
+    for state in lock_state:
+        if state[0]=="free":
+            unlock_param.extend(lock_params[params_i:params_i+3])
+            params_i+=3
+        elif state[0] == "lock":
+            i_ref_line = state[1]
+            i_ref = 0
+            for i in range(i_ref_line+0):
+                # print(i,i_ref)
+                if lock_state[i][0] == "free":i_ref+=3
+                if lock_state[i][0] in ["lock","block"]:i_ref+=2                  
+            i_ref += 1
+            
+            unlock_param.append(lock_params[params_i])
+            unlock_param.append(lock_params[i_ref]+state[2])        
+            unlock_param.append(lock_params[params_i+1])
+            params_i+=2
+        elif state[0] == "block":
+            unlock_param.append(lock_params[params_i])
+            unlock_param.append(state[2])        
+            unlock_param.append(lock_params[params_i+1])
+            params_i+=2
+        else: raise ValueError(f"the value of the state ({state}) is not recognized") 
+    unlock_param.append(lock_params[-1])   
+    return np.array(unlock_param)
+
+def get_celestial(raster):
+    unq = spu.unique_windows(raster)
+    lon = raster[unq[0]].celestial.data.lon.arcsec
+    lat = raster[unq[0]].celestial.data.lat.arcsec
+    lon[lon>180*3600]-=360*3600
+    lat[lat>180*3600]-=360*3600
+    return lon,lat
+
+
+def closest_line(wvl_list, _to):
+    return np.argmin(np.abs(wvl_list-_to)) 
+
+def find_by_default_window(specaxis,specdata,init_params,window_lines,verbose=0):
+    # finding max positions
+    
+    # print("max_I x_max_I line_index",max_I,x_max_I,line_index,np.where(specdata==max_I))
+    
+    # defining line names with their default windows
+    lines_names=[i["name"] for i in window_lines]
+    lines_names_sorted = sorted((lines_names.copy()))
+    if False:
+        default_windows = [
+            #COMPO
+            sorted(["o_iii_1","o_iii_2","mg_ix"]),
+            sorted(["s_iv_2"]),
+            sorted(["n_iv"]), #and DYN
+            sorted(["ne_viii"]), #and DYN also
+            sorted(["s_v" ,"o_iv"]),
+            sorted(["o_i","n_iii_1","n_iii_2"]),
+            
+            #DYN
+            sorted(["mg_ix","o_iii_2"]), #and DYN also
+            sorted(["c_iii"]), #and DYN also
+            sorted(["o_vi"]), #and DYN also
+            sorted(["h_i_be"]), #and DYN also
+            
+            #weird DYN
+            sorted(["n_iv","ne_viii"]), #and DYN also
+            sorted(["h_i_ga","o_1&ne_vii","c_iii"]),
+            # sorted(["o_1&ne_vii","c_iii"]),
+        ]
+        
+        max_I_names = ["o_iii_2","s_iv_2","n_iv","ne_viii","o_iv","n_iii_2","o_iii_2","c_iii","o_vi","h_i_be","ne_viii","c_iii"]
+        default_lines = [
+                {"name":"o_iii_1"   ,"wvl": 702.70},
+                {"name":"o_iii_2"   ,"wvl": 703.87},
+                {"name":"mg_ix"     ,"wvl": 706.02},
+                # {"name":"s_iv_1"  ,"wvl": 748.40},
+                {"name":"s_iv_2"    ,"wvl": 750.22},
+                {"name":"n_iv"      ,"wvl": 765.15},
+                {"name":"ne_viii"   ,"wvl": 770.42},
+                {"name":"h_i_ga"    ,"wvl": 972.54},
+                {"name":"o_1&ne_vii","wvl": 973.60},
+                {"name":"c_iii"     ,"wvl": 977.03},
+                {"name":"s_v"       ,"wvl": 786.47},
+                {"name":"o_iv"      ,"wvl": 787.72},
+                {"name":"o_i"       ,"wvl": 988.75},
+                {"name":"n_iii_1"   ,"wvl": 989.82},
+                {"name":"n_iii_2"   ,"wvl": 991.59},
+                {"name":"h_i_be"    ,"wvl":1025.72},
+                {"name":"o_vi"      ,"wvl":1031.93},    
+            ]
+    if True:
+        catalogue = LineCatalogue()
+        default_lines = catalogue.get_catalogue_lines()
+        def_win = catalogue.get_catalogue_windows()
+        default_windows = def_win["lines"]
+        max_I_names     = def_win['max_line']
+        
+    # if verbose>=2: print("______________window_lines",window_lines,default_windows)
+    for  i in range(len(default_windows)):
+        if lines_names_sorted == default_windows[i]:
+            # mod_specdata = specdata * (
+            #     1 if "s_iv_2" not in lines_names_sorted  else (1/(np.abs(specaxis-specaxis[len(specaxis)//2])+1))
+            # )
+            # if "s_iv_2" in lines_names_sorted and verbose>=4:plt.plot(specaxis,mod_specdata,label="modified spetrum")
+            mod_specdata = specdata
+            max_I  = np.nanmax(specdata)
+            line_index = np.nanargmax(mod_specdata)
+            
+            if "ne_viii_1" in lines_names_sorted:
+                ne_viii_wvl = 770.42
+                # print('------------',init_params[1::3])
+                line_num = np.nanargmin(np.abs(init_params[1::3]-ne_viii_wvl))
+                # print("finding the ne line",np.abs(init_params[1::3]-ne_viii_wvl))
+                line_index = np.nanargmin(np.abs(init_params[line_num*3+1]-specaxis))
+                # print("finding the line position",np.abs(init_params[line_num*3+1]-specaxis))
+                pass
+            
+            x_max_I = specaxis[line_index]
+            init_params2=init_params.copy()
+            I_max_line_name = max_I_names[i]
+            I_max_line_index = lines_names.index(I_max_line_name)
+            target_wvl = x_max_I
+            current_wvl = init_params[3*I_max_line_index+1]
+            
+            
+            if abs(target_wvl-current_wvl)>1.5 and verbose>=-1: print(f" --Warning--\nThe current line is far from the target line\n\ttarget ={target_wvl}{I_max_line_name}\n\tcurrent:{current_wvl}\n\t\lines{window_lines}")
+            
+            #Yoopy found the exact position of the line
+            init_params2[1::3]+=(target_wvl-current_wvl)
+            # print("________________",init_params2)
+            #now we try to predit its maxismum
+            # DELETE if "ne_viii" in lines_names_sorted: print(
+            #     init_params2[0*3+1],
+            #     init_params2[1*3+1]
+            #     )
+            
+            for j in range(0,len(init_params)//3):
+                I_max_line_index2 = np.nanargmin(np.abs(specaxis-init_params2[j*3+1]))
+                
+                # DELETE if "ne_viii" in lines_names_sorted:print(specdata[max(0,I_max_line_index2-2),min(len(mod_specdata),I_max_line_index2+2)])
+                new_I_max         = np.nanmax(specdata[max(0,I_max_line_index2-2):
+                                             min(len(mod_specdata),I_max_line_index2+2)])
+                init_params2[j*3]=new_I_max-init_params2[-1]
+                # if "ne_viii" in lines_names_sorted: print("_________",I_max_line_index2,new_I_max,)
+            init_params2[np.isnan(init_params2)]=0
+            if True:#"s_iv_2" in lines_names_sorted:#s_iv
+                # init_params2[-1]=np.nanmean(specdata)
+                hist,bin_ax = np.histogram(specdata,bins=np.linspace(np.nanmin(specdata),np.nanmax(specdata),num=10))
+                maxB = bin_ax[np.nanargmax(hist)]
+                init_params2[-1] = maxB
+                # init_params2[0::3]-=init_params2[-1]
+                init_params2[0::3] = np.nanmax(specdata) - init_params2[-1] 
+                # specaxis = specaxis[15:-10]
+                # specdata = specdata[15:-10]
+                if verbose>=4:plt.plot(specaxis,specdata,ls="--",label='sharp spectrum')
+            init_params2[0::3][init_params2[0::3]<0]=0
+            return init_params2,specaxis,specdata
+    
+    print(f"The window you have chosen is not in the catalog\n\tLOG!\n\t\t:\n\t\tspecaxis    {specaxis    }\n\t\tspecdata    {specdata    }\n\t\tinit_params {init_params }\n\t\twindow_lines{window_lines}")
+    return(init_params*np.nan,specaxis,specdata)
+
+    if False:raise SystemError(f"The window you have chosen is not in the catalog\n\tLOG!\n\t\t:\n\t\tspecaxis    {specaxis    }\n\t\tspecdata    {specdata    }\n\t\tinit_params {init_params }\n\t\twindow_lines{window_lines}")
+
+def gen_fit_inits(
+    RasterOrPath,
+    conv_errors={
+        "I":0.1,
+        "x":10**-4,
+        "s":0.1,
+        "B":100},
+    wvl_interval = {"low":[7,-7],"high":[5,-5]},
+    verbose=0
+    ):
+    from pathlib import PosixPath,Path
+    if type(RasterOrPath) in (str,PosixPath):
+        raster = read_spice_l2_fits(str(RasterOrPath))
+    else: raster = RasterOrPath
+    unq = spu.unique_windows(raster)
+    lon,lat = get_celestial(raster)
+    catalogue = LineCatalogue()
+    default_lines = catalogue.get_catalogue_lines()
+            
+    #these are the parameters to passe
+    init_params = []
+    segmentation = []
+    quentities = []
+    window_size = np.array([[110,720],[0,-1]])
+    quite_sun = np.array([0,-1,0,-1])
+    convolution_threshold = []
+    convolution_extent_list = np.array([0,1,2])
+    windows_lines = {}
+    
+    #starting the search for available lines
+    for kw_i, kw in enumerate(unq):
+        specaxis =np.array(   raster[kw].spectral_axis * 10**10).astype(float)
+        specdata = np.nanmean(raster[kw].data,axis=(0,2,3)).astype(float)
+        if np.nanmean(specaxis)<800:
+            specdata[:wvl_interval["low"][0 ] ] = np.nan
+            specdata[ wvl_interval["low"][-1]:] = np.nan
+        else:
+            specdata[:wvl_interval["high"][0 ] ] = np.nan
+            specdata[ wvl_interval["high"][-1]:] = np.nan
+        
+        
+        window_lines = []
+        for ind in range(len(default_lines)):
+            line = default_lines.iloc[ind]
+            min_wvl = specaxis[np.where(specdata == (specdata[np.logical_not(np.isnan(specdata))])[0 ])]
+            max_wvl = specaxis[np.where(specdata == (specdata[np.logical_not(np.isnan(specdata))])[-1])]
+            # if np.min(specaxis)<=line["wvl"]<=np.max(specaxis):
+            if min_wvl<=line["wvl"]<=max_wvl:
+                window_lines.append(line)    
+                line_index = np.nanargmin(np.abs(specaxis-line['wvl']))
+                window_lines[-1]["index"] = line_index
+                
+        windows_lines[kw] = window_lines
+        # print(window_lines[-1])
+        init_param = []
+        segment    = []
+        quentity   = []
+        cov_th     = []
+        for line in window_lines:
+            init_param.extend([
+                # max(specdata[line['index']],0),
+                0.05,
+                line['wvl'],0.35
+                ])
+            segment.append(np.array([0  , 10**4])) 
+            quentity.extend(["I","x","s"])
+            cov_th.extend([
+                conv_errors["I"],
+                conv_errors["x"],
+                conv_errors["s"]
+                          ])
+        
+        if window_lines == []:
+            window_lines.append({"name":"no_line","wvl":0})
+            init_param= [np.nan,np.nan,np.nan]
+            cov_th.extend([
+                conv_errors["I"],
+                conv_errors["x"],
+                conv_errors["s"]
+                          ])
+            quentity.extend(["I","x","s"])
+            segment.append(np.array([0  , 10**4])) 
+            
+            
+        init_param.append(max(0.00,np.nanmean(specdata)))        ;init_param = np.array(init_param)
+        
+        cov_th.append(conv_errors["B"]);cov_th = np.array(cov_th)
+        quentity.append("B")
+        if verbose >= 4 or verbose<-2:
+            plt.figure()
+            plt.step(specaxis,specdata,label="original spectrum")
+            plt.step(specaxis,Gauss(specaxis,*init_param),label="predefined params{}".format(" NANs" if np.isnan(init_param).any()else""))
+        
+        if verbose>=2: print("______________window_lines",window_lines)
+        #finding the position with famous windows
+        init_param,specaxis,specdata = find_by_default_window(specaxis,specdata,init_param,window_lines)
+        
+        if verbose >= 4 or verbose<-2:
+            plt.step(specaxis,Gauss(specaxis,*init_param),label="default windows adjustement{}".format(" NANs" if np.isnan(init_param).any()else""))
+            
+        if len(init_param)>4:#fitting with one position of the fit
+        #Generating an all in all locked init_param
+            lock_state = [["free"]]
+            line_ref = window_lines[0]
+            for i in range(1,len(window_lines)):
+                # print(["lock",0,window_lines[i]["wvl"]-line_ref["wvl"]])
+                lock_state.append(["lock",0,window_lines[i]["wvl"]-line_ref["wvl"]])
+            if verbose>=2: print(f'{kw}:{lock_state}')                
+            init_param_1lbd,lock_quentities = gen_lock_params(init_param,lock_state,verbose=verbose)
+            func = gen_lock_func(init_param_1lbd,lock_state)
+            lock_func = func[list(func.keys())[0]]
+            # if verbose>=2:print("function",lock_func,"init_param_1lbd",init_param_1lbd)
+            init_param2,var = fit_pixel_multi(
+                                specaxis,
+                                specdata,
+                                init_param_1lbd,
+                                quentities=lock_quentities,
+                                # I_bounds=[0,np.max(specdata)*1.2],
+                                # x_extent=3,
+                                fit_func=lock_func,
+                                plot_title_prefix = "preadjust"
+                                )
+            if verbose >= 4 or verbose<-2:
+                plt.step(specaxis,lock_func(specaxis,*init_param2),label="Locked fit{}".format(" NANs" if np.isnan(init_param2).any()else""))
+            if not np.isnan(init_param2).any():
+                init_param  = get_unlock_params(init_param2,lock_state)
+            else:
+                if verbose>=0:print("haven't found the right params after locking")
+                    
+            
+        init_param2,var =fit_pixel_multi(specaxis,
+                                        specdata,
+                                        np.array(init_param),
+                                        quentities=quentity,
+                                        # I_bounds=[0,np.max(specdata)*1.2],
+                                        # x_extent=2,
+                                        fit_func=Gauss,
+                                        plot_title_prefix = "preadjust")
+        dtime = str(datetime.datetime.now())[:19].replace(":","-")
+        if verbose >= 4 or verbose<-2:
+            plt.step(specaxis,Gauss(specaxis,*init_param2),label="Unlocked fit{}".format(" NANs" if np.isnan(init_param2).any() else""))
+            plt.legend()
+            plt.savefig(f"./tmp/{dtime}_window{kw_i}.jpg")
+
+        if np.isnan(init_param2).any()==True:
+            init_params.append(np.array(init_param))
+        else:
+            init_params.append(init_param2)
+        quentities.append(quentity)
+        segmentation.append(segment)
+        convolution_threshold.append(cov_th)
+        
+    
+    if verbose >= 3 or verbose<-2:
+        ((fig1,ax1),(fig2,ax2)) = quickview(RasterOrPath)
+        for i,params in enumerate(init_params):
+            specaxis =np.array( raster[unq[i]].spectral_axis * 10**10)
+            ax2[i].step(specaxis,Gauss(specaxis,*params))
+        
+        fig1.savefig(f"./tmp/{dtime}_window_all.jpg")
+        fig2.savefig(f"./tmp/{dtime}_spectrum_all.jpg")
+            
+    return {
+        "windows_lines"           : windows_lines          ,
+        "init_params"             : init_params            ,
+        "segmentation"            : segmentation           ,   
+        "quentities"              : quentities             ,    
+        "window_size"             : window_size            ,   
+        "quite_sun"               : quite_sun              ,    
+        "convolution_threshold"   : convolution_threshold  ,   
+        "convolution_extent_list" : convolution_extent_list   
+    }
+
+# def gen_fit_inits(RasterOrPath,
+#                   conv_errors={
+#                       "I":0.1,
+#                       "x":10**-4,
+#                       "s":0.1,
+#                       "B":100},
+#                   verbose=0
+#                   ):
+    
+#     from pathlib import PosixPath,Path
+#     if type(RasterOrPath) in (str,PosixPath):
+#         raster = read_spice_l2_fits(str(RasterOrPath))
+#     else: raster = RasterOrPath
+#     unq = spu.unique_windows(raster)
+#     lon,lat = get_celestial(raster)
+    
+#     if True: #This part should be stored and re-imported 
+#         default_lines = [
+#             {"name":"o_iii_1","wvl":702.00},
+#             {"name":"o_iii_2","wvl":703.00},
+#             {"name":"mg_ix"  ,"wvl":705.30},
+#             {"name":"s_iv"   ,"wvl":749.50},
+#             {"name":"n_iv"   ,"wvl":764.20},
+#             {"name":"ne_viii","wvl":769.50},
+#             {"name":"s_v"    ,"wvl":785.50},
+#             {"name":"o_iv"   ,"wvl":787.00},
+#             {"name":"o_i"    ,"wvl":988.00},
+#             {"name":"n_iii_1","wvl":989.00},
+#             {"name":"n_iii_2","wvl":990.80},
+#         ]
+    
+#     #these are the parameters to passe
+#     init_params = []
+#     segmentation = []
+#     quentities = []
+#     window_size = np.array([[110,720],[0,-1]])
+#     quite_sun = np.array([0,-1,0,-1])
+#     convolution_threshold = []
+#     convolution_extent_list = np.array([0,1,2])
+#     windows_lines = {}
+    
+#     #starting the search for available lines
+#     for kw_i, kw in enumerate(unq):
+#         specaxis =np.array( raster[kw].spectral_axis * 10**10)
+#         specdata = np.nanmean(raster[kw].data,axis=(0,2,3))
+#         window_lines = []
+#         for line in default_lines:
+#             if np.min(specaxis)<=line["wvl"]<=np.max(specaxis):
+#                 window_lines.append(line)    
+#                 line_index = np.argmin(np.abs(specaxis-line['wvl']))
+#                 window_lines[-1]["index"] = line_index
+                
+#         windows_lines[kw] = window_lines
+#         # print(window_lines[-1])
+#         init_param = []
+#         segment    = []
+#         quentity   = []
+#         cov_th     = []
+#         for line in window_lines:
+#             init_param.extend([
+#                 max(specdata[line['index']],0),line['wvl'],0.3
+#                 ])
+#             segment.append(np.array([0  , 10**4])) 
+#             quentity.extend(["I","x","s"])
+#             cov_th.extend([
+#                 conv_errors["I"],
+#                 conv_errors["x"],
+#                 conv_errors["s"]
+#                           ])
+            
+#         init_param.append(0.00)        ;init_param = np.array(init_param)
+                
+#         cov_th.append(conv_errors["B"]);cov_th = np.array(cov_th)
+#         quentity.append("B")
+#         init_param2,var =fit_pixel_multi(specaxis,
+#                                         specdata,
+#                                         np.array(init_param),
+#                                         quentities=quentity,
+#                                         fit_func=Gauss,
+#                                         plot_title_prefix = "preadjust")
+#         if np.isnan(init_param2).any()==True:
+#             init_params.append(np.array(init_param))
+#         else:
+#             init_params.append(init_param2)
+                
+#         quentities.append(quentity)
+#         segmentation.append(segment)
+#         convolution_threshold.append(cov_th)
+    
+#     if verbose >= 3:
+#         ((fig1,ax1),(fig2,ax2)) = quickview(RasterOrPath)
+#         for i,params in enumerate(init_params):
+#             specaxis =np.array( raster[unq[i]].spectral_axis * 10**10)
+#             ax2[i].step(specaxis,Gauss(specaxis,*params))
+            
+#     return {
+#         "windows_lines"           : windows_lines          ,
+#         "init_params"             : init_params            ,
+#         "segmentation"            : segmentation           ,   
+#         "quentities"              : quentities             ,    
+#         "window_size"             : window_size            ,   
+#         "quite_sun"               : quite_sun              ,    
+#         "convolution_threshold"   : convolution_threshold  ,   
+#         "convolution_extent_list" : convolution_extent_list   
+#     }
+   

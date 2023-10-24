@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+setup.py
+ias_spice_utils/STUDY-NAME_template.ipynb
+ias_spice_utils/__init__.py
+ias_spice_utils/utils.py
+ias_spice_utils.egg-info/PKG-INFO
+ias_spice_utils.egg-info/SOURCES.txt
+ias_spice_utils.egg-info/dependency_links.txt
+ias_spice_utils.egg-info/not-zip-safe
+ias_spice_utils.egg-info/requires.txt
+ias_spice_utils.egg-info/top_level.txt

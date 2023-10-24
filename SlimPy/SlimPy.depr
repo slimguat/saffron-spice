@@ -1,0 +1,3937 @@
+#Imports 
+import matplotlib.pyplot as plt
+import matplotlib
+from matplotlib.colors import ListedColormap
+import matplotlib.ticker as mticker
+import numpy as np 
+import scipy as sc
+from scipy.optimize import curve_fit
+
+import warnings
+from numba import jit
+from typing import Callable, Counter
+
+import spice_utils.ias_spice_utils.utils as spu
+from astropy.visualization import SqrtStretch, AsymmetricPercentileInterval, ImageNormalize
+
+import pickle
+import os
+import multiprocessing as mp
+from IPython.display import display, Markdown
+
+@jit(nopython=True)
+def Gauss(x      :np.ndarray,
+          I_max  :float,
+          x0     :float,
+          sigma  :float,
+          B      :float)-> np.ndarray:
+    """Function that returns the gaussian of an x array
+            $Gauss(x) = I_max e^{-\frac{(x-x_0)^2}{2\sigma}}$
+    Args:
+        x (np.ndarray): x array.
+        I_max (float): the maximum value.
+        x0 (float): the position of I_max.
+        sigma (float): the standard diviation.
+        B (float): elevation value for the gaussian.
+    Return:
+        Gauss (np.ndarray): calculated value of x with the same length
+    """
+    
+    exponent = -(x-x0)**2/(2*sigma**2)
+    res = I_max*np.exp(exponent)+B
+    return res 
+@jit(nopython=True)
+def multiGauss(x :np.ndarray, params_list:np.ndarray,B:float):
+    """Function that returns the sum of gaussians of an x array
+            $Gauss(x) = I_max e^{-\frac{(x-x_0)^2}{2\sigma}}$
+
+    Args:
+        x (np.ndarray): x array.
+        params_list (np.ndarray): a table of parameters (nx3) with numbre of gaussians, 3 parameters needed for every gaussian.
+        B (float): elevation value for the gaussian.
+    """
+    res = x.copy()*0 + B
+    for params in params_list:
+        I_max,x0,sigma = params
+        exponent = -(x-x0)**2/(2*sigma**2)
+        res += I_max*np.exp(exponent)
+        
+    return res
+def flat_inArg_multiGauss(x,*array):
+    array = np.array(array)
+    # plt.plot(x,flat_multiGauss(x,array))
+    # plt.figure()
+    # print(array)
+    return flat_multiGauss(x,array)
+
+@jit(nopython=True,inline="always",error_model='numpy') 
+def flat_multiGauss(x,array):
+    assert len(array.shape)==1 # array parameter should be a one 1D array
+    assert array.shape[0]%3==1 #and array.shape[0]>3 # array should contain 3xn gaussian params + 1 background pparam
+    i=0
+    len_array = array[:-1].shape[0]
+    res = x.copy()*0 + array[-1]
+    
+    while True:
+        if i==len_array: break
+        I_max,x0,sigma = array[i:i+3]
+        exponent = -(x-x0)**2/(2*sigma**2)
+        res += I_max*np.exp(exponent)
+        i+=3
+    return res
+
+
+
+
+# deprecated
+def fit_pixel(pixel_data      :np.ndarray,
+              lambda_axis     :np.ndarray=None,
+              Gauss_ini_params:np.ndarray=None,
+              plotit          :bool=False,
+              bounds          :(np.array,np.array)=True,
+              refit           :bool  = True,
+              refit_plotit    :bool  = False 
+             )->(np.ndarray,np.ndarray):
+    """Function that Fits a pixel data into a gaussian.
+
+    Args:
+        pixel_data (np.ndarray): pixel intensity values as function of wavelength.
+        Gauss_ini_params (np.ndarray, shape:4,optional): a list of initiale parameters if not initialized 
+        the function will chouse:            
+            I_max = max(pixel_data)
+            x0    = index(I_max)
+            sigma = 3
+            B     = 0.01
+        Defaults to None.
+        plotit (bool, optional): In case you want to plot it. Defaults to False.
+        bounds (np.array,np.array): The bounds of the parameters
+        refit (bool): If True the functio will clean data then refits again for better precision
+        refit_plotit(bool):Debugging option only, Default to False. If you want to plot refitts and their exluded point
+    Return:
+        coeff (np.ndarray): Fitted parameters.
+        var_matrix (np.ndarray): Variation matrix that represent calculated fitting error.
+    """
+    
+    
+    if all(np.isnan(pixel_data)):
+        return (np.ones((4  ))*np.nan,
+                np.ones((4,4))*np.nan)
+    x = (np.arange(0,len(pixel_data),step=0.01)) if type(lambda_axis) == type(None) else np.linspace(np.max(lambda_axis),np.min(lambda_axis),num=lambda_axis.shape[0]*100)
+    x2= (np.arange(0,len(pixel_data)          )) if type(lambda_axis) == type(None) else lambda_axis
+    win_width = np.max(x2)-np.min(x2)
+    minl = np.min(x2); maxl = np.max(x2)
+    x_nan,data_clean_nan, =  clean_nans(x2,
+                                       pixel_data
+                                      )
+    
+    if type(Gauss_ini_params)==type(None):
+        
+        if False: #using CFD to calculate initialization
+            Icum = np.cumsum(data_clean_nan)
+            values = (np.abs(
+                        Icum-(Icum[-1]+Icum[0])/2
+                        )
+                 )
+            value  = np.min(values)
+            index  = np.where(values == value)
+            x0   = x_nan[index][0]
+            Imax = pixel_data[int(x0)]
+            
+        
+        if True: #using maximum value to calculate initiation
+            Imax = np.nanmax(pixel_data)
+            x0   = x2[np.where(pixel_data==Imax)[0][0]]
+        
+        B    = 0.01
+        sigma= win_width/6
+        Gauss_ini_params = [Imax,x0,sigma,B]
+    if type(bounds) == bool:
+        if bounds ==True:
+            bounds = (np.array(4),np.array(4))
+            Imax_max = 100                ;Imax_min = 0
+            x0_max = maxl                 ;x0_min = minl
+            sigma_max = win_width/2       ;sigma_min = 0
+            B_max = 0.5                   ;B_min = 0
+
+            if Imax > Imax_max or Imax < Imax_min:
+                Imax = np.nanmax(pixel_data[int(x0_min):int(x0_max)])
+            if x0 > x0_max or x0 < x0_min:
+                x0 = int(len(pixel_data)*1/2)
+            
+            bounds=([Imax_min,x0_min,sigma_min,B_min],
+                    [Imax_max,x0_max,sigma_max,B_max]
+                    
+                   )
+            Gauss_ini_params = [Imax,x0,sigma,B]
+            #print(Gauss_ini_params, bounds)
+        elif bounds==False:
+            bounds=(-np.inf, np.inf)
+    elif type(bounds)==type(None):
+        bounds=(-np.inf, np.inf)
+    
+    try:
+        # print(x_nan.shape, data_clean_nan.shape)
+        # print(Gauss_ini_params,bounds)
+        # print(x_nan,data_clean_nan)
+        # print(any(np.isnan(x_nan)),any(np.isnan(data_clean_nan)))
+        
+        coeff, var_matrix = curve_fit(Gauss, x_nan, data_clean_nan, p0=Gauss_ini_params,bounds=bounds)        
+    except RuntimeError:
+        warnings.warn("the curve_fit didn't find the optimale parameters",RuntimeWarning)
+        coeff, var_matrix = (np.ones((4  ))*np.inf,
+                            np.ones((4,4))*np.inf)
+    # except Exception:
+    #     print('probably X0 is infeasable')
+    #     print(Gauss_ini_params,bounds)
+    #     coeff, var_matrix = (np.ones((4  ))*np.inf,
+    #                         np.ones((4,4))*np.inf)
+    #     plotit=2
+        
+    if plotit or plotit==2:
+        plt.figure(figsize=(12,8))
+        plt.plot(x,
+                 Gauss(x,*Gauss_ini_params),
+                 ':',label='initial parameters'
+                )
+        plt.plot(x,
+                 Gauss(x,*coeff),
+                 "-.",label='Fit parameters\n$I_{{max}} : {:04.2f}\\_x_0:{:04.1f}\\_\sigma : {:04.1f}\\_B:{:04.2f}$'.format(coeff[0],coeff[1],coeff[2],coeff[3]))
+        plt.plot(x2,
+                 pixel_data,"-o",label="data"
+                )
+        plt.legend()
+        plt.grid()
+        
+        if plotit==2:
+            return coeff, var_matrix
+
+    if refit:
+        _show = False
+        coeff_final = coeff
+        var_matrix_final = var_matrix
+        #_______________________________________________RULE01___________________________________________________
+        #cleaning data from overmax values in the tailes (above sigma)
+        del_arr = np.logical_and(
+                    data_clean_nan>coeff[0]+coeff[3],
+                    np.abs(x_nan-coeff[1])>+coeff[2]
+                    )
+        xn_2 = x_nan[~del_arr]
+        dcn_2= data_clean_nan[~del_arr]
+        
+        if refit_plotit:#len(xn_2)!=len(x_nan):
+            print("found strange intense pixels in the fit-gauss tails")
+            plt.plot(x_nan,data_clean_nan ,'o',color ="blue", label= "data 00") 
+            plt.plot(x_nan[del_arr],data_clean_nan[del_arr] ,'o',color ="orange",label='deleted for refit 03\n$I_{{max}} : {:04.2f}\\_x_0:{:04.1f}\\_\sigma : {:04.1f}\\_B:{:04.2f}$'.format(coeff_final[0],
+                                                                                                                                                              coeff_final[1],
+                                                                                                                                                              coeff_final[2],
+                                                                                                                                                              coeff_final[3],
+                                                                                                                                                             )) 
+            plt.plot(x,
+                 Gauss(x,*coeff_final),
+                 ":",color ="blue", label= "  fit 00"
+                )
+            _show=True
+            plt.legend(fontsize=14)
+        
+        try:
+            # print(x_nan.shape, data_clean_nan.shape)
+            coeff_2, var_matrix_2 = curve_fit(Gauss, xn_2, dcn_2, p0=coeff_final,bounds=bounds)
+            
+        except RuntimeError:
+            warnings.warn("the curve_fit didn't find the optimale parameters-> returning the last fit",RuntimeWarning)
+            return coeff_final, var_matrix_final
+        except Exception:
+            print('probably X0 is infeasable')
+            print(Gauss_ini_params,bounds)
+            return coeff_final, var_matrix_final
+            plotit=2
+        
+        coeff_final = coeff_2
+        var_matrix_final = var_matrix_2
+        
+        #_______________________________________________RULE02___________________________________________________
+        #cleaning data from the overmax values in the body (all the profile)
+        del_arr_2 = dcn_2>coeff_2[0]*1.5+coeff_2[3]
+        xn_3 = xn_2[~del_arr_2]
+        dcn_3= dcn_2[~del_arr_2]
+        if refit_plotit:#len(xn_3)!=len(xn_2):
+            print("found strange intense pixels in the fit-gauss body")
+            plt.plot(x_nan,data_clean_nan ,'o',color ="blue") if not _show else 0
+            plt.plot(xn_2[del_arr_2],dcn_2[del_arr_2] ,'v',color ="green",label='deleted for refit 03\n$I_{{max}} : {:04.2f}\\_x_0:{:04.1f}\\_\sigma : {:04.1f}\\_B:{:04.2f}$'.format(coeff_final[0],
+                                                                                                                                                              coeff_final[1],
+                                                                                                                                                              coeff_final[2],
+                                                                                                                                                              coeff_final[3],
+                                                                                                                                                             ))
+            plt.plot(x,
+                 Gauss(x,*coeff_final),
+                 "-.",color ="orange", label= "refit 01"
+                )
+            
+            _show=True
+            plt.legend(fontsize=14)
+            
+        try:
+            # print(x_nan.shape, data_clean_nan.shape)
+            coeff_3, var_matrix_3 = curve_fit(Gauss, xn_3, dcn_3, p0=coeff_final,bounds=bounds)
+
+        except RuntimeError:
+            warnings.warn("the curve_fit didn't find the optimale parameters-> returning the last fit",RuntimeWarning)
+            return coeff_final, var_matrix_final
+        except Exception:
+            print('probably X0 is infeasable')
+            print(Gauss_ini_params,bounds)
+            return coeff_final, var_matrix_final
+            plotit=2
+            
+        coeff_final = coeff_3
+        var_matrix_final = var_matrix_3
+        
+        
+        #_______________________________________________RULE03___________________________________________________
+        #cleaning data from the overintensified results coùpared with the gaussian values of the fit
+        #del_arr_3 = np.abs(dcn_3-Ga
+        # uss(xn_3,*coeff_final))>0.2*Gauss(xn_3,*coeff_final)+coeff_final[3]
+        if True:
+            del_arr_3 = np.abs(dcn_3-Gauss(xn_3,*coeff_final))>0.2*Gauss(xn_3,*coeff_final)+coeff_final[3]
+            
+            if len(del_arr_3[del_arr_3==False])<=1:
+                print("Warning: 3rd criterion found to be too much exclusive switching to another criterion")
+                del_arr_3 = 1/len(dcn_3)*np.sqrt(np.sum(
+                                            (dcn_3-Gauss(xn_3,*coeff_final))**2/Gauss(xn_3,*coeff_final)**2
+                                        ))< np.abs(np.abs(dcn_3-Gauss(xn_3,*coeff_final)))/Gauss(xn_3,*coeff_final)
+                if len(del_arr_3[del_arr_3==False])<=1:
+                    print("Warning: 3rd criterion found to be too much exclusive again aborting this rule")
+                    del_arr_3 = ~del_arr_3
+            # plt.plot(xn_3,(1/len(dcn_3)*np.sqrt(np.sum(
+            #                                 (dcn_3-Gauss(xn_3,*coeff_final))**2/Gauss(xn_3,*coeff_final)**2
+            #                                ))- np.abs(np.abs(dcn_3-Gauss(xn_3,*coeff_final))-2*coeff_final[3])/Gauss(xn_3,*coeff_final))/250)
+            xn_4 = xn_3[~del_arr_3]
+            dcn_4= dcn_3[~del_arr_3]
+            if refit_plotit:#len(xn_4)!=len(xn_3):
+                print("found strange intense pixels compared with the predicted fit")
+                plt.plot(x_nan,data_clean_nan ,'o',color ="blue") if not _show else 0
+                # print(coeff_final[3])
+                plt.plot(xn_3[del_arr_3],dcn_3[del_arr_3] ,'^',color ="black",label='deleted for refit 03\n$I_{{max}} : {:04.2f}\\_x_0:{:04.1f}\\_\sigma : {:04.1f}\\_B:{:04.2f}$'.format(coeff_final[0],
+                                                                                                                                                                coeff_final[1],
+                                                                                                                                                                coeff_final[2],
+                                                                                                                                                                coeff_final[3],
+                                                                                                                                                                ))
+                plt.plot(x,
+                    Gauss(x,*coeff_final),
+                    "--",color ="green", label= "refit 02"
+                    )
+                # plt.figure()
+                # plt.plot(np.abs(dcn_3-Gauss(xn_3,*coeff_final))/Gauss(xn_3,*coeff_final))
+                _show=True
+                plt.legend(fontsize=14)
+            try:
+                # print(x_nan.shape, data_clean_nan.shape)
+                coeff_4, var_matrix_4 = curve_fit(Gauss, xn_4, dcn_4, p0=coeff_final,bounds=bounds)
+
+            except RuntimeError:
+                warnings.warn("the curve_fit didn't find the optimale parameters-> returning the last fit",RuntimeWarning)
+                return coeff_final, var_matrix_final
+            except Exception:
+                print('probably X0 is infeasable')
+                print(Gauss_ini_params,bounds)
+                return coeff_final, var_matrix_final
+                plotit=2
+                
+            coeff_final = coeff_4
+            var_matrix_final = var_matrix_4
+        
+        
+        plt.plot(x,
+                 Gauss(x,*coeff_final),
+                 "-",color= "black", label= "refit 03"
+                ) if refit_plotit and _show else 0
+        plt.yscale('log') if refit_plotit and _show else 0
+        plt.legend(fontsize=14) if refit_plotit and _show else 0
+        plt.figure() if refit_plotit and _show else 0
+        return coeff_final, var_matrix_final
+             
+    return(coeff, var_matrix)
+
+# @jit(nopython=True)
+def clean_nans(xdata:np.ndarray,
+               ydata:np.ndarray,
+               weights=None,
+              )-> (np.ndarray,np.ndarray):
+    """
+    Function that returns a cleaned version of x and y arrays from "np.nan" values.
+    
+    Args:
+        xdata   (np.ndarray): x data.
+        ydata   (np.ndarray): y data.
+        weights (np.ndarray): weights of y data.
+    Return:
+        xdata_cleaned (np.ndarray): cleaned x data
+        ydata_cleaned (np.ndarray): cleaned y data
+        wdata_cleaned (np.ndarray): cleaned weights
+    """
+    assert xdata.shape==ydata.shape
+    num_elements = np.zeros(xdata.shape)
+    num_elements = np.logical_not((np.isnan(xdata)) | (np.isinf(xdata)) | (np.isinf(ydata)) | (np.isnan(ydata)) | (ydata<0))
+    clean_x = xdata[num_elements]; clean_y = ydata[num_elements]
+    if type(weights) not in [str,type(None)]:
+        weights = np.array(weights)
+        assert xdata.shape==weights.shape
+        sigma = np.sum(weights[num_elements])/weights[num_elements]
+        if sigma[np.where(clean_y == np.max(clean_y))] < sigma[np.where(clean_x == np.min(clean_x))]:
+            print("We found that the weights injected aren't decreasing with Intensity\n if you want to continue supress this message by deleting it from:\n SlimPy.clean_nans")
+    elif  type(weights) == str:
+        if weights == "I":
+            weights = clean_y.copy()
+        elif weights == "expI":
+            weights = clean_y.copy()**2
+        elif weights == "I2":
+            weights = np.exp(clean_y.copy())
+        elif weights == "sqrtI":
+            weights = np.sqrt(clean_y.copy())
+        else: 
+            raise ValueError ("the weights are unknown make sure you give the right ones\n current value: {} {} \n the allowed ones are: I, expI, I2, sqrtI".format(type(weights),weights))
+
+        try:
+            weights2=weights - np.nanmin(weights)
+            weights = weights2
+        except:
+            pass
+        sigma = 1/(weights.copy()/np.sum(weights))
+    elif type(weights)== type(None):
+        sigma = 1/(np.ones(len(clean_y))/len(clean_y))
+    return clean_x,clean_y,sigma
+
+#deprecated
+def set_missfit_plot(_missfit_tab,data_window,x_axis = None):
+    
+    if len(_missfit_tab) == 0:
+        return None,None
+    plot_number = len(_missfit_tab)
+    m = 3
+    n = int(plot_number/m) + (1 if plot_number%m!=0 else 0)
+    fig,axis = plt.subplots(n,m,sharex=True,sharey=True,squeeze=True,figsize=(m*6,n*6))
+    try:
+        axis = axis.flatten()
+    except:
+        axis = np.array([axis])
+    for i in range(plot_number,len(axis)):
+        axis[i].remove()
+    fig.suptitle("missfitting",fontsize=24)
+    for i in range(plot_number):
+        i_t,i_y,i_x =  _missfit_tab[i]
+        x = (np.arange(0,len(data_window[i_t,:,i_y,i_x]),step=0.01)) if type(x_axis) == type(None) else np.linspace(np.max(x_axis),np.min(x_axis),num=x_axis.shape[0]*100)
+        x2= (np.arange(0,len(data_window[i_t,:,i_y,i_x]),step=1   )) if type(x_axis) == type(None) else x_axis
+    
+        x_nan,data_clean_nan =  clean_nans(x2,
+                                   data_window[i_t,:,i_y,i_x]
+                                  )
+        win_width = np.max(x)-np.min(x)
+        minl = np.min(x); maxl = np.max(x)
+        Imax = np.nanmax(data_window[i_t,:,i_y,i_x])
+        x0   = x[np.where(data_window[i_t,:,i_y,i_x]==Imax)[0][0]]
+        B    = 0.01
+        sigma= win_width/6
+        Gauss_ini_params = [Imax,x0,sigma,B]
+        
+        axis[i].set_title("$i_t={:02d},i_x={:03d},i_y={:04d}$".format(i_t,i_x,i_y))
+        axis[i].grid()
+        axis[i].scatter(x2,
+                        data_window[i_t,:,i_y,i_x]
+                       )
+        
+        axis[i].plot(x,
+               Gauss(x,
+                     *Gauss_ini_params             
+                     )
+                    ,':',color="yellow")
+            
+    return fig,axis
+
+#deprecated
+def set_random_plot(plot_number,windows_size):
+    if plot_number == 0:
+        return None,None,None
+    else: 
+        #n = int(np.sqrt(plot_number))
+        #m = int(plot_number/n) + (1 if plot_number%n!=0 else 0)     
+        m = 3
+        n = int(plot_number/m) + (1 if plot_number%m!=0 else 0)
+        try:
+            fig,axis = plt.subplots(n,m,sharex=True,sharey=True,squeeze=True,figsize=(m*6,n*6))
+        except:
+            print(n,m)
+            raise (SyntaxError)
+        try:
+            axis = axis.flatten() 
+        except:
+            axis = np.array([axis])
+            
+        for ax in axis[plot_number:]:
+            ax.remove()
+        chosen_val = np.zeros((plot_number),dtype=int)
+        possib_val = np.arange(0,windows_size)
+        for i in range(plot_number):
+            rand_i = int(np.random.rand() * len(possib_val))
+            chosen_val[i] = possib_val[rand_i]
+            possib_val = np.delete(possib_val,rand_i)
+            #axis[i].scatter([1],[1])
+            axis[i].grid()
+            axis[i].set_title(i)
+        return fig,axis,chosen_val
+
+#deprecated
+def is_forPlotting(indices,dshape,i_t,i_y,i_x):
+    if type(indices)==type(None): return False, None
+    i_size =(i_x + 
+             i_y * dshape[2] + 
+             i_t * dshape[2] * dshape[1] )
+    
+    if not (i_size in indices):
+        return False,i_size
+    else:
+        return True,i_size
+    
+
+@jit(nopython=True)
+def fst_neigbors(
+        extent: float
+    ):
+    """Generates a list of first neiboors in a square lattice and returns inside the list
+        [n,m,n**2+m**2]
+
+    Args:
+        extent (float): how far the pixels will extend
+    Return:
+        nm_list (np.ndarray): list of data [n,m,n**2+m**2]
+    """
+    nm_list = np.array([
+        [0,0,0] 
+               ],dtype=np.int64)
+    N= 0
+    while True:
+        N+=1
+        Rmin = N
+        Rmax = N+1
+        if extent!=0:
+            for n in range(int(np.sqrt(Rmax))+1):
+                min_m = int(np.sqrt(Rmin-n**2) if Rmin-n**2>0 else 0 )
+                max_m = int(np.sqrt(Rmax-n**2)+1)
+                for m in range(min_m,max_m):    
+                    s = n**2 + m**2
+                    if s==Rmin:
+                        number_element = 1 
+                        if n!=0 and m!=0:
+                            number_element = 4 
+                        elif n!=0 or m!=0: 
+                            number_element = 2
+                        
+                        _list = np.zeros((nm_list.shape[0]+number_element,nm_list.shape[1]),
+                                        dtype=np.int64)
+                        _list[:-number_element] = nm_list
+                        _list[ -number_element] = n,m,s
+                        
+                        if n!=0 and m!=0:
+                            _list[ -3] = -n, m,s
+                            _list[ -1] = -n,-m,s
+                            _list[ -2] =  n,-m,s
+                            
+                        elif n!=0 or m!=0: 
+                            if n==0:
+                                _list[ -1] =  n,-m,s
+                            else :
+                                _list[ -1] =  -n,m,s
+                        
+                        nm_list=_list
+                        
+                        
+                    
+        if nm_list[-1,2] == extent**2:
+            # print(set(nm_list[:,2])) 
+            # for i in nm_list:
+            #     print(i)
+            return(nm_list)
+
+@jit(nopython=True)
+def join_px(data,i,j,ijc_list):
+    res_px = float(0.)
+    s = float(0.)
+    
+    for n_layer in ijc_list:
+        i2,j2,c = n_layer 
+        
+        if (data.shape[0] - (i+i2) > 0
+            and 
+            data.shape[1] - (j+j2) > 0
+            and
+            i+i2 >= 0 
+            and
+            j+j2 >= 0
+            ):
+            if not np.isnan(data[i+i2,j+j2]):
+                res_px += float(c*data[i+i2,j+j2])
+                s += float(c)
+    if s!=0:
+        return (res_px/ s)
+    else: return np.nan
+
+@jit(nopython=True)   
+def join_dt(data,ijc_list):
+    # data_new = np.zeros_like(data,dtype=float) #numba has no zeros_like 
+    data_new = data.copy()*np.nan
+    for k in range(data.shape[0]):
+        for l in range(data.shape[1]):
+            for i in range(data.shape[2]):
+                for j in range(data.shape[3]):
+                    data_new[k,l,i,j] = join_px(data[k,l],i,j,ijc_list)
+    return data_new
+
+# @jit(nopython=True) #not tryed yet
+def Preclean(cube):
+    cube2 = cube.copy()
+    # logic=np.logical_or(np.isinf(cube2),cube2<-10**10)
+    logic=np.logical_or(cube2>490,cube2<-10**10)
+    cube2[logic]=np.nan
+    mean_cube = np.nanmean(cube2, axis=1)*1000
+    for i in range(cube2.shape[1]):
+        cube2[:,i,:,:][cube2[:,i,:,:]>mean_cube] = np.nan
+    
+    return cube2
+
+# deprecated
+def fit_window(data_window         :np.ndarray     ,
+              lambda_axis          :np.ndarray = None,
+              preclean             :bool       = True,
+              bounds               :(np.ndarray,np.ndarray)=True,
+              init_parmams         :np.ndarray = None,
+              counter_percent      :float      = 10,
+              random_plot_number   :int        =  3,
+              missfit_plotting     :int        = 12,
+              refit                :bool       = True,
+              adaptif              :bool       = True,
+              convolution_function :callable   = lambda x:np.zeros_like(x)+1,
+              convolution_threshold:float      = 1.,
+              convolution_extent_list:np.array = np.array([0,1,2]) 
+              ):
+    
+    """
+    this fits the whole window using fit_pixel function.
+    version 2.0 
+        -made to be adaptif reduces resolution once the parametrs f a pixel have a large error margin using convolution.\n
+        -added axis option for wavelength while fitting
+    version 3.0 
+        -MultiGauss added
+    Args:
+        data_window (np.ndarray): data window 4D cube
+        lambda_axis (np.ndarray, optional): lambda axis values for the fitting. Defaults to None. the results if None would be based on indeces. 
+        counter_percent (float, optional): a counter to print while fitting. Defaults to 10.
+        random_plot_number (int, optional): randomly plot some spectrums. Defaults to 3.
+        missfit_plotting (int, optional): in case of a badly fitted pixel a number of them will be plotted for debugging purpose.Defaults to 12.
+        refit (bool, optional): applying exclusion rules and re-fit. Defaults to True.
+        adaptif (bool, optional): reduce quality by convolving the window in case the threshold of error is surpassed. Defaults to False.
+        convolution_function (function, optional): the function to follow by the convolution as a function of x the pixel unit distance to the center. Defaults to lambdax:np.zeros_like(x)+1.
+        convolution_threshold (float, optional): threshold of error, if surpassed the next convolution is called. Defaults to 1.
+        convolution_extent_list (np.array, optional): list of possible convolutions in case threshold criterion wasn't met. Defaults to np.array([0,1,2]).
+
+    Returns:
+        if adaptif = True
+            dict: paramlist[{Imax},{x0},{segm},{B},"state","var_mat","cov",{convext} if adaptif= True] 
+    """
+    
+    if preclean: data_window = Preclean(data_window) 
+    x= (np.arange(0,data_window.shape[1],step=1   )) if type(lambda_axis) == type(None) else lambda_axis
+    dshape  = np.array([data_window.shape[0],
+                        data_window.shape[2],
+                        data_window.shape[3],
+                       ])
+    _missfit_tab = []
+    _counter = 0
+    _imsize = dshape[0]*dshape[1]*dshape[2]
+    _next = 0 
+    if type(init_parmams)!=type(None): assert init_parmams.shape[0]==4
+    assert missfit_plotting >=-1
+    assert random_plot_number>=0 
+    assert (counter_percent<=100 and counter_percent>=0)
+    assert all(convolution_extent_list>=0) and all(convolution_extent_list<np.max(data_window.shape[2:])/2) #make sure that all convolution extent is larger than 0 and smaller than thelength of x,y direction
+    if random_plot_number > _imsize:
+        random_plot_number = _imsize
+        warnings.warn("the total number of plots chosen is bigger than the size of data",SyntaxWarning)
+    
+    
+    paramlist = {"Imax" : np.zeros(dshape),
+                 "x0"   : np.zeros(dshape),
+                 "sigma": np.zeros(dshape),
+                 "B"    : np.zeros(dshape),
+                 "state": np.zeros(dshape),
+                 "var_mat": np.zeros((*dshape,4,4)),
+                 "cov"  : np.zeros(dshape)
+                }
+    if adaptif: 
+        paramlist['convext'] = np.zeros(dshape,dtype=int)
+        conv_data = np.zeros((*convolution_extent_list.shape,*data_window.shape))
+        for i in range(convolution_extent_list.shape[0]):
+            if convolution_extent_list[i] == 0:
+                conv_data[i]=data_window.copy();continue
+            else:
+                ijc_list = fst_neigbors(convolution_extent_list[i])
+                ijc_list [:,2]= convolution_function(ijc_list [:,2])
+                conv_data[i]  = join_dt(data_window, ijc_list)
+    else:
+        conv_data = np.zeros((1,*data_window.shape))
+        conv_data[0]=data_window 
+    
+
+    fig, axis, indices = set_random_plot(random_plot_number,_imsize)
+    
+    for i_t in range(dshape[0]):
+        for i_y in range(dshape[1]):
+            for i_x in range(dshape[2]):
+                for i_c in range(conv_data.shape[0]):
+                    coeff,var_matrix = fit_pixel(conv_data[i_c,i_t,:,i_y,i_x],refit=refit,lambda_axis=lambda_axis,bounds=bounds,Gauss_ini_params=init_parmams)
+                    if adaptif:
+                        # print(i_c,i_t,i_y,i_x)
+                        # print(np.sqrt(np.diag(var_matrix))/coeff,convolution_threshold)
+                        # print(all(np.sqrt(np.diag(var_matrix))/coeff<convolution_threshold))
+                        # input('')
+                        if all(np.sqrt(np.diag(var_matrix))/coeff<convolution_threshold):   
+                            paramlist['convext'   ][i_t,i_y,i_x] = convolution_extent_list[i_c]
+                            break
+                        else: 
+                            # print(np.sqrt(np.diag(var_matrix))/coeff)
+                            # input('')
+                            pass
+                paramlist['Imax'   ][i_t,i_y,i_x] = coeff[0]
+                paramlist['x0'     ][i_t,i_y,i_x] = coeff[1]
+                paramlist['sigma'  ][i_t,i_y,i_x] = coeff[2]
+                paramlist['B'      ][i_t,i_y,i_x] = coeff[3]
+                paramlist['var_mat'][i_t,i_y,i_x] = var_matrix
+                if all(np.isnan(coeff)):
+                    paramlist['state'  ][i_t,i_y,i_x] = 1
+                elif all(np.isinf(coeff)):
+                    paramlist['state'  ][i_t,i_y,i_x] = -1
+                    
+                paramlist['cov'    ][i_t,i_y,i_x] = np.sum(np.sqrt(np.diag(var_matrix)))
+                
+                if _next<= _counter:
+                    print( "{:05.2f}% generated".format(_counter/_imsize*100))
+                    _next = int(counter_percent/100 * _imsize + _counter)
+                
+                is_plotted , order  =is_forPlotting(indices,dshape,i_t,i_y,i_x)              
+                if is_plotted:
+                    print("generating a plot ...")
+                    j = np.where(indices==order)[0][0]
+                    if not all(np.isnan(coeff)): 
+                        win_width = np.max(x)-np.min(x)
+                        minl = np.min(x); maxl = np.max(x)
+                        Imax = np.nanmax(data_window[i_t,:,i_y,i_x])
+                        x0   = x[np.where(data_window[i_t,:,i_y,i_x]==Imax)[0][0]]
+                        B    = 0.01
+                        sigma= win_width/6
+                        Gauss_ini_params = [Imax,x0,sigma,B]
+                        axis[j].set_title("$i_t={:02d},i_x={:03d},i_y={:04d}$".format(i_t,i_x,i_y))
+                        axis[j].scatter(x,
+                                        data_window[i_t,:,i_y,i_x]
+                                       )
+                        
+                        axis[j].plot(x,
+                               Gauss(x,
+                                     *Gauss_ini_params               
+                                          )
+                                    ,':',color="yellow")
+                        axis[j].plot(x,
+                               Gauss(x,
+                                     *coeff
+                                          )
+                                    ,'-',color="black")
+                    else: 
+                        axis[j].set_title("Dead pixel\n $i_t={:02d},i_x={:03d},i_y={:04d}$".format(i_t,i_x,i_y))
+                    ("Done")
+                        
+                if all(np.isinf(coeff)) and (len(_missfit_tab)<missfit_plotting or missfit_plotting==-1 ):
+                    print("generating missfit plots")
+                    _missfit_tab.append([i_t,i_y,i_x])
+                _counter+=1
+                
+                
+    
+    fig2,axis2         = set_missfit_plot(_missfit_tab,data_window)
+    #plt.savefig("dead.jpg") if random_plot_number==0 else 0
+    return paramlist
+
+
+  
+def fit_pixel_multi(x:np.ndarray,
+                    y:np.ndarray,
+                    ini_params:np.ndarray,
+                    fit_func:Callable,
+                    bounds:np.ndarray=[np.nan],
+                    plotit: bool=False,
+                    weights: str = None,
+                    **kwargs
+                    ):
+    """Function that Fits a pixel data into a gaussian.
+
+    Args:
+        x(np.ndarray): spectrum axis. 
+        pixel_data (np.ndarray): pixel intensity values as function of wavelength.
+        Gauss_ini_params (np.ndarray, shape:4,optional): a list of initiale parameters if not initialized. 
+        bounds (np.array,np.array): The bounds of the parameters
+        plotit (bool, optional): In case you want to plot it. Defaults to False.
+        weights (str, optional): string ["I": for a linear weight depend on the value of intensity]. Defaults to None.
+    Return:
+        coeff (np.ndarray): Fitted parameters.
+        var_matrix (np.ndarray): Variation matrix that represent calculated fitting error.
+    """
+    assert len(ini_params.shape)==1
+    assert x.shape==y.shape
+    _s = ini_params.shape[0]
+    if not (False in  (np.isnan(bounds))):
+        bounds = np.zeros((2,_s))
+        bounds[:,-1] = [-1,5] 
+        i=0
+        while True:
+            if i==_s-1: break
+            bounds[0,i  ] = 0                                  ;   bounds[1,i  ] = 10000
+            bounds[0,i+2] = 0                                  ;   bounds[1,i+2] = 3
+            bounds[0,i+1] = ini_params[i+1] - bounds[1,i+2] - 1;   bounds[1,i+1] = ini_params[i+1] + bounds[1,i+2] + 1
+            i+=3
+    _s = ini_params.shape[0]
+    _x,_y,w =  clean_nans(x,y,weights)
+
+    if _y.shape[0]<=_s:
+        return (np.ones((_s  ))*np.nan,
+                np.ones((_s,_s))*np.nan)
+    try:
+        res = curve_fit(fit_func,_x,_y,p0=ini_params,bounds=bounds,sigma=w)
+    except RuntimeError:
+        print("couldn't find the minimu")
+        res =  (np.ones((_s  ))*np.nan,
+                np.ones((_s,_s))*np.nan)
+        plotit =False
+    except:
+        print( "this value is not feasable")
+        print( _x,_y, ini_params, bounds, w)
+        res =  (np.ones((_s  ))*np.nan,
+                np.ones((_s,_s))*np.nan)
+        plotit =False
+        
+    if plotit:
+        plt.plot(_x,_y)
+        spectrum_title = "spectrum"
+        if 'plot_title_prefix' in kwargs.keys():
+            spectrum_title = spectrum_title + " " + kwargs['plot_title_prefix']
+            
+        plt.title(spectrum_title)
+        plt.plot(_x,fit_func(_x,*ini_params),label="initial params")
+        
+        plt.plot(_x,fit_func(_x,*res[0]),label="results")
+        for i in range(int((len(res[0])-1)/3)):
+            plt.plot(_x,Gauss(_x,*res[0][i*3:(i+1)*3],res[0][-1]),".",label="line: {:01d}".format(i))
+        plt.legend(fontsize = 12)
+        plt.show()
+        plt.plot(_x,w)
+        plt.title("inverted weights")
+        print(ini_params,"\n",bounds)
+        
+        plt.show()
+        pass
+    return res
+
+
+def fit_window_multi(x:np.ndarray,
+                     window:np.ndarray,
+                     init_params:np.ndarray,
+                     fit_func:callable,
+                     bounds:np.ndarray=np.array([np.nan]),
+                     segmentation:np.ndarray = np.array([0,np.inf]),
+                     window_size:np.ndarray = np.array([[210,800],[0,-1]]),
+                     adaptive:bool = True,
+                     convolution_function :callable   = lambda lst:np.zeros_like(lst[:,2])+1,
+                     convolution_threshold:np.ndarray      = np.array([0.1,10**-4,0.1,100]),
+                     convolution_extent_list:np.array = np.array([0,1,2,3,4,5,6,7,8,9,10]),
+                     weights:str = None,
+                     counter_percent:float = 10,
+                     preclean:bool=True,
+                     preadjust:bool = True
+                     )->[np.ndarray,np.ndarray,np.ndarray,np.ndarray]:
+    """Fitting a whole window of dimension (n_t x n_lmb x n_y x n_x) and creating a map of fitting parameters
+
+    Args:
+        x (np.ndarray): spectrum_axis of dimension (n_lmb x 1)
+        window (np.ndarray): window data cube of dimension (n_t x n_lmb x n_y x n_x)
+        init_params (np.ndarray): parameters list as an array of dimension ((number_of_gaussians * 3 + 1) x 1)
+        fit_func (collable): the fitting function to use 
+        bounds (np.ndarray, optional): boundary list that contains boundaries of everyparameter. Defaults to np.array([np.nan]).
+        segmentation (np.ndarray, optional): if the window is needed to be segmented in multiple windows or smaller one. Defaults to np.array([0,np.inf]).
+        window_size (np.ndarray, optional): if the window size is needed to be smaller. Defaults to np.array([[210,800],[0,-1]]).
+        adaptive (bool, optional): if we want the window fitting to be convoluting. Defaults to True.
+        convolution_function (collable, optional): function to convolute in case the convolution is needed. Defaults to lambda lst:np.zeros_like(lst[:,2])+1.
+        convolution_threshold (float, optional):the minimu relative error of the parameters else the pixel will be convoluted to the next level. Defaults to 1.
+        convolution_extent_list (np.array, optional): the list of levels of convolution. Defaults to np.array([0,1,2,3,4,5]).
+        weights (str, optional): string ["I": for a linear weight depend on the value of intensity]. Defaults to None.
+        counter_percent (int, optional): percentile counter for visulization. Defaults to 10.
+        preclean (bool, optional): True to clean data from saturated pixels and negative values. Defaults to True.
+        preadjust (bool, optional): first fit of the whole window in order to predict positions. Defaults to True.
+
+    Returns:
+        paramlist,(np.ndarry): data fit map of dimension (shapeinitParam x n_t x n_y x n_x)
+        covlist  ,(np.ndarry): covariance matrix of dimension (? x ? x n_t x n_y x n_x)
+        quentity ,(np.ndarry): the array of the first dimension content of paramlist |I => intensity| x=> peak position| s=> sigma| 
+        convlist ,(np.ndarry): convolution positions levels for every pixel of dimension (n_x x n_y)
+        
+    """
+    assert (counter_percent<=100 and counter_percent>=0)
+    concat_window = window[:,:,window_size[0,0]:window_size[0,1],
+                               window_size[1,0]:window_size[1,1]]
+    dshape  = np.array([concat_window.shape[0],
+                        concat_window.shape[2],
+                        concat_window.shape[3],
+                       ])
+    
+    _counter = 0
+    _imsize = dshape[0]*dshape[1]*dshape[2]
+    _next = 0
+    
+    if preclean: window = Preclean(window)
+
+     
+    if adaptive: #creating matrix convolutions
+        
+        convlist = np.zeros((1 if len(segmentation.shape) == 1 else segmentation.shape[0],*dshape))
+        
+        conv_data = np.zeros((*convolution_extent_list.shape,*window.shape))
+        for i in range(convolution_extent_list.shape[0]):
+            if convolution_extent_list[i] == 0:
+                conv_data[i]=window.copy();continue
+            else:
+                ijc_list = fst_neigbors(convolution_extent_list[i])
+                ijc_list [:,2]= convolution_function(ijc_list)
+                conv_data[i]  = join_dt(window, ijc_list)
+    else:
+        conv_data = np.zeros((1,*window.shape))
+        conv_data[0]=window 
+        convlist = np.zeros((1 if segmentation.shape == 1 else segmentation.shape[0],*dshape))
+    conv_data = conv_data[:,:,:,window_size[0,0]:window_size[0,1],
+                                window_size[1,0]:window_size[1,1]]
+    window = concat_window
+    
+    if len(segmentation.shape) == 1: #we apply segmentation here
+        segmentation = np.array([segmentation])
+       
+    quentity = [] #In the futur the quentity will differ in shape as not all the pics will be obligatory having all the 3 parameters
+    sub_windows = []
+    sub_xs = []
+    sub_init_params = []
+    for i in range(segmentation.shape[0]):
+        lim_lbda = segmentation[i]
+        assert lim_lbda[0]<lim_lbda[1]
+        sub_xs.append(x[np.logical_and(x>=lim_lbda[0],x<lim_lbda[1])]) 
+        
+        sub_windows.append(conv_data[:,:,
+                                    np.logical_and(x>=lim_lbda[0],x<lim_lbda[1]),
+                                    :,
+                                    :
+                                        ])
+        sub_inits = []    
+        for j in range(int((len(init_params)-1)/3)):
+            x0 = init_params[j*3+1]
+            if x0>lim_lbda[0] and x0<lim_lbda[1]:
+                sub_inits.append(init_params[j*3])
+                sub_inits.append(init_params[j*3+1])
+                sub_inits.append(init_params[j*3+2])   
+                quentity.append('I');quentity.append('x');quentity.append('s') 
+        if len(quentity)==0:
+            raise Exception (
+                """Found an empty sub set 
+                when segmenting there is no need to add empty segments that contains no peak inside 
+                weird segment: {}
+                init_params {}""".format(lim_lbda,init_params[np.arange(len(init_params) )%3==1] ))
+        sub_inits.append(init_params[-1])          
+        quentity.append('B') 
+        sub_init_params.append(np.array(sub_inits))
+                        
+    paramlist = np.zeros((init_params.shape[0]+len(sub_windows)-1, 
+                          *dshape))
+    
+    covlist  = np.zeros((init_params.shape[0]+len(sub_windows)-1, 
+                         init_params.shape[0]+len(sub_windows)-1, 
+                          *dshape))
+   
+    if preadjust:        
+        for i_seg in range(len(sub_windows)): 
+            if preadjust:
+                plt.figure()
+                sub_init_params[i_seg],var =fit_pixel_multi(sub_xs[i_seg],
+                                                np.nanmean(sub_windows[i_seg][0],axis=(0,2,3)),
+                                                sub_init_params[i_seg],
+                                                fit_func=fit_func,plotit=True,
+                                                plot_title_prefix = "preadjust",
+                                                weights=weights)
+                print(init_params,np.sqrt(var))
+    for i_t in range(dshape[0]):
+        for i_y in range(dshape[1]):
+#             print(display(Markdown(r"""
+# Line $\frac{{ {:03d} }}{{ {:03d} }}$
+# """.format(i_y,dshape[1]))))
+            for i_x in range(dshape[2]):
+                index = 0
+                for i_seg in range(len(sub_windows)):
+                    sub_x = sub_xs[i_seg]
+                    sub_window = sub_windows[i_seg]
+                    sub_inits = sub_init_params[i_seg]
+                    conv_thresh = sub_inits.copy()*0
+                    conv_thresh[-1] = convolution_threshold[-1]
+                    for i_q in range(int(len(sub_inits[:-1])/3)):
+                        conv_thresh[i_q+0] = convolution_threshold[0]
+                        conv_thresh[i_q+1] = convolution_threshold[1]
+                        conv_thresh[i_q+2] = convolution_threshold[2]
+                    coeff2 = np.zeros_like(sub_inits) *np.nan
+                    var2 = np.zeros((sub_inits.shape[0],
+                                     sub_inits.shape[0])) * np.nan
+                    best_i = 0
+                    for i_ad in range(sub_window.shape[0]):
+                        
+                        coeff,var = fit_pixel_multi(x =sub_x,
+                                            y=sub_window[i_ad,
+                                                         i_t,
+                                                         :,
+                                                         i_y,
+                                                         i_x],
+                                            ini_params=sub_inits,
+                                            fit_func=fit_func,
+                                            bounds=bounds,
+                                            weights=weights
+                                            )
+                        if False: #i_ad>4:
+                            plt.figure()
+                            plt.plot(sub_x,sub_window[i_ad,
+                                                    i_t,
+                                                    :,
+                                                    i_y,
+                                                    i_x])
+                            plt.plot(sub_x,flat_inArg_multiGauss(sub_x,*coeff))
+                            
+                            print(np.sqrt(np.diag(var)))
+                            print(i_ad,conv_thresh,np.sqrt(np.diag(var))/coeff)
+                            plt.show()
+                            input()
+                        if all(np.isnan(coeff)):
+                            pass
+                        elif all ((np.sqrt(np.diag(var)))/coeff < conv_thresh):
+                            var2 = var
+                            coeff2 = coeff
+                            best_i = i_ad
+                            break
+                        else:
+                            if all (np.isnan(coeff2)):
+                                var2 = var
+                                coeff2 = coeff
+                                best_i = i_ad
+                            elif np.nansum((np.sqrt(np.diag(var )))/coeff/conv_thresh)<np.nansum((np.sqrt(np.diag(var2)))/conv_thresh):
+                                var2 = var
+                                coeff2 = coeff
+                                best_i = i_ad
+                            
+                    coeff = coeff2                        
+                    var = var2
+                    convlist[i_seg,i_t,i_y,i_x] = best_i                        
+                    index2 = len(coeff) + index
+                    paramlist[index:index2,i_t,i_y,i_x] = coeff
+                    covlist  [index:index2,index:index2,i_t,i_y,i_x] = var
+                    index = index2              
+                if _next<= _counter and counter_percent<100:
+                    print( "{:05.2f}% generated".format(_counter/_imsize*100))
+                    _next = int(counter_percent/100 * _imsize + _counter)
+                _counter+=1
+    return paramlist, covlist, quentity, convlist
+
+def multi_windows_fit(raster,
+                     init_params,
+                     fit_func,
+                     bounds=np.array([np.nan]),
+                     segmentation:np.ndarray = np.array([0,np.inf]),
+                     window_size:np.ndarray = np.array([[500,510],[60,70]]),
+                     adaptive:bool = True,
+                     convolution_function :callable   = lambda lst:np.zeros_like(lst[:,2])+1,
+                     convolution_threshold:float      = np.array([0.1,10**-4,0.1,100]),
+                     convolution_extent_list:np.array = np.array([0,1,2,3,4,5]),
+                     weights:str = None,
+                     counter_percent:float = 10,
+                     preclean:bool=True,
+                     preadjust:bool = True, 
+                     save_data=True,
+                     save_plot=True,           
+                     prefix = None,
+                     plot_filename=None,
+                     quite_sun= np.array([0,-1,0,-1]),
+                     min_vel= -100,
+                     data_save_dir = "./.p/"  ,
+                     plot_save_dir = "./imgs/" ,
+                     max_vel= 100,
+                     show_ini_infos = True,
+                     i=None):
+    a ="""The documentation isn't right yet
+
+    Args:
+        raster (_type_): _description_
+        init_params (_type_): _description_
+        fit_func (_type_): _description_
+        bounds (_type_, optional): _description_. Defaults to np.array([np.nan]).
+        counter_percent (int, optional): _description_. Defaults to 10.
+        preclean (bool, optional): _description_. Defaults to True.
+        preadjust (bool, optional): _description_. Defaults to True.
+        prefix (str, optional): _description_. Defaults to "./.p/01_".
+
+    Returns:
+        _type_: _description_
+        
+        
+        x:np.ndarray,
+        window:np.ndarray,
+        init_params:np.ndarray,
+        fit_func:callable,
+        bounds:np.ndarray=np.array([np.nan]),
+        segmentation:np.ndarray = np.array([0,np.inf]),
+        window_size:np.ndarray = np.array([[210,800],[0,-1]]),
+        adaptive:bool = True,
+        convolution_function :callable   = lambda lst:np.zeros_like(lst[:,2])+1,
+        convolution_threshold:float      = 1.,
+        convolution_extent_list:np.array = np.array([0,1,2,3,4,5]),
+        weights:str = None,
+        counter_percent:float = 10,
+        preclean:bool=True,
+        preadjust:bool = True
+        )->[np.ndarray,np.ndarray,np.ndarray,np.ndarray]
+    """
+    
+    unq = spu.unique_windows(raster)
+    KW = [unq[i] for i in range(len(unq))]
+    paramlist2 = []
+    covlist2 = []
+    quentity2 = []
+    convlist2 = []
+    
+    
+    if type(prefix)==str:
+        
+        filename = prefix+"window_{:03d}_"+"{:}.p"
+    elif prefix==None:
+        dir = data_save_dir
+        if not os.path.isdir(dir):
+            os.mkdir(dir)
+        dir_list = os.listdir(dir); j=0
+        for file in dir_list:
+            try:
+                j2 = int(file[0:3])
+                if j2>=j:
+                    j=j2+1
+                    
+            except Exception:
+                pass
+        j3 = j
+        dir2 = dir
+    if type(plot_filename)==str:
+        if plot_filename.format(" ",0,0) == plot_filename: #make sure this passed variable is subscriptable 
+            
+            filename_a = plot_filename+"plot_{:03d}_{}_{}.jpg"
+            filename_b = plot_filename+"hist_{:03d}_{}_{}.jpg"
+    elif prefix==None:
+        dir = plot_save_dir
+        if not os.path.isdir(dir):
+            os.mkdir(dir)
+        dir_list = os.listdir(dir); j=0
+        for file in dir_list:
+            try:
+                
+                j2 = int(file[0:3])
+                
+                if j2>=j:
+                    
+                    j=j2+1
+                    
+                
+            except Exception:
+                pass
+        j = max(j3,j)
+        #Delete these later------
+        j=(i if type(i)!=type(None) else j)
+        print("working with file with prefix i={:03d} ".format(j))
+        #------------------------
+        filename_a = dir + "{:03d}_".format(j)+"plot_{:03d}_"+"{}_{}.jpg"
+        filename_b = dir + "{:03d}_".format(j)+"hits_{:03d}_"+"{}_{}.jpg"
+        filename = dir2+"{:03d}_".format(j)+"window_{:03d}_"+"{}_{}.p"
+    
+    if show_ini_infos:
+        n_windows = len(KW)
+        m = 3; n= int(n_windows/3 + (1 if n_windows%m!= 0 else 0))
+        fig,axis = plt.subplots(n*2,m,figsize = (4*m,6*n))
+        axis = axis.flatten()
+        A_axis= axis[:n_windows]
+        B_axis= axis[n_windows:]
+        for i,k in enumerate(KW):
+            #Window plotting
+            data = np.nanmean(raster[k].data,axis=(0,1))
+            atad = np.nanmean(raster[k].data,axis=(0,2,3))
+            
+            ang_lat = raster[k].celestial.data.lat.deg
+            ang_lon = raster[k].celestial.data.lon.deg
+            ang_lon[ang_lon<=180] = ang_lon[ang_lon<=180]+360 
+            norm = ImageNormalize(data,
+                                    interval=AsymmetricPercentileInterval(1, 99),
+                                    stretch=SqrtStretch())
+            im = A_axis[i].pcolormesh(ang_lon,ang_lat,data,norm=norm,cmap="magma")
+            # im = A_axis[i].pcolormesh(data[110:720],norm=norm,cmap="magma")
+            B_axis[i].plot((raster[k]).spectral_axis*10**10,atad)
+            B_axis[i].set_title(k);A_axis[i].set_title(k)
+            A_axis[i].grid();B_axis[i].grid()
+            plt.colorbar(im,ax= A_axis[i])
+            
+            
+            #ini params and segmentation
+            init_params2 = init_params[i]
+            if len(bounds.shape)!=1:
+                bounds2 = bounds[i]
+            else:
+                bounds2 = bounds
+            if type(segmentation[0]) not in [np.ndarray,list]:
+                segmentation2 = segmentation
+            else:
+                segmentation2 = segmentation[i]
+            if len(segmentation2.shape) == 1:
+                 segmentation2 = np.array([segmentation2])
+            
+            for seg in segmentation2:
+                color = np.random.rand(3)
+                color = 0.8 * color/np.sqrt(np.sum(color**2))
+                B_axis[i].axvspan(seg[0], seg[1], alpha=.3,color = color)
+            
+            B = init_params2[-1] 
+            B_axis[i].axhline(B,ls=":",label="BG",color='black')
+            for j in range(int(len(init_params2)/3)):
+                color = np.random.rand(3)
+                color = 0.8 * color/np.sqrt(np.sum(color**2))
+                I = init_params2[j]; x = init_params2[j+1]; s = init_params2[j+2] 
+                B_axis[i].scatter([x],[I+B],color = color)
+                B_axis[i].axvline(x,ls=":",color = color)
+                B_axis[i].plot([x-s/2,x+s/2],[I*np.exp(-1/2)+B ,I*np.exp(-1/2)+B],color = color,label="line {}".format(j) )
+            
+            
+            
+            #window selection
+            ws = window_size.copy()
+            up_leftx     =  ang_lon[ws[0,1],ws[1,0]]
+            up_lefty     =  ang_lat[ws[0,1],ws[1,0]]
+            up_rightx    =  ang_lon[ws[0,1],ws[1,1]]
+            up_righty    =  ang_lat[ws[0,1],ws[1,1]]
+            down_rightx  =  ang_lon[ws[0,0],ws[1,1]]
+            down_righty  =  ang_lat[ws[0,0],ws[1,1]]
+            down_leftx   =  ang_lon[ws[0,0],ws[1,0]]
+            down_lefty   =  ang_lat[ws[0,0],ws[1,0]]
+            A_axis[i].plot([up_leftx   ,up_rightx ,down_rightx,down_leftx ,up_leftx],
+                           [up_lefty   ,up_righty ,down_righty,down_lefty ,up_lefty],
+                           color='green',lw=2,label='window size')
+            ws = np.array(
+                [
+                    quite_sun[2:],
+                    quite_sun[:2]
+                    ]
+                )
+            up_leftx     =  ang_lon[ws[0,1],ws[1,0]]
+            up_lefty     =  ang_lat[ws[0,1],ws[1,0]]
+            up_rightx    =  ang_lon[ws[0,1],ws[1,1]]
+            up_righty    =  ang_lat[ws[0,1],ws[1,1]]
+            down_rightx  =  ang_lon[ws[0,0],ws[1,1]]
+            down_righty  =  ang_lat[ws[0,0],ws[1,1]]
+            down_leftx   =  ang_lon[ws[0,0],ws[1,0]]
+            down_lefty   =  ang_lat[ws[0,0],ws[1,0]]
+            A_axis[i].plot([up_leftx   ,up_rightx ,down_rightx,down_leftx ,up_leftx],
+                           [up_lefty   ,up_righty ,down_righty,down_lefty ,up_lefty],
+                           color='red',lw=2,label='quite sun reference')
+            #A_axis[i].legend()
+            B_axis[i].legend()
+        fig.suptitle("Pre-analysis info \nStudied window: Green / Quite sun rference: Red")
+        plt.tight_layout()
+        plt.show()
+    
+    
+              
+    for i in range(len(KW)):
+        # if i!=4: continue
+        kw = KW[i]
+        kw2 = kw.replace("/","_")
+        kw2 = kw2.replace(" ","")
+        window = raster[kw]
+        data = window.data 
+        x = window.spectral_axis
+        
+        print("checking for the file ",filename.format(i,kw2,window.meta["DATE_SUN"]))
+        if os.path.isfile(filename.format(i,kw2,window.meta["DATE_SUN"])):
+            print("the {} file exists!".format(filename.format(i,kw2,window.meta["DATE_SUN"])))
+            done = True
+        else:
+            print("the {} file doesn't exists".format(filename.format(i,kw2,window.meta["DATE_SUN"])))
+            done = False
+        
+        
+        ang_lat = window.celestial.data[window_size[0,0]:window_size[0,1],
+                                        window_size[1,0]:window_size[1,1]].lat.deg
+        ang_lon = window.celestial.data[window_size[0,0]:window_size[0,1],
+                                        window_size[1,0]:window_size[1,1]].lon.deg
+        if (ang_lon<10).any() and (ang_lon>350).any():
+            ang_lon[ang_lon<=180] = ang_lon[ang_lon<=180]+360 
+        if (ang_lat<10).any() and (ang_lat>350).any():
+            ang_lat[ang_lat<=180] = ang_lat[ang_lat<=180]+360 
+        
+        init_params2 = init_params[i]
+        if len(bounds.shape)!=1:
+            bounds2 = bounds[i]
+        else:
+            bounds2 = bounds
+        if type(segmentation[0]) not in [np.ndarray,list]:
+            segmentation2 = segmentation
+        else:
+            segmentation2 = segmentation[i]
+        
+        
+        if not done:
+            global paramlist, covlist, quentity, convlist     
+            paramlist, covlist, quentity, convlist = fit_window_multi(
+                    x = np.array(x*10**10).astype('float32'),
+                    window = np.array(data).astype('float32'),
+                    init_params= init_params2,
+                    counter_percent=counter_percent,
+                    bounds=bounds2,
+                    fit_func= fit_func,
+                    segmentation=segmentation2,
+                    window_size=window_size,
+                    adaptive = adaptive,
+                    convolution_function = convolution_function,
+                    convolution_threshold=convolution_threshold,
+                    convolution_extent_list = convolution_extent_list,
+                    weights = weights,
+                    preclean=preclean,
+                    preadjust = preadjust
+                    )
+            
+            if save_data:     
+                pickle.dump((paramlist, covlist, quentity, convlist,window.meta["DATE_SUN"]),
+                            open(filename.format(i,kw2,window.meta["DATE_SUN"]),"wb"))
+        
+        else:
+            paramlist, covlist, quentity,convlist,window.meta["DATE_SUN"] = pickle.load(open(filename.format(i,kw2,window.meta["DATE_SUN"]),"rb"))
+             
+        paramlist2.append(paramlist.copy())
+        covlist2.append(covlist.copy())
+        quentity2.append(quentity.copy())
+        convlist2.append(convlist.copy())
+        
+        if not done:
+            #these maxis work only with DYNamics of 2/04
+            maxI = np.array([0.80,2.00,10.0,60.0,25.0,30.0   ])
+            maxB = np.array([0.08,1.50,0.60,2.00,1.50,2.00  ])
+            plot_window_Miho(x*10**10,
+                        data,
+                        paramlist=paramlist,
+                        quentity=quentity,
+                        convlist=convlist,
+                        suptitle=kw,
+                        window_size=window_size,
+                        segmentation=segmentation2,
+                        quite_sun=quite_sun,
+                        save=save_plot,
+                        filename=filename_a.format(i,kw2,window.meta["DATE_SUN"]),
+                        min_x=-80,max_x=80,
+                        min_I=0,max_I=maxI[i],
+                        min_s=0.3,max_s=0.6,
+                        min_B=0,max_B=maxB[i],
+                        raster=raster[kw],
+                        visualize_saturation = False)
+            plot_error(
+                covlist = covlist,
+                paramlist = paramlist,
+                quentity = quentity,
+                save=save_plot,
+                filename=filename_b.format(i,kw2,window.meta["DATE_SUN"])
+                )
+    if save_data:     
+            pickle.dump((paramlist2, covlist2, quentity2, convlist2,window.meta["DATE_SUN"]),open(filename.format(len(KW),"all",window.meta["DATE_SUN"]),"wb"))
+    return paramlist2, covlist2, quentity2, convlist2 
+
+def plot_window_Miho(spectrum_axis: np.array,
+                window: np.ndarray,
+                paramlist:np.ndarray,
+                quentity: list,
+                convlist =None,
+                suptitle = "",
+                window_size: np.ndarray =np.array([[0,-1],[0,-1]]),
+                t: int = 0,
+                segmentation = None,
+                save = False,
+                filename = "./imgs/res.jpg",
+                quite_sun:np.ndarray = np.array([0,-1,0,-1]),
+                min_I = None,
+                max_I = None,
+                min_x = -50,
+                max_x = +50,
+                min_s = None,
+                max_s = None,
+                min_B = None,
+                max_B = None,
+                visualize_saturation = True,
+                **kwargs):
+    w = window;q = quentity;p=paramlist;ws=window_size;sa=spectrum_axis
+    cmap_doppler = "twilight_shifted" 
+    if "raster" in kwargs:
+        raster = kwargs["raster"] 
+        ang_lat = raster.celestial.data[ws[0,0]:ws[0,1],ws[1,0]:ws[1,1]].lat.deg
+        ang_lon = raster.celestial.data[ws[0,0]:ws[0,1],ws[1,0]:ws[1,1]].lon.deg
+        All_ang_lat = raster.celestial.data.lat.deg
+        All_ang_lon = raster.celestial.data.lon.deg
+        
+        ang_lat2 = ang_lat.copy()
+        ang_lon2 = ang_lon.copy()
+        All_ang_lat2 = All_ang_lat.copy()
+        All_ang_lon2 = All_ang_lon.copy()
+        
+        All_ang_lon2[All_ang_lon<=180] =  All_ang_lon[All_ang_lon<=180]     *3600
+        All_ang_lon2[All_ang_lon> 180] = (All_ang_lon[All_ang_lon>180 ]-360)*3600
+        
+        ang_lon2[ang_lon<=180] = ang_lon[ang_lon<=180] *3600
+        ang_lon2[ang_lon>180] = (ang_lon[ang_lon>180]-360 )*3600
+        
+        All_ang_lat2[All_ang_lat<=180] = All_ang_lat[All_ang_lat<=180] *3600
+        All_ang_lat2[All_ang_lat>180] = (All_ang_lat[All_ang_lat>180])*3600
+        
+        ang_lat2[ang_lat<=180] = ang_lat[ang_lat<=180] *3600
+        ang_lat2[ang_lat>180] = (ang_lat[ang_lat>180] )*3600
+        ang_lat = ang_lat2.copy()
+        ang_lon = ang_lon2.copy()
+        All_ang_lat = All_ang_lat2.copy()
+        All_ang_lon = All_ang_lon2.copy()
+        
+    qs2 = quite_sun.copy()
+     
+    quite_sun = quite_sun.copy()
+    # quite_sun[0] = quite_sun[0] - window_size[1,0]
+    # quite_sun[2] = quite_sun[2] - window_size[0,0]
+    
+     
+    if quite_sun[1] == -1:
+        if window_size[1,1] == -1: quite_sun[1] = window.shape[3] #- window_size[1,0]
+        else: quite_sun[1] = window_size[1,1]# - window_size[1,0]
+    else: pass #quite_sun[1] = quite_sun[1] - window_size[1,0]
+    if quite_sun[3] == -1:
+        if window_size[0,1] == -1: quite_sun[3] = window.shape[2] #- window_size[0,0]
+        else: quite_sun[3] = window_size[0,1] #- window_size[0,0]
+    else: quite_sun[3] = quite_sun[3] #- window_size[0,0]
+    
+    if "raster" in kwargs: 
+        qs = qs2.copy()
+        QS_up_leftx     =  All_ang_lon[qs[3],qs[0]] + (All_ang_lon[qs[3],qs[0]]  - (All_ang_lon[qs[3]  ,qs[0]+1]) )/2 
+        QS_up_lefty     =  All_ang_lat[qs[3],qs[0]] - (All_ang_lat[qs[3],qs[0]]  - (All_ang_lat[qs[3]-1,qs[0]  ]) )/2
+        QS_up_rightx    =  All_ang_lon[qs[3],qs[1]] - (All_ang_lon[qs[3],qs[1]]  - (All_ang_lon[qs[3]  ,qs[1]-1]) )/2
+        QS_up_righty    =  All_ang_lat[qs[3],qs[1]] - (All_ang_lat[qs[3],qs[1]]  - (All_ang_lat[qs[3]-1,qs[1]  ]) )/2
+        QS_down_rightx  =  All_ang_lon[qs[2],qs[1]] - (All_ang_lon[qs[2],qs[1]]  - (All_ang_lon[qs[2]  ,qs[1]-1]) )/2
+        QS_down_righty  =  All_ang_lat[qs[2],qs[1]] + (All_ang_lat[qs[2],qs[1]]  - (All_ang_lat[qs[2]+1,qs[1]  ]) )/2
+        QS_down_leftx   =  All_ang_lon[qs[2],qs[0]] + (All_ang_lon[qs[2],qs[0]]  - (All_ang_lon[qs[2]  ,qs[0]+1]) )/2
+        QS_down_lefty   =  All_ang_lat[qs[2],qs[0]] + (All_ang_lat[qs[2],qs[0]]  - (All_ang_lat[qs[2]+1,qs[0]  ]) )/2
+        # print(qs[3],qs[0],QS_up_leftx)
+        ws = window_size
+        WS_up_leftx     = All_ang_lon[ws[0,1],ws[1,0]] + (All_ang_lon[ws[0,1],ws[1,0]]  - (All_ang_lon[ws[0,1]  ,ws[1,0]+1]) )/2
+        WS_up_lefty     = All_ang_lat[ws[0,1],ws[1,0]] - (All_ang_lat[ws[0,1],ws[1,0]]  - (All_ang_lat[ws[0,1]-1,ws[1,0]  ]) )/2
+        WS_up_rightx    = All_ang_lon[ws[0,1],ws[1,1]] - (All_ang_lon[ws[0,1],ws[1,1]]  - (All_ang_lon[ws[0,1]  ,ws[1,1]-1]) )/2
+        WS_up_righty    = All_ang_lat[ws[0,1],ws[1,1]] - (All_ang_lat[ws[0,1],ws[1,1]]  - (All_ang_lat[ws[0,1]-1,ws[1,1]  ]) )/2
+        WS_down_rightx  = All_ang_lon[ws[0,0],ws[1,1]] - (All_ang_lon[ws[0,0],ws[1,1]]  - (All_ang_lon[ws[0,0]  ,ws[1,1]-1]) )/2
+        WS_down_righty  = All_ang_lat[ws[0,0],ws[1,1]] + (All_ang_lat[ws[0,0],ws[1,1]]  - (All_ang_lat[ws[0,0]+1,ws[1,1]  ]) )/2
+        WS_down_leftx   = All_ang_lon[ws[0,0],ws[1,0]] + (All_ang_lon[ws[0,0],ws[1,0]]  - (All_ang_lon[ws[0,0]  ,ws[1,0]+1]) )/2
+        WS_down_lefty   = All_ang_lat[ws[0,0],ws[1,0]] + (All_ang_lat[ws[0,0],ws[1,0]]  - (All_ang_lat[ws[0,0]+1,ws[1,0]  ]) )/2
+    
+    def sub_q(Q:list)->list:
+        sub_q = []
+        i_b1 = 0
+        i_b2 = 0
+        for i in range(len(Q)):
+            if Q[i] == "B":
+                i_b2 = i+1
+                sub_q.append([i_b1,i_b2]) 
+                i_b1 = i_b2
+        return sub_q
+    _q = sub_q(q)
+    _c = -1; _nl = int((len(q)-len(_q))/3)+len(_q)+1
+    conv_c = 0
+    mean_pos = []
+    plt.rcParams.update({'font.size': 22})
+    fig, axis = plt.subplots(_nl,3, figsize=(24,8.2*_nl),constrained_layout=True)
+    
+    for i in range(len(q)):
+        if q[i] == "I":
+            _c += 1
+            minmax = {"interval" : AsymmetricPercentileInterval(1, 99)} 
+            if type(max_I)!=type(None) and type(min_I)!=type(None):
+                minmax= {"vmin" : min_I,"vmax" : max_I} 
+                
+            norm = ImageNormalize(p[i,t],**minmax,stretch=SqrtStretch())
+            if "raster" in kwargs:
+                im = axis[_c,0].pcolormesh(ang_lon,ang_lat,p[i,t], norm=norm,cmap="magma")
+            else:
+                im = axis[_c,0].imshow(p[i,t], aspect= "auto",origin="lower", norm=norm,cmap="magma")
+            axis[_c,0].set_title('Intensity ($W \cdot m^{-2} \cdot sr^{-1}\cdot nm^{-1}$)' )
+            axis[_c,0].set_xlabel('Helioprojective longitude \n (arcsec)' )
+            axis[_c,0].set_ylabel('Helioprojective latitude \n (arcsec)' )
+            axis[_c,0].set_aspect('equal')
+            plt.colorbar(im,ax=axis[_c,0],extend=  ("both" if visualize_saturation else None))
+            
+        if q[i] == "x": 
+            mean_x = np.nanmean(p[i,t,quite_sun[2]-ws[0,0]:quite_sun[3]+ws[0,0],quite_sun[0]-ws[1,0]:quite_sun[1]-ws[1,0]])
+            # print(quite_sun)
+            # print(ws)
+            # print([i,t,quite_sun[2]-ws[0,1],quite_sun[3]+ws[0,1],quite_sun[0]-ws[1,0],quite_sun[1]-ws[1,0]])
+            cmap = plt.get_cmap(cmap_doppler).copy()
+            cmap.set_extremes(under='yellow', over='green') if visualize_saturation else 0
+            if "raster" in kwargs:
+                #print("Calculated mean: ", mean_x)
+                im = axis[_c,1].pcolormesh(ang_lon,ang_lat,(p[i,t]-mean_x)/mean_x*3*10**5, vmin=min_x,vmax=max_x ,cmap=cmap)
+            else:
+                im = axis[_c,1].imshow((p[i,t]-mean_x)/mean_x*3*10**5,origin="lower", vmin=min_x,vmax=max_x ,aspect= "auto",cmap=cmap)
+            axis[_c,1].set_title('Doppler (km/s)')
+            axis[_c,1].set_xlabel('Helioprojective longitude \n (arcsec)' )
+            axis[_c,1].set_ylabel('Helioprojective latitude \n (arcsec)' )
+            axis[_c,1].set_aspect('equal')
+            plt.colorbar(im,ax=axis[_c,1],extend=  ("both" if visualize_saturation else None))
+            mean_pos.append(np.nanmean(p[i,t]))
+        if q[i] == "s":
+            cmap = plt.get_cmap('hot').copy()
+            cmap.set_extremes(under='green', over='violet') if visualize_saturation else 0
+            if "raster" in kwargs:
+                im = axis[_c,2].pcolormesh(ang_lon,ang_lat,p[i,t],cmap=cmap,vmax = max_s, vmin = min_s)
+            else:
+                im = axis[_c,2].imshow(p[i,t], aspect= "auto",origin="lower",cmap=cmap)
+            
+            axis[_c,2].set_title('$\sigma$ ($\AA$)')
+            axis[_c,2].set_xlabel('Helioprojective longitude \n (arcsec)' )
+            axis[_c,2].set_ylabel('Helioprojective latitude \n (arcsec)' )
+            axis[_c,2].set_aspect('equal')
+            plt.colorbar(im,ax=axis[_c,2],extend=  ("both" if visualize_saturation else None))
+        if q[i] == "B":
+            _c += 1
+            minmax = {"interval" : AsymmetricPercentileInterval(1, 99)} if type(max_B)==type(None) else {"vmin" : min_B,
+                                                                                                         "vmax" : max_B} 
+            norm = ImageNormalize(p[i,t],**minmax,stretch=SqrtStretch())
+            
+            if "raster" in kwargs:
+                im = axis[_c,0].pcolormesh(ang_lon,ang_lat,p[i,t] ,norm=norm,cmap="magma")
+            else:
+                im = axis[_c,0].imshow(p[i,t], aspect= "auto",origin="lower",norm=norm,cmap="magma")
+            axis[_c,0].set_title('Background Intensity\n($W \cdot m^{-2} \cdot sr^{-1}\cdot nm^{-1}$)' )
+            axis[_c,0].set_aspect('equal')
+            plt.colorbar(im,ax=axis[_c,0],extend=  ("both" if visualize_saturation else None))
+            axis[_c,0].set_xlabel('Helioprojective longitude \n (arcsec)' )
+            axis[_c,0].set_ylabel('Helioprojective latitude \n (arcsec)' ) 
+            axis[_c,2].remove()
+            if type(convlist) == type(None):
+                axis[_c,1].remove()    
+            else:
+                data_conv = convlist[conv_c,t,:,:].copy()
+                #designing colormap -> color choice and their number
+                vals = (np.unique(data_conv)).astype(np.int8)
+                print(vals)
+                # print("vals",vals)
+                N = len(vals)
+                # print(int(N**(1/3)),N**(1/3),'int(N**(1/3)),N**(1/3)')
+                n = int(N**(1/3))+(0 if int(N**(1/3))==N**(1/3) else 1)
+                yn = N**(1/3)
+                # print("N,n",N,n)
+                col_dict = {}
+                i = 0
+                for b in range(n):
+                    if i == N: break
+                    for g in range(n):
+                        if i == N: break
+                        for r in range(n):
+                            if i == N: break
+                            col_dict[vals[i]] = (1-r/max(n-1,1),1-g/max(n-1,1),1-b/max(n-1,1))
+                            i+=1
+                # print("col_dict",col_dict)
+                #designing colormap -> constructing the cmap
+                cmap = ListedColormap([col_dict[x] for x in col_dict.keys()])
+                
+                #In case you want the labels to show other than the numbers put the list of these labels here 
+                labels = vals.copy()
+                len_lab = len(labels)
+                
+                #prepare for the normalizer
+                norm_bins = np.sort([*col_dict.keys()]) + 0.5
+                # print("sort",norm_bins)
+                norm_bins = np.insert(norm_bins, 0, np.min(norm_bins) - 1.0)    
+                # print("insert", norm_bins)
+                #Make normalizer and formatter
+                norm = matplotlib.colors.BoundaryNorm(norm_bins, len_lab, clip=True)
+                fmt = matplotlib.ticker.FuncFormatter(lambda x, pos: labels[norm(x)])
+                            
+                if "raster" in kwargs:
+                    im = axis[_c,1].pcolormesh(ang_lon,ang_lat,data_conv ,cmap=cmap, norm=norm)
+                else:
+                    im = axis[_c,1].imshow(data_conv,aspect='auto',origin="lower",cmap=cmap, norm=norm, )
+                axis[_c,1].set_xlabel('Helioprojective longitude \n (arcsec)' )
+                axis[_c,1].set_ylabel('Helioprojective latitude \n (arcsec)' )
+                axis[_c,1].set_title('convolution level map')
+                axis[_c,1].set_aspect('equal')
+                
+                diff = norm_bins[1:] - norm_bins[:-1]
+                tickz = norm_bins[:-1] + diff / 2
+                plt.colorbar(im,ax=axis[_c,1],  ticks=tickz)
+                conv_c  += 1
+           
+    
+    # plt.rcParams.update({'font.size': 16})
+    if "raster" in kwargs:
+        
+        mn = np.nanmean(
+            w[:,
+                :,
+                :,#ws[0,0]:ws[0,1],
+                :#ws[1,0]:ws[1,1]
+            ],
+            axis=(0,1)
+            )   
+        minmax = {"interval" : AsymmetricPercentileInterval(1, 99)} 
+        if type(max_I)!=type(None) and type(min_I)!=type(None):
+            minmax= {"vmin" : min_I,"vmax" : max_I} 
+        
+        norm = ImageNormalize(mn,**minmax,stretch=SqrtStretch())
+        im = axis[-1,0].pcolormesh(All_ang_lon,All_ang_lat,mn,norm=norm,cmap="magma")
+        # axis[-1,0].set_aspect('auto')
+        plt.colorbar(im,ax=axis[-1,0],extend=  ("both" if visualize_saturation else None))
+        
+        axis[-1,0].plot([QS_up_leftx,QS_up_rightx,QS_down_rightx,QS_down_leftx,QS_up_leftx],
+                        [QS_up_lefty,QS_up_righty,QS_down_righty,QS_down_lefty,QS_up_lefty],
+                        "o-",
+                        alpha = 1,
+                        color= (0,1,0),lw=5,
+                        label="selected\nquite region")
+        axis[-1,0].plot([WS_up_leftx,WS_up_rightx,WS_down_rightx,WS_down_leftx,WS_up_leftx],
+                        [WS_up_lefty,WS_up_righty,WS_down_righty,WS_down_lefty,WS_up_lefty],
+                        "o-",
+                        alpha = 1,
+                        color= (1,0,0),lw=3,
+                        label="Analysed region")
+        
+    else:
+        mn = np.nanmean(
+            w[:,
+                :,
+                ws[0,0]:ws[0,1],
+                ws[1,0]:ws[1,1]],
+            axis=(0,1)
+            )  
+        norm = ImageNormalize(mn,AsymmetricPercentileInterval(1, 99),stretch=SqrtStretch())
+        
+        im = axis[-1,0].imshow(mn,norm=norm,cmap="magma",origin="lower")
+        axis[-1,0].set_xlabel('Helioprojective longitude \n (arcsec)' )
+        axis[-1,0].set_ylabel('Helioprojective latitude \n (arcsec)' )
+        
+        lims = axis[-1,0].get_xlim(),axis[-1,0].get_ylim()
+        axis[-1,0].set_aspect('auto')
+        plt.colorbar(im,ax=axis[-1,0],extend=  ("both" if visualize_saturation else None))
+    
+        axis[-1,0].axvspan(
+                xmin = quite_sun[0], 
+                xmax = quite_sun[1], 
+                ymin = quite_sun[2]/(axis[-1,0].get_ylim()[1]-axis[-1,0].get_ylim()[0]), 
+                ymax = quite_sun[3]/(axis[-1,0].get_ylim()[1]-axis[-1,0].get_ylim()[0]),
+                alpha = 0.5,lw=2,
+                color= (0,1,0),label="selected\nquite region"
+                )
+
+    axis[-1,0].set_title('original averaged\n over spectrum')
+    axis[-1,0].set_xlabel('Helioprojective longitude \n (arcsec)' )
+    axis[-1,0].set_ylabel('Helioprojective latitude \n (arcsec)' )
+    axis[-1,1].step(sa,np.nanmean(
+        w[:,
+            :,
+            ws[0,0]:ws[0,1],
+            ws[1,0]:ws[1,1]
+            ],
+        axis=(0,2,3)
+        ))
+       
+    # print(mean_pos)
+    # print(sa)
+    for x in mean_pos:
+        axis[-1,1].axvline(x,ls=':',label="line: {:02d}".format(mean_pos.index(x)))
+    axis[-1,1].legend()
+    axis[-1,1].set_title("original average spectrum/\naverage line positions/\n segments")
+    
+    axis[-1,2].remove()
+    fig.suptitle(suptitle + "\n" + raster.meta["DATE_SUN"][:-4],fontsize=20)
+    if type(segmentation) != type(None):
+        if len(segmentation.shape)!=1:
+            for seg in segmentation:
+                color = np.random.rand(3)
+                color = 0.8 * color/np.sqrt(np.sum(color**2))
+                axis[-1,1].axvspan(seg[0], seg[1], alpha=.5,color = color)
+        else:
+            seg = segmentation
+            color = np.random.rand(3)
+            color = 0.8 * color/np.sqrt(np.sum(color**2))
+            axis[-1,1].axvspan(seg[0], seg[1], alpha=0.5,color = color)
+    for ax in axis.flatten():
+        ax.ticklabel_format(useOffset=False)
+        ax.ticklabel_format(useOffset=False)
+    # fig.tight_layout()
+    if save: plt.savefig(filename)
+    
+    return fig,axis,All_ang_lon, All_ang_lat,ang_lon, ang_lat  
+
+def plot_summary_Miho_1line(spectrum_axis: np.array,
+                window: np.ndarray,
+                paramlist:np.ndarray,
+                quentity: list,
+                convlist =None,
+                suptitle = "",
+                window_size: np.ndarray =np.array([[0,-1],[0,-1]]),
+                t: int = 0,
+                segmentation = None,
+                save = False,
+                filename = "./imgs/res.jpg",
+                quite_sun:np.ndarray = np.array([0,-1,0,-1]),
+                min_I = None,
+                max_I = None,
+                min_x = -50,
+                max_x = +50,
+                min_s = None,
+                max_s = None,
+                min_B = None,
+                max_B = None,
+                visualize_saturation = True,
+                **kwargs):
+    w = window;q = quentity;p=paramlist;ws=window_size;sa=spectrum_axis
+    cmap_doppler = "twilight_shifted" 
+    
+    raster = kwargs["raster"] 
+    ang_lat = raster.celestial.data[ws[0,0]:ws[0,1],ws[1,0]:ws[1,1]].lat.deg
+    ang_lon = raster.celestial.data[ws[0,0]:ws[0,1],ws[1,0]:ws[1,1]].lon.deg
+    All_ang_lat = raster.celestial.data.lat.deg
+    All_ang_lon = raster.celestial.data.lon.deg
+    
+    ang_lat2 = ang_lat.copy()
+    ang_lon2 = ang_lon.copy()
+    All_ang_lat2 = All_ang_lat.copy()
+    All_ang_lon2 = All_ang_lon.copy()
+    
+    All_ang_lon2[All_ang_lon<=180] =  All_ang_lon[All_ang_lon<=180]     *3600
+    All_ang_lon2[All_ang_lon> 180] = (All_ang_lon[All_ang_lon>180 ]-360)*3600
+    
+    ang_lon2[ang_lon<=180] = ang_lon[ang_lon<=180] *3600
+    ang_lon2[ang_lon>180] = (ang_lon[ang_lon>180]-360 )*3600
+    
+    All_ang_lat2[All_ang_lat<=180] = All_ang_lat[All_ang_lat<=180] *3600
+    All_ang_lat2[All_ang_lat>180] = (All_ang_lat[All_ang_lat>180])*3600
+    
+    ang_lat2[ang_lat<=180] = ang_lat[ang_lat<=180] *3600
+    ang_lat2[ang_lat>180] = (ang_lat[ang_lat>180] )*3600
+    ang_lat = ang_lat2.copy()
+    ang_lon = ang_lon2.copy()
+    All_ang_lat = All_ang_lat2.copy()
+    All_ang_lon = All_ang_lon2.copy()
+        
+    
+    
+    if type(quite_sun) == np.ndarray:
+        qs2 = quite_sun.copy()
+        
+        quite_sun = quite_sun.copy()
+        # quite_sun[0] = quite_sun[0] - window_size[1,0]
+        # quite_sun[2] = quite_sun[2] - window_size[0,0]
+        
+        
+        if quite_sun[1] == -1:
+            if window_size[1,1] == -1: quite_sun[1] = window.shape[3] #- window_size[1,0]
+            else: quite_sun[1] = window_size[1,1]# - window_size[1,0]
+        else: pass #quite_sun[1] = quite_sun[1] - window_size[1,0]
+        if quite_sun[3] == -1:
+            if window_size[0,1] == -1: quite_sun[3] = window.shape[2] #- window_size[0,0]
+            else: quite_sun[3] = window_size[0,1] #- window_size[0,0]
+        else: quite_sun[3] = quite_sun[3] #- window_size[0,0]  
+        qs = qs2.copy()
+        QS_up_leftx     =  All_ang_lon[qs[3],qs[0]] + (All_ang_lon[qs[3],qs[0]]  - (All_ang_lon[qs[3]  ,qs[0]+1]) )/2 
+        QS_up_lefty     =  All_ang_lat[qs[3],qs[0]] - (All_ang_lat[qs[3],qs[0]]  - (All_ang_lat[qs[3]-1,qs[0]  ]) )/2
+        QS_up_rightx    =  All_ang_lon[qs[3],qs[1]] - (All_ang_lon[qs[3],qs[1]]  - (All_ang_lon[qs[3]  ,qs[1]-1]) )/2
+        QS_up_righty    =  All_ang_lat[qs[3],qs[1]] - (All_ang_lat[qs[3],qs[1]]  - (All_ang_lat[qs[3]-1,qs[1]  ]) )/2
+        QS_down_rightx  =  All_ang_lon[qs[2],qs[1]] - (All_ang_lon[qs[2],qs[1]]  - (All_ang_lon[qs[2]  ,qs[1]-1]) )/2
+        QS_down_righty  =  All_ang_lat[qs[2],qs[1]] + (All_ang_lat[qs[2],qs[1]]  - (All_ang_lat[qs[2]+1,qs[1]  ]) )/2
+        QS_down_leftx   =  All_ang_lon[qs[2],qs[0]] + (All_ang_lon[qs[2],qs[0]]  - (All_ang_lon[qs[2]  ,qs[0]+1]) )/2
+        QS_down_lefty   =  All_ang_lat[qs[2],qs[0]] + (All_ang_lat[qs[2],qs[0]]  - (All_ang_lat[qs[2]+1,qs[0]  ]) )/2
+        # print(qs[3],qs[0],QS_up_leftx)
+        ws = window_size
+        WS_up_leftx     = All_ang_lon[ws[0,1],ws[1,0]] + (All_ang_lon[ws[0,1],ws[1,0]]  - (All_ang_lon[ws[0,1]  ,ws[1,0]+1]) )/2
+        WS_up_lefty     = All_ang_lat[ws[0,1],ws[1,0]] - (All_ang_lat[ws[0,1],ws[1,0]]  - (All_ang_lat[ws[0,1]-1,ws[1,0]  ]) )/2
+        WS_up_rightx    = All_ang_lon[ws[0,1],ws[1,1]] - (All_ang_lon[ws[0,1],ws[1,1]]  - (All_ang_lon[ws[0,1]  ,ws[1,1]-1]) )/2
+        WS_up_righty    = All_ang_lat[ws[0,1],ws[1,1]] - (All_ang_lat[ws[0,1],ws[1,1]]  - (All_ang_lat[ws[0,1]-1,ws[1,1]  ]) )/2
+        WS_down_rightx  = All_ang_lon[ws[0,0],ws[1,1]] - (All_ang_lon[ws[0,0],ws[1,1]]  - (All_ang_lon[ws[0,0]  ,ws[1,1]-1]) )/2
+        WS_down_righty  = All_ang_lat[ws[0,0],ws[1,1]] + (All_ang_lat[ws[0,0],ws[1,1]]  - (All_ang_lat[ws[0,0]+1,ws[1,1]  ]) )/2
+        WS_down_leftx   = All_ang_lon[ws[0,0],ws[1,0]] + (All_ang_lon[ws[0,0],ws[1,0]]  - (All_ang_lon[ws[0,0]  ,ws[1,0]+1]) )/2
+        WS_down_lefty   = All_ang_lat[ws[0,0],ws[1,0]] + (All_ang_lat[ws[0,0],ws[1,0]]  - (All_ang_lat[ws[0,0]+1,ws[1,0]  ]) )/2
+    elif type(quite_sun) == float:
+        pass
+    else: raise Exception("the algorithm accepts only np.ndarray or floats")
+    
+    def sub_q(Q:list)->list:
+        sub_q = []
+        i_b1 = 0
+        i_b2 = 0
+        for i in range(len(Q)):
+            if Q[i] == "B":
+                i_b2 = i+1
+                sub_q.append([i_b1,i_b2]) 
+                i_b1 = i_b2
+        return sub_q
+    mean_pos = []
+    _q = sub_q(q)
+    _c = -1; _nl = int((len(q)-len(_q))/3)+len(_q)+1
+    conv_c = 0
+    plt.rcParams.update({'font.size': 30})
+    fig = plt.figure(figsize=(24,24))
+    gs0 = fig.add_gridspec(2,2)
+    gs1 = gs0[0,0].subgridspec(2,1)
+    gs2 = gs1[1].subgridspec(1,2)
+    
+    # fig, axis = plt.subplots(2,2, figsize=(24,8.2*_nl))
+    
+    for i in range(len(q)):
+        if q[i] == "I":
+            _c += 1
+            if _c>0: raise Exception('you called the function plot_summary_Miho_1line it is for ONE line not for multiple lines DUMBASS!!! ')
+            axI = fig.add_subplot(gs0[0,1])
+            minmax = {"interval" : AsymmetricPercentileInterval(1, 99)} 
+            if type(max_I)!=type(None) and type(min_I)!=type(None):
+                minmax= {"vmin" : min_I,"vmax" : max_I} 
+                
+            norm = ImageNormalize(p[i,t],**minmax,stretch=SqrtStretch())
+            im = axI.pcolormesh(ang_lon,ang_lat,p[i,t], norm=norm,cmap="magma")
+            axI.set_title('Intensity ($W \cdot m^{-2} \cdot sr^{-1}\cdot nm^{-1}$)' )
+            
+            
+            
+            axI.set_xlabel('Helioprojective longitude \n (arcsec)' )
+            axI.set_ylabel('Helioprojective latitude \n (arcsec)' )
+            axI.set_aspect('equal')
+            plt.colorbar(im,shrink=0.75,ax=axI,extend=  ("both" if visualize_saturation else None))
+            
+        if q[i] == "x": 
+            axx = fig.add_subplot(gs0[1,0])
+            if type(quite_sun)==np.ndarray: mean_x = np.nanmean(p[i,t,quite_sun[2]-ws[0,0]:quite_sun[3]+ws[0,0],quite_sun[0]-ws[1,0]:quite_sun[1]-ws[1,0]])
+            else: mean_x = quite_sun
+            mean_pos.append(mean_x)
+            cmap = plt.get_cmap(cmap_doppler).copy()
+            cmap.set_extremes(under='yellow', over='green') if visualize_saturation else 0
+            
+            #print("Calculated mean: ", mean_x)
+            im = axx.pcolormesh(ang_lon,ang_lat,(p[i,t]-mean_x)/mean_x*3*10**5, vmin=min_x,vmax=max_x ,cmap=cmap)
+            
+            
+            axx.set_title('Doppler (km/s)')
+            axx.set_xlabel('Helioprojective longitude \n (arcsec)' )
+            axx.set_ylabel('Helioprojective latitude \n (arcsec)' )
+            axx.set_aspect('equal')
+            plt.colorbar(im,shrink=0.75,ax=axx,extend=  ("both" if visualize_saturation else None))
+        if q[i] == "s":
+            axs = fig.add_subplot(gs0[1,1])
+            cmap = plt.get_cmap('hot').copy()
+            cmap.set_extremes(under='green', over='violet') if visualize_saturation else 0
+            im = axs.pcolormesh(ang_lon,ang_lat,p[i,t],cmap=cmap,vmax = max_s, vmin = min_s)
+            
+            
+            axs.set_title('$\sigma$ ($\AA$)')
+            axs.set_xlabel('Helioprojective longitude \n (arcsec)' )
+            axs.set_ylabel('Helioprojective latitude \n (arcsec)' )
+            axs.set_aspect('equal')
+            plt.colorbar(im,shrink=0.75,ax=axs,extend=  ("both" if visualize_saturation else None))
+            
+       
+    mn = np.nanmean(
+        w[:,
+            :,
+            :,#ws[0,0]:ws[0,1],
+            :#ws[1,0]:ws[1,1]
+        ],
+        axis=(0,1)
+        )   
+    axAI = fig.add_subplot(gs2[0])
+    minmax = {"interval" : AsymmetricPercentileInterval(1, 99)} 
+    if type(max_I)!=type(None) and type(min_I)!=type(None):
+        minmax= {"vmin" : min_I,"vmax" : max_I} 
+    
+    norm = ImageNormalize(mn,**minmax,stretch=SqrtStretch())
+    im = axAI.pcolormesh(All_ang_lon,All_ang_lat,mn,norm=norm,cmap="magma")
+    # axAI.set_aspect('auto')
+    plt.colorbar(im,shrink=0.75,ax=axAI,extend=  ("both" if visualize_saturation else None))
+    
+    axAI.plot([QS_up_leftx,QS_up_rightx,QS_down_rightx,QS_down_leftx,QS_up_leftx],
+                    [QS_up_lefty,QS_up_righty,QS_down_righty,QS_down_lefty,QS_up_lefty],
+                    "o-",
+                    alpha = 1,
+                    color= (0,1,0),lw=5,
+                    label="Selected\nquite region")
+    axAI.plot([WS_up_leftx,WS_up_rightx,WS_down_rightx,WS_down_leftx,WS_up_leftx],
+                    [WS_up_lefty,WS_up_righty,WS_down_righty,WS_down_lefty,WS_up_lefty],
+                    "o-",
+                    alpha = 1,
+                    color= (1,0,0),lw=3,
+                    label="Analysed region")
+    
+    
+
+    axAI.set_title('Average intensity',fontsize = 16)
+    axAI.set_xlabel('Helioprojective longitude \n (arcsec)',fontsize = 16 )
+    axAI.set_ylabel('Helioprojective latitude \n (arcsec)',fontsize = 16 )
+    axAI.set_aspect('equal')
+    axAI.xaxis.set_tick_params(labelsize=16)
+    axAI.yaxis.set_tick_params(labelsize=16)
+    
+    axAS = fig.add_subplot(gs2[1])
+    axAS.step(sa,np.nanmean(
+        w[:,
+            :,
+            ws[0,0]:ws[0,1],
+            ws[1,0]:ws[1,1]
+            ],
+        axis=(0,2,3)
+        ))
+       
+    # print(mean_pos)
+    # print(sa)
+    for x in mean_pos:
+        axAS.axvline(x,ls=':',label="line: {:02d}".format(mean_pos.index(x)))
+    axAS.legend(fontsize=16)
+    axAS.set_title("Average spectrum",fontsize = 16)
+    axAS.set_ylabel('Intensity',fontsize = 16 )
+    axAS.set_xlabel('Wavelength $(\AA)$',fontsize = 16 )
+    axAS.xaxis.set_tick_params(labelsize=16)
+    axAS.yaxis.set_tick_params(labelsize=16)
+    
+    fig.text(0.08,0.80,suptitle + "\n" + raster.meta["DATE_SUN"][:-4],fontsize=60)
+    if type(segmentation) != type(None):
+        if len(segmentation.shape)!=1:
+            for seg in segmentation:
+                color = np.random.rand(3)
+                color = 0.8 * color/np.sqrt(np.sum(color**2))
+                axAS.axvspan(seg[0], seg[1], alpha=.5,color = color)
+        else:
+            seg = segmentation
+            color = np.random.rand(3)
+            color = 0.8 * color/np.sqrt(np.sum(color**2))
+            axAS.axvspan(seg[0], seg[1], alpha=0.5,color = color)
+    plt.tight_layout()
+    if save: plt.savefig(filename)
+    
+    return fig,[axI,axx,axs,axAI,axAS],All_ang_lon, All_ang_lat,ang_lon, ang_lat,quite_sun  
+
+def plot_window(spectrum_axis: np.array,
+                window: np.ndarray,
+                paramlist:np.ndarray,
+                quentity: list,
+                convlist =None,
+                suptitle = "",
+                window_size: np.ndarray =np.array([[0,-1],[0,-1]]),
+                t: int = 0,
+                segmentation = None,
+                save = False,
+                filename = "./imgs/res.jpg",
+                quite_sun:np.ndarray = np.array([0,-1,0,-1]),
+                min_vel = -100,
+                max_vel = +100):
+    cmap_doppler = "twilight_shifted"
+    quite_sun = quite_sun.copy()
+    quite_sun[0] = quite_sun[0] - window_size[1,0]
+    quite_sun[2] = quite_sun[2] - window_size[0,0]
+     
+    if quite_sun[1] == -1:
+        if window_size[1,1] == -1: quite_sun[1] = window.shape[3] - window_size[1,0]
+        else: quite_sun[1] = window_size[1,1] - window_size[1,0]
+    else: quite_sun[1] = quite_sun[1] - window_size[1,0]
+    if quite_sun[3] == -1:
+        if window_size[0,1] == -1: quite_sun[3] = window.shape[2] - window_size[0,0]
+        else: quite_sun[3] = window_size[0,1] - window_size[0,0]
+    else: quite_sun[3] = quite_sun[3] - window_size[0,0]
+
+    
+    w = window;q = quentity;p=paramlist;ws=window_size;sa=spectrum_axis
+    def sub_q(Q:list)->list:
+        sub_q = []
+        i_b1 = 0
+        i_b2 = 0
+        for i in range(len(Q)):
+            if Q[i] == "B":
+                i_b2 = i+1
+                sub_q.append([i_b1,i_b2]) 
+                i_b1 = i_b2
+        return sub_q
+    _q = sub_q(q)
+    _c = -1; _nl = int((len(q)-len(_q))/3)+len(_q)+1
+    conv_c = 0
+    mean_pos = []
+    plt.rcParams.update({'font.size': 22})
+    fig, axis = plt.subplots(_nl,3, figsize=(24,6*_nl))
+    
+    for i in range(len(q)):
+        if q[i] == "I":
+            _c += 1
+            norm = ImageNormalize(p[i,t],AsymmetricPercentileInterval(1, 99),stretch=SqrtStretch())
+            im = axis[_c,0].imshow(p[i,t], aspect= "auto",origin="lower", norm=norm,cmap="magma")
+            axis[_c,0].set_title('Intensity ($W \cdot m^{-2} \cdot sr^{-1}\cdot nm^{-1}$)' )
+            plt.colorbar(im,ax=axis[_c,0],extend=  ("both" if visualize_saturation else None))
+            
+            
+        if q[i] == "x": 
+            mean_x = np.nanmean(p[i,t,quite_sun[0]:quite_sun[1],quite_sun[2]:quite_sun[3]])
+            im = axis[_c,1].imshow((p[i,t]-mean_x)/mean_x*3*10**5,origin="lower", vmin=min_vel,vmax=max_vel ,aspect= "auto",cmap=cmap_doppler)
+            axis[_c,1].set_title('Doppler (km/s)')
+            plt.colorbar(im,ax=axis[_c,1],extend=  ("both" if visualize_saturation else None))
+            mean_pos.append(np.nanmean(p[i,t]))
+            
+            
+        if q[i] == "s":
+            im = axis[_c,2].imshow(p[i,t], aspect= "auto",origin="lower",cmap="hot")
+            axis[_c,2].set_title('$\sigma$ ($\AA$)')
+            plt.colorbar(im,ax=axis[_c,2],extend=  ("both" if visualize_saturation else None))
+            
+            
+        if q[i] == "B":
+            _c += 1
+            norm = ImageNormalize(p[i,t],AsymmetricPercentileInterval(1, 99),stretch=SqrtStretch())
+            im = axis[_c,0].imshow(p[i,t], aspect= "auto",origin="lower",norm=norm,cmap="magma")
+            axis[_c,0].set_title('Background Intensity ($W \cdot m^{-2} \cdot sr^{-1}\cdot nm^{-1}$)' )
+            plt.colorbar(im,ax=axis[_c,0],extend=  ("both" if visualize_saturation else None))
+            
+            
+            axis[_c,2].remove()
+            if type(convlist) == type(None):
+                axis[_c,1].remove()    
+            else:
+                im = axis[_c,1].imshow(convlist[conv_c,t,:,:],aspect='auto',origin="lower",cmap='Dark2',vmin = -0.5, vmax=7.5, )
+                axis[_c,1].set_title('convolution level map')
+                plt.colorbar(im,ax=axis[_c,1],extend=  ("both" if visualize_saturation else None))      
+                conv_c  += 1
+            
+    mn = np.nanmean(
+        w[:,
+            :,
+            ws[0,0]:ws[0,1],
+            ws[1,0]:ws[1,1]],
+        axis=(0,1)
+        )       
+    norm = ImageNormalize(mn,AsymmetricPercentileInterval(1, 99),stretch=SqrtStretch())
+    # print(axis.shape)
+    
+    im = axis[-1,0].imshow(mn, aspect= "auto",norm=norm,cmap="magma",origin="lower")
+    plt.colorbar(im,ax=axis[-1,0],extend=  ("both" if visualize_saturation else None))
+
+    axis[-1,0].axvspan(
+            xmin = quite_sun[0], 
+            xmax = quite_sun[1], 
+            ymin = quite_sun[2]/(axis[-1,0].get_ylim()[1]-axis[-1,0].get_ylim()[0]), 
+            ymax = quite_sun[3]/(axis[-1,0].get_ylim()[1]-axis[-1,0].get_ylim()[0]),
+            alpha = 0.5,
+            color= (0,1,0),label="selected\nquite region"
+            )
+    axis[-1,0].set_title('original averaged\n over spectrum')
+    
+    
+    axis[-1,1].plot(sa,np.nanmean(
+        w[:,
+            :,
+            ws[0,0]:ws[0,1],
+            ws[1,0]:ws[1,1]],
+        axis=(0,2,3)
+        ))
+       
+    # print(mean_pos)
+    # print(sa)
+    for x in mean_pos:
+        axis[-1,1].axvline(x,ls=':',label="line: {:02d}".format(mean_pos.index(x)))
+    axis[-1,1].legend()
+    axis[-1,1].set_title("original average spectrum/ average line positions/\n segments")
+    axis[-1,2].remove()
+    fig.suptitle(suptitle,fontsize=20)
+    if type(segmentation) != type(None):
+        if len(segmentation.shape)!=1:
+            for seg in segmentation:
+                color = np.random.rand(3)
+                color = 0.8 * color/np.sqrt(np.sum(color**2))
+                axis[-1,1].axvspan(seg[0], seg[1], alpha=.5,color = color)
+        else:
+            seg = segmentation
+            color = np.random.rand(3)
+            color = 0.8 * color/np.sqrt(np.sum(color**2))
+            axis[-1,1].axvspan(seg[0], seg[1], alpha=0.5,color = color)
+    fig.tight_layout()
+    if save: plt.savefig(filename)
+    
+    return fig,axis
+
+def plot_error(covlist,
+               paramlist,
+               quentity,
+               fig = None, 
+               axis = None,               
+               t:int = 0,
+               alpha=1,
+               label="",
+               save=True,
+               filename="./imgs/res.jpg",
+               min_hist=-2,
+               max_hist= 1):
+    cl = covlist; q =quentity; p=paramlist
+    def sub_q(Q:list)->list:
+        sub_q = []
+        i_b1 = 0
+        i_b2 = 0
+        for i in range(len(Q)):
+            if Q[i] == "B":
+                i_b2 = i+1
+                sub_q.append([i_b1,i_b2]) 
+                i_b1 = i_b2
+        return np.array(sub_q)
+    _q = sub_q(q)
+    _nl = int((len(q)-len(_q))/3)+len(_q)
+    _c = -1 
+    if type(axis)==type(None): 
+        fig, axis = plt.subplots(_nl,3, figsize=(24,6*_nl))
+    if False:
+        fig2, axis2 = plt.subplots(5,5, figsize=(12,3*5))
+        axis2 = axis2.flatten()
+    i = 0 
+    for i in range(len(_q)):
+        for j in range(_q[i,0],_q[i,1]):             
+            _j = j-_q[i,0]
+            q_val = q[j]
+            data = cl[j,j,t]
+            _data= p[j,t] 
+            if q_val=='I':
+                _c+=1
+                axis[_c,0].hist((np.sqrt(data)/_data).flatten(),bins =10**np.arange(min_hist-1,max_hist-1,0.1),log=True,alpha = alpha,label = label)
+                axis[_c,0].set_xscale("log")
+                axis[_c,0].set_yscale("log")
+                axis[_c,0].set_title(r'${\Delta I}{ I}$')
+            if q_val=='x':
+                axis[_c,1].hist((np.sqrt(data)/_data).flatten(),bins =10**np.arange(min_hist-4,max_hist-4,0.1),log=True,alpha = alpha,label = label)
+                axis[_c,1].set_xscale("log")
+                axis[_c,1].set_yscale("log")
+                axis[_c,1].set_title(r'${\Delta \lambda_0}{\lambda_0}$')
+            if q_val=='s':
+                axis[_c,2].hist((np.sqrt(data)/_data).flatten(),bins =10**np.arange(min_hist-1,max_hist-1,0.1),log=True,alpha = alpha,label = label)
+                axis[_c,2].set_xscale("log")
+                axis[_c,2].set_yscale("log")
+                axis[_c,2].set_title(r'${\Delta \sigma}{\sigma}$')
+            if q_val=='B':
+                _c+=1
+                axis[_c,0].hist((np.sqrt(data)/_data).flatten(),bins =10**np.arange(min_hist,max_hist,0.1),log=True,alpha = alpha,label = label)
+                axis[_c,0].set_xscale("log")
+                axis[_c,0].set_yscale("log")
+                axis[_c,0].set_title(r'${\Delta B}{ B}$')
+                try:
+                    axis[_c,1].remove();axis[_c,2].remove()
+                except:
+                    pass
+    fig.tight_layout()
+    if save: plt.savefig(filename)
+    return fig, axis
+
+
+
+
+def fit_pixel_multi_v1_0(x:np.ndarray,
+                    y:np.ndarray,
+                    ini_params:np.ndarray,
+                    fit_func:Callable,
+                    bounds:np.ndarray=[np.nan],
+                    plotit: bool=False,
+                    ):
+    
+    assert len(ini_params.shape)==1
+    assert x.shape==y.shape
+    _s = ini_params.shape[0]
+    if not (False in  (np.isnan(bounds))):
+        bounds = np.zeros((2,_s))
+        bounds[:,-1] = [0,0.1] 
+        i=0
+        while True:
+            if i==_s-1: break
+            bounds[0,i  ] = 0                            ;   bounds[1,i  ] = 12
+            bounds[0,i+2] = 0                            ;   bounds[1,i+2] = 2
+            bounds[0,i+1] = ini_params[i+1]-bounds[1,i+2];   bounds[1,i+1] = ini_params[i+1]+bounds[1,i+2]
+            i+=3
+    _s = ini_params.shape[0]
+    _x,_y =  clean_nans(x,y)
+    
+    if _y.shape[0]<=_s:
+        return (np.ones((_s  ))*np.nan,
+                np.ones((_s,_s))*np.nan)
+    try:
+        
+        
+        
+        res = curve_fit(fit_func,_x,_y,p0=ini_params,bounds=bounds)
+    except RuntimeError:
+        #print("RuntimeError: Haven't found optimal parameter")
+        res =  (np.ones((_s  ))*np.nan,
+                np.ones((_s,_s))*np.nan)
+        plotit =True
+    if plotit:
+        plt.plot(x,y)
+        # plt.plot(x,fit_func(x,*ini_params))
+        # plt.plot(x,fit_func(x,*res[0]))
+        pass
+    return res
+
+def fit_window_multi_v1_0(x,
+                     window,
+                     init_params,
+                     fit_func,
+                     bounds=np.array([np.nan]),
+                     counter_percent = 0.5,
+                     preclean=True,
+                     preadjust = True
+                     ):
+    
+    assert (counter_percent<=100 and counter_percent>=0)
+    dshape  = np.array([window.shape[0],
+                        window.shape[2],
+                        window.shape[3],
+                       ])
+    _counter = 0
+    _imsize = dshape[0]*dshape[1]*dshape[2]
+    _next = 0
+    
+    if preclean: window = Preclean(window)
+    if preadjust:
+        init_params,var =fit_pixel_multi(x,
+                                           np.nanmean(window,axis=(0,2,3)),
+                                           init_params,
+                                           fit_func=fit_func,plotit=True)
+        
+    
+    paramlist = np.zeros((*init_params.shape, 
+                          *dshape))
+    
+    covlist  = np.zeros((*init_params.shape, 
+                          *init_params.shape, 
+                          *dshape))
+    for i_t in range(dshape[0]):
+        for i_y in range(dshape[1]):
+            for i_x in range(dshape[2]):
+                coeff,var = fit_pixel_multi(x=x,
+                                            y=window[i_t,:,i_y,i_x],
+                                            ini_params=init_params,
+                                            fit_func=fit_func,
+                                            bounds=bounds
+                                            )
+                paramlist[:,i_t,i_y,i_x] = coeff
+                covlist[:,:,i_t,i_y,i_x] = var
+                if _next<= _counter:
+                    print( "{:05.2f}% generated".format(_counter/_imsize*100))
+                    _next = int(counter_percent/100 * _imsize + _counter)
+                _counter+=1
+    return paramlist, covlist
+
+def multi_windows_fit_v1_0(x,
+                     windows,
+                     init_params,
+                     fit_func,
+                     bounds=np.array([np.nan]),
+                     counter_percent = 10,
+                     preclean=True,
+                     preadjust = True):
+    
+    paramlist2 = []
+    covlist2 = []
+    for i,window in enumerate(windows):
+        print("./.p/01_window_{}.p".format(i+1))
+        init_params2 = init_params[i]
+        paramlist, colist = fit_window_multi(x = x[i].astype('float32'),
+                 window = window.astype('float32'),
+                 init_params= init_params2,
+                 counter_percent=counter_percent,
+                 bounds=bounds,
+                 fit_func= fit_func,
+                 preclean=preclean,
+                 preadjust = preadjust
+                 )
+        paramlist2.append(paramlist)
+        covlist2.append(colist)
+        
+        pickle.dump((paramlist, colist),open("./.p/01_window_{}.p".format(i+1),"wb"))
+    return paramlist2, covlist2  
+
+def is_forPlotting_v1_0(indices,dshape,i_t,i_y,i_x):
+    if type(indices)==type(None): return False, None
+    i_size =(i_x + 
+             i_y * dshape[2] + 
+             i_t * dshape[2] * dshape[1] )
+    
+    if not (i_size in indices):
+        return False,i_size
+    else:
+        return True,i_size
+
+
+def fit_pixel_v1_0(pixel_data      :np.ndarray,
+              Gauss_ini_params:np.ndarray=None,
+              plotit          :bool=False,
+              bounds          :(np.array,np.array)=True,
+              refit           :bool  = True,
+              refit_plotit    :bool  = False 
+             )->(np.ndarray,np.ndarray):
+    """Function that Fits a pixel data into a gaussian.
+
+    Args:
+        pixel_data (np.ndarray): pixel intensity values as function of wavelength.
+        Gauss_ini_params (np.ndarray, shape:4,optional): a list of initiale parameters if not initialized 
+        the function will chouse:            
+            I_max = max(pixel_data)
+            x0    = index(I_max)
+            sigma = 3
+            B     = 0.01
+        Defaults to None.
+        plotit (bool, optional): in case you want to plot it. Defaults to False.
+        bounds (np.array,np.array): the bounds of the parameters
+        refit (bool): if True the functio will clean data then refits again for better precision
+    Return:
+        coeff (np.ndarray): fitted parameters.
+        var_matrix (np.ndarray): variation matrix that represent calculated fitting error.
+    """
+    
+    
+    if all(np.isnan(pixel_data)):
+        return (np.ones((4  ))*np.nan,
+                np.ones((4,4))*np.nan)
+    
+    x_nan,data_clean_nan =  clean_nans(np.arange(len(pixel_data)),
+                                       pixel_data
+                                      )
+    
+    if type(Gauss_ini_params)==type(None):
+        
+        if False: #using CFD to calculate initialization
+            Icum = np.cumsum(data_clean_nan)
+            values = (np.abs(
+                        Icum-(Icum[-1]+Icum[0])/2
+                        )
+                 )
+            value  = np.min(values)
+            index  = np.where(values == value)
+            x0   = x_nan[index][0]
+            Imax = pixel_data[int(x0)]
+            
+        
+        if True: #using maximum value to calculate initiation
+            Imax = np.nanmax(pixel_data)
+            x0   = np.where(pixel_data==Imax)[0][0]
+        
+        B    = 0.01
+        sigma= 3
+        Gauss_ini_params = [Imax,x0,sigma,B]
+    if type(bounds) == bool:
+        if bounds ==True:
+            bounds = (np.array(4),np.array(4))
+            Imax_max = 100              ;Imax_min = 0
+            x0_max = len(pixel_data)*3/4;x0_min = len(pixel_data)*1/4
+            sigma_max = 20               ;sigma_min = 0
+            B_max = 0.5                   ;B_min = 0
+
+            if Imax > Imax_max or Imax < Imax_min:
+                Imax = np.nanmax(pixel_data[int(x0_min):int(x0_max)])
+            if x0 > x0_max or x0 < x0_min:
+                x0 = int(len(pixel_data)*1/2)
+            
+            bounds=([Imax_min,x0_min,sigma_min,B_min],
+                    [Imax_max,x0_max,sigma_max,B_max]
+                    
+                   )
+            Gauss_ini_params = [Imax,x0,sigma,B]
+            #print(Gauss_ini_params, bounds)
+        elif bounds==False:
+            bounds=(-np.inf, np.inf)
+    elif type(bounds)==type(None):
+        bounds=(-np.inf, np.inf)
+    
+    try:
+        # print(x_nan.shape, data_clean_nan.shape)
+        # print(Gauss_ini_params,bounds)
+        coeff, var_matrix = curve_fit(Gauss, x_nan, data_clean_nan, p0=Gauss_ini_params,bounds=bounds)        
+    except RuntimeError:
+        warnings.warn("the curve_fit didn't find the optimale parameters",RuntimeWarning)
+        coeff, var_matrix = (np.ones((4  ))*np.inf,
+                            np.ones((4,4))*np.inf)
+    except Exception:
+        print('probably X0 is infeasable')
+        print(Gauss_ini_params,bounds)
+        coeff, var_matrix = (np.ones((4  ))*np.inf,
+                            np.ones((4,4))*np.inf)
+        plotit=2
+        
+    if plotit or plotit==2:
+        plt.figure(figsize=(12,8))
+        plt.plot(np.arange(0,len(pixel_data),step=0.01),
+                 Gauss(np.arange(0,len(pixel_data),step=0.01),*Gauss_ini_params),
+                 ':',label='initial parameters'
+                )
+        plt.plot(np.arange(0,len(pixel_data),step=0.01),
+                 Gauss(np.arange(0,len(pixel_data),step=0.01),*coeff),
+                 "-.",label='Fit parameters\n$I_{{max}} : {:04.2f}\\_x_0:{:04.1f}\\_\sigma : {:04.1f}\\_B:{:04.2f}$'.format(coeff[0],coeff[1],coeff[2],coeff[3]))
+        plt.plot(
+                 pixel_data,"-o",label="data"
+                )
+        plt.legend()
+        plt.grid()
+        
+        if plotit==2:
+            return coeff, var_matrix
+
+    if refit:
+        _show = False
+        coeff_final = coeff
+        var_matrix_final = var_matrix
+        #_______________________________________________RULE01___________________________________________________
+        #cleaning data from overmax values in the tailes (above sigma)
+        del_arr = np.logical_and(
+                    data_clean_nan>coeff[0]+coeff[3],
+                    np.abs(x_nan-coeff[1])>+coeff[2]
+                    )
+        xn_2 = x_nan[~del_arr]
+        dcn_2= data_clean_nan[~del_arr]
+        
+        if refit_plotit:#len(xn_2)!=len(x_nan):
+            print("found strange intense pixels in the fit-gauss tails")
+            plt.plot(x_nan,data_clean_nan ,'o',color ="blue", label= "data 00") 
+            plt.plot(x_nan[del_arr],data_clean_nan[del_arr] ,'o',color ="orange",label='deleted for refit 03\n$I_{{max}} : {:04.2f}\\_x_0:{:04.1f}\\_\sigma : {:04.1f}\\_B:{:04.2f}$'.format(coeff_final[0],
+                                                                                                                                                              coeff_final[1],
+                                                                                                                                                              coeff_final[2],
+                                                                                                                                                              coeff_final[3],
+                                                                                                                                                             )) 
+            plt.plot(np.arange(0,len(pixel_data),step=0.01),
+                 Gauss(np.arange(0,len(pixel_data),step=0.01),*coeff_final),
+                 ":",color ="blue", label= "  fit 00"
+                )
+            _show=True
+            plt.legend(fontsize=14)
+        
+        try:
+            # print(x_nan.shape, data_clean_nan.shape)
+            coeff_2, var_matrix_2 = curve_fit(Gauss, xn_2, dcn_2, p0=coeff_final,bounds=bounds)
+            
+        except RuntimeError:
+            warnings.warn("the curve_fit didn't find the optimale parameters-> returning the last fit",RuntimeWarning)
+            return coeff_final, var_matrix_final
+        except Exception:
+            print('probably X0 is infeasable')
+            print(Gauss_ini_params,bounds)
+            return coeff_final, var_matrix_final
+            plotit=2
+        
+        coeff_final = coeff_2
+        var_matrix_final = var_matrix_2
+        
+        #_______________________________________________RULE02___________________________________________________
+        #cleaning data from the overmax values in the body (all the profile)
+        del_arr_2 = dcn_2>coeff_2[0]*1.5+coeff_2[3]
+        xn_3 = xn_2[~del_arr_2]
+        dcn_3= dcn_2[~del_arr_2]
+        if refit_plotit:#len(xn_3)!=len(xn_2):
+            print("found strange intense pixels in the fit-gauss body")
+            plt.plot(x_nan,data_clean_nan ,'o',color ="blue") if not _show else 0
+            plt.plot(xn_2[del_arr_2],dcn_2[del_arr_2] ,'v',color ="green",label='deleted for refit 03\n$I_{{max}} : {:04.2f}\\_x_0:{:04.1f}\\_\sigma : {:04.1f}\\_B:{:04.2f}$'.format(coeff_final[0],
+                                                                                                                                                              coeff_final[1],
+                                                                                                                                                              coeff_final[2],
+                                                                                                                                                              coeff_final[3],
+                                                                                                                                                             ))
+            plt.plot(np.arange(0,len(pixel_data),step=0.01),
+                 Gauss(np.arange(0,len(pixel_data),step=0.01),*coeff_final),
+                 "-.",color ="orange", label= "refit 01"
+                )
+            
+            _show=True
+            plt.legend(fontsize=14)
+            
+        try:
+            # print(x_nan.shape, data_clean_nan.shape)
+            coeff_3, var_matrix_3 = curve_fit(Gauss, xn_3, dcn_3, p0=coeff_final,bounds=bounds)
+
+        except RuntimeError:
+            warnings.warn("the curve_fit didn't find the optimale parameters-> returning the last fit",RuntimeWarning)
+            return coeff_final, var_matrix_final
+        except Exception:
+            print('probably X0 is infeasable')
+            print(Gauss_ini_params,bounds)
+            return coeff_final, var_matrix_final
+            plotit=2
+            
+        coeff_final = coeff_3
+        var_matrix_final = var_matrix_3
+        
+        
+        #_______________________________________________RULE03___________________________________________________
+        #cleaning data from the overintensified results coùpared with the gaussian values of the fit
+        #del_arr_3 = np.abs(dcn_3-Gauss(xn_3,*coeff_final))>0.2*Gauss(xn_3,*coeff_final)+coeff_final[3]
+        if True:
+            del_arr_3 = np.abs(dcn_3-Gauss(xn_3,*coeff_final))>0.2*Gauss(xn_3,*coeff_final)+coeff_final[3]
+            
+            if len(del_arr_3[del_arr_3==False])<=1:
+                print("Warning: 3rd criterion found to be too much exclusive switching to another criterion")
+                del_arr_3 = 1/len(dcn_3)*np.sqrt(np.sum(
+                                            (dcn_3-Gauss(xn_3,*coeff_final))**2/Gauss(xn_3,*coeff_final)**2
+                                        ))< np.abs(np.abs(dcn_3-Gauss(xn_3,*coeff_final)))/Gauss(xn_3,*coeff_final)
+                if len(del_arr_3[del_arr_3==False])<=1:
+                    print("Warning: 3rd criterion found to be too much exclusive again aborting this rule")
+                    del_arr_3 = ~del_arr_3
+            # plt.plot(xn_3,(1/len(dcn_3)*np.sqrt(np.sum(
+            #                                 (dcn_3-Gauss(xn_3,*coeff_final))**2/Gauss(xn_3,*coeff_final)**2
+            #                                ))- np.abs(np.abs(dcn_3-Gauss(xn_3,*coeff_final))-2*coeff_final[3])/Gauss(xn_3,*coeff_final))/250)
+            xn_4 = xn_3[~del_arr_3]
+            dcn_4= dcn_3[~del_arr_3]
+            if refit_plotit:#len(xn_4)!=len(xn_3):
+                print("found strange intense pixels compared with the predicted fit")
+                plt.plot(x_nan,data_clean_nan ,'o',color ="blue") if not _show else 0
+                # print(coeff_final[3])
+                plt.plot(xn_3[del_arr_3],dcn_3[del_arr_3] ,'^',color ="black",label='deleted for refit 03\n$I_{{max}} : {:04.2f}\\_x_0:{:04.1f}\\_\sigma : {:04.1f}\\_B:{:04.2f}$'.format(coeff_final[0],
+                                                                                                                                                                coeff_final[1],
+                                                                                                                                                                coeff_final[2],
+                                                                                                                                                                coeff_final[3],
+                                                                                                                                                                ))
+                plt.plot(np.arange(0,len(pixel_data),step=0.01),
+                    Gauss(np.arange(0,len(pixel_data),step=0.01),*coeff_final),
+                    "--",color ="green", label= "refit 02"
+                    )
+                # plt.figure()
+                # plt.plot(np.abs(dcn_3-Gauss(xn_3,*coeff_final))/Gauss(xn_3,*coeff_final))
+                _show=True
+                plt.legend(fontsize=14)
+            try:
+                # print(x_nan.shape, data_clean_nan.shape)
+                coeff_4, var_matrix_4 = curve_fit(Gauss, xn_4, dcn_4, p0=coeff_final,bounds=bounds)
+
+            except RuntimeError:
+                warnings.warn("the curve_fit didn't find the optimale parameters-> returning the last fit",RuntimeWarning)
+                return coeff_final, var_matrix_final
+            except Exception:
+                print('probably X0 is infeasable')
+                print(Gauss_ini_params,bounds)
+                return coeff_final, var_matrix_final
+                plotit=2
+                
+            coeff_final = coeff_4
+            var_matrix_final = var_matrix_4
+        
+        
+        plt.plot(np.arange(0,len(pixel_data),step=0.01),
+                 Gauss(np.arange(0,len(pixel_data),step=0.01),*coeff_final),
+                 "-",color= "black", label= "refit 03"
+                ) if refit_plotit and _show else 0
+        plt.yscale('log') if refit_plotit and _show else 0
+        plt.legend(fontsize=14) if refit_plotit and _show else 0
+        plt.figure() if refit_plotit and _show else 0
+        return coeff_final, var_matrix_final
+             
+    return(coeff, var_matrix)
+
+def fit_window_v1_0(data_window,
+              counter_percent = 10,
+              random_plot_number=3,
+              missfit_plotting = 12,
+              refit=True):
+    
+    dshape  = np.array([data_window.shape[0],
+                        data_window.shape[2],
+                        data_window.shape[3],
+                       ])
+    _missfit_tab = []
+    _counter = 0
+    _imsize = dshape[0]*dshape[1]*dshape[2]
+    _next = 0 
+    
+    assert missfit_plotting >=-1
+    assert random_plot_number>=0 
+    assert (counter_percent<=100 and counter_percent>=0)
+    if random_plot_number > _imsize:
+        random_plot_number = _imsize
+        warnings.warn("the total number of plots chosen is bigger than the size of data",SyntaxWarning)
+    
+    
+    paramlist = {"Imax" : np.zeros(dshape),
+                 "x0"   : np.zeros(dshape),
+                 "sigma": np.zeros(dshape),
+                 "B"    : np.zeros(dshape),
+                 "state": np.zeros(dshape),
+                 "var_mat": np.zeros((*dshape,4,4)),
+                 "cov"  : np.zeros(dshape)
+                }
+    
+    fig, axis, indices = set_random_plot(random_plot_number,_imsize)
+    
+    for i_t in range(dshape[0]):
+        for i_y in range(dshape[1]):
+            for i_x in range(dshape[2]):
+                # print(i_t,i_x,i_y)
+                coeff,var_matrix = fit_pixel(data_window[i_t,:,i_y,i_x],refit=refit)
+                paramlist['Imax'   ][i_t,i_y,i_x] = coeff[0]
+                paramlist['x0'     ][i_t,i_y,i_x] = coeff[1]
+                paramlist['sigma'  ][i_t,i_y,i_x] = coeff[2]
+                paramlist['B'      ][i_t,i_y,i_x] = coeff[3]
+                paramlist['var_mat'][i_t,i_y,i_x] = var_matrix
+                if all(np.isnan(coeff)):
+                    paramlist['state'  ][i_t,i_y,i_x] = 10
+                elif all(np.isinf(coeff)):
+                    paramlist['state'  ][i_t,i_y,i_x] = -10
+                    
+                paramlist['cov'    ][i_t,i_y,i_x] = np.sum(np.sqrt(np.diag(var_matrix)))
+                
+                if _next<= _counter:
+                    print( "{:05.2f}% generated".format(_counter/_imsize*100))
+                    _next = int(counter_percent/100 * _imsize + _counter)
+                
+                is_plotted , order  =is_forPlotting(indices,dshape,i_t,i_y,i_x)              
+                if is_plotted:
+                    print("generating a plot ...")
+                    j = np.where(indices==order)[0][0]
+                    if not all(np.isnan(coeff)): 
+                        axis[j].set_title("$i_t={:02d},i_x={:03d},i_y={:04d}$".format(i_t,i_x,i_y))
+                        axis[j].scatter(np.arange(len(data_window[i_t,:,i_y,i_x])),
+                                        data_window[i_t,:,i_y,i_x]
+                                       )
+                        
+                        axis[j].plot(np.arange(len(data_window[i_t,:,i_y,i_x]),step=0.1),
+                               Gauss(np.arange(len(data_window[i_t,:,i_y,i_x]),step=0.1),
+                                     np.nanmax(data_window[i_t,:,i_y,i_x]),
+                                     np.where(data_window[i_t,:,i_y,i_x]==np.nanmax(data_window[i_t,:,i_y,i_x]))[0],
+                                     3,
+                                     0.01               
+                                          )
+                                    ,':',color="yellow")
+                        axis[j].plot(np.arange(len(data_window[i_t,:,i_y,i_x]),step=0.1),
+                               Gauss(np.arange(len(data_window[i_t,:,i_y,i_x]),step=0.1),
+                                     *coeff
+                                          )
+                                    ,'-',color="black")
+                    else: 
+                        axis[j].set_title("Dead pixel\n $i_t={:02d},i_x={:03d},i_y={:04d}$".format(i_t,i_x,i_y))
+                    ("Done")
+                        
+                if all(np.isinf(coeff)) and (len(_missfit_tab)<missfit_plotting or missfit_plotting==-1 ):
+                    print("generating missfit plots")
+                    _missfit_tab.append([i_t,i_y,i_x])
+                _counter+=1
+                
+                
+    
+    fig2,axis2         = set_missfit_plot(_missfit_tab,data_window)
+    #plt.savefig("dead.jpg") if random_plot_number==0 else 0
+    return paramlist
+
+def fit_window_v2_0(data_window         :np.ndarray     ,
+              lambda_axis          :np.ndarray = None,
+              preclean             :bool       = True,
+              bounds               :(np.ndarray,np.ndarray)=True,
+              init_parmams         :np.ndarray = None,
+              counter_percent      :float      = 10,
+              random_plot_number   :int        =  3,
+              missfit_plotting     :int        = 12,
+              refit                :bool       = True,
+              adaptif              :bool       = True,
+              convolution_function :callable   = lambda x:np.zeros_like(x)+1,
+              convolution_threshold:float      = 1.,
+              convolution_extent_list:np.array = np.array([0,1,2]) 
+              ):
+    
+    """
+    this fits the whole window using fit_pixel function.
+    version 2.0 
+        -made to be adaptif reduces resolution once the parametrs f a pixel have a large error margin using convolution.\n
+        -added axis option for wavelength while fitting
+
+    Args:
+        data_window (np.ndarray): data window 4D cube
+        lambda_axis (np.ndarray, optional): lambda axis values for the fitting. Defaults to None. the results if None would be based on indeces. 
+        counter_percent (float, optional): a counter to print while fitting. Defaults to 10.
+        random_plot_number (int, optional): randomly plot some spectrums. Defaults to 3.
+        missfit_plotting (int, optional): in case of a badly fitted pixel a number of them will be plotted for debugging purpose.Defaults to 12.
+        refit (bool, optional): applying exclusion rules and re-fit. Defaults to True.
+        adaptif (bool, optional): reduce quality by convolving the window in case the threshold of error is surpassed. Defaults to False.
+        convolution_function (function, optional): the function to follow by the convolution as a function of x the pixel unit distance to the center. Defaults to lambdax:np.zeros_like(x)+1.
+        convolution_threshold (float, optional): threshold of error, if surpassed the next convolution is called. Defaults to 1.
+        convolution_extent_list (np.array, optional): list of possible convolutions in case threshold criterion wasn't met. Defaults to np.array([0,1,2]).
+
+    Returns:
+        if adaptif = True
+            dict: paramlist[{Imax},{x0},{segm},{B},"state","var_mat","cov",{convext} if adaptif= True] 
+    """
+    
+    if preclean: data_window = Preclean(data_window) 
+    x= (np.arange(0,data_window.shape[1],step=1   )) if type(lambda_axis) == type(None) else lambda_axis
+    dshape  = np.array([data_window.shape[0],
+                        data_window.shape[2],
+                        data_window.shape[3],
+                       ])
+    _missfit_tab = []
+    _counter = 0
+    _imsize = dshape[0]*dshape[1]*dshape[2]
+    _next = 0 
+    if type(init_parmams)!=type(None): assert init_parmams.shape[0]==4
+    assert missfit_plotting >=-1
+    assert random_plot_number>=0 
+    assert (counter_percent<=100 and counter_percent>=0)
+    assert all(convolution_extent_list>=0) and all(convolution_extent_list<np.max(data_window.shape[2:])/2) #make sure that all convolution extent is larger than 0 and smaller than thelength of x,y direction
+    if random_plot_number > _imsize:
+        random_plot_number = _imsize
+        warnings.warn("the total number of plots chosen is bigger than the size of data",SyntaxWarning)
+    
+    
+    paramlist = {"Imax" : np.zeros(dshape),
+                 "x0"   : np.zeros(dshape),
+                 "sigma": np.zeros(dshape),
+                 "B"    : np.zeros(dshape),
+                 "state": np.zeros(dshape),
+                 "var_mat": np.zeros((*dshape,4,4)),
+                 "cov"  : np.zeros(dshape)
+                }
+    #>>>>__________________________________V2.0_____________________________________
+    if adaptif: 
+        paramlist['convext'] = np.zeros(dshape,dtype=int)
+        conv_data = np.zeros((*convolution_extent_list.shape,*data_window.shape))
+        for i in range(convolution_extent_list.shape[0]):
+            if convolution_extent_list[i] == 0:
+                conv_data[i]=data_window.copy();continue
+            else:
+                ijc_list = fst_neigbors(convolution_extent_list[i])
+                ijc_list [:,2]= convolution_function(ijc_list [:,2])
+                conv_data[i]  = join_dt(data_window, ijc_list)
+    else:
+        conv_data = np.zeros((1,*data_window.shape))
+        conv_data[0]=data_window 
+    #_______________________________________________________________________________
+
+
+    fig, axis, indices = set_random_plot(random_plot_number,_imsize)
+    
+    for i_t in range(dshape[0]):
+        for i_y in range(dshape[1]):
+            for i_x in range(dshape[2]):
+    #>>>>_________________________________V2.0_____________________________________
+                for i_c in range(conv_data.shape[0]):
+                    coeff,var_matrix = fit_pixel(conv_data[i_c,i_t,:,i_y,i_x],refit=refit,lambda_axis=lambda_axis,bounds=bounds,Gauss_ini_params=init_parmams)
+                    if adaptif:
+                        # print(i_c,i_t,i_y,i_x)
+                        # print(np.sqrt(np.diag(var_matrix))/coeff,convolution_threshold)
+                        # print(all(np.sqrt(np.diag(var_matrix))/coeff<convolution_threshold))
+                        # input('')
+                        if all(np.sqrt(np.diag(var_matrix))/coeff<convolution_threshold):   
+                            paramlist['convext'   ][i_t,i_y,i_x] = convolution_extent_list[i_c]
+                            break
+                        else: 
+                            # print(np.sqrt(np.diag(var_matrix))/coeff)
+                            # input('')
+                            pass
+    #______________________________________________________________________________    
+    
+                    
+                paramlist['Imax'   ][i_t,i_y,i_x] = coeff[0]
+                paramlist['x0'     ][i_t,i_y,i_x] = coeff[1]
+                paramlist['sigma'  ][i_t,i_y,i_x] = coeff[2]
+                paramlist['B'      ][i_t,i_y,i_x] = coeff[3]
+                paramlist['var_mat'][i_t,i_y,i_x] = var_matrix
+                if all(np.isnan(coeff)):
+                    paramlist['state'  ][i_t,i_y,i_x] = 1
+                elif all(np.isinf(coeff)):
+                    paramlist['state'  ][i_t,i_y,i_x] = -1
+                    
+                paramlist['cov'    ][i_t,i_y,i_x] = np.sum(np.sqrt(np.diag(var_matrix)))
+                
+                if _next<= _counter:
+                    print( "{:05.2f}% generated".format(_counter/_imsize*100))
+                    _next = int(counter_percent/100 * _imsize + _counter)
+                
+                is_plotted , order  =is_forPlotting(indices,dshape,i_t,i_y,i_x)              
+                if is_plotted:
+                    print("generating a plot ...")
+                    j = np.where(indices==order)[0][0]
+                    if not all(np.isnan(coeff)): 
+                        win_width = np.max(x)-np.min(x)
+                        minl = np.min(x); maxl = np.max(x)
+                        Imax = np.nanmax(data_window[i_t,:,i_y,i_x])
+                        x0   = x[np.where(data_window[i_t,:,i_y,i_x]==Imax)[0][0]]
+                        B    = 0.01
+                        sigma= win_width/6
+                        Gauss_ini_params = [Imax,x0,sigma,B]
+                        axis[j].set_title("$i_t={:02d},i_x={:03d},i_y={:04d}$".format(i_t,i_x,i_y))
+                        axis[j].scatter(x,
+                                        data_window[i_t,:,i_y,i_x]
+                                       )
+                        
+                        axis[j].plot(x,
+                               Gauss(x,
+                                     *Gauss_ini_params               
+                                          )
+                                    ,':',color="yellow")
+                        axis[j].plot(x,
+                               Gauss(x,
+                                     *coeff
+                                          )
+                                    ,'-',color="black")
+                    else: 
+                        axis[j].set_title("Dead pixel\n $i_t={:02d},i_x={:03d},i_y={:04d}$".format(i_t,i_x,i_y))
+                    ("Done")
+                        
+                if all(np.isinf(coeff)) and (len(_missfit_tab)<missfit_plotting or missfit_plotting==-1 ):
+                    print("generating missfit plots")
+                    _missfit_tab.append([i_t,i_y,i_x])
+                _counter+=1
+                
+                
+    
+    fig2,axis2         = set_missfit_plot(_missfit_tab,data_window)
+    #plt.savefig("dead.jpg") if random_plot_number==0 else 0
+    return paramlist
+   
+def fit_pixel_v2_0(pixel_data      :np.ndarray,
+              lambda_axis     :np.ndarray=None,
+              Gauss_ini_params:np.ndarray=None,
+              plotit          :bool=False,
+              bounds          :(np.array,np.array)=True,
+              refit           :bool  = True,
+              refit_plotit    :bool  = False 
+             )->(np.ndarray,np.ndarray):
+    """Function that Fits a pixel data into a gaussian.
+
+    Args:
+        pixel_data (np.ndarray): pixel intensity values as function of wavelength.
+        Gauss_ini_params (np.ndarray, shape:4,optional): a list of initiale parameters if not initialized 
+        the function will chouse:            
+            I_max = max(pixel_data)
+            x0    = index(I_max)
+            sigma = 3
+            B     = 0.01
+        Defaults to None.
+        plotit (bool, optional): In case you want to plot it. Defaults to False.
+        bounds (np.array,np.array): The bounds of the parameters
+        refit (bool): If True the functio will clean data then refits again for better precision
+        refit_plotit(bool):Debugging option only, Default to False. If you want to plot refitts and their exluded point
+    Return:
+        coeff (np.ndarray): Fitted parameters.
+        var_matrix (np.ndarray): Variation matrix that represent calculated fitting error.
+    """
+    
+    
+    if all(np.isnan(pixel_data)):
+        return (np.ones((4  ))*np.nan,
+                np.ones((4,4))*np.nan)
+    x = (np.arange(0,len(pixel_data),step=0.01)) if type(lambda_axis) == type(None) else np.linspace(np.max(lambda_axis),np.min(lambda_axis),num=lambda_axis.shape[0]*100)
+    x2= (np.arange(0,len(pixel_data)          )) if type(lambda_axis) == type(None) else lambda_axis
+    win_width = np.max(x2)-np.min(x2)
+    minl = np.min(x2); maxl = np.max(x2)
+    x_nan,data_clean_nan =  clean_nans(x2,
+                                       pixel_data
+                                      )
+    
+    if type(Gauss_ini_params)==type(None):
+        
+        if False: #using CFD to calculate initialization
+            Icum = np.cumsum(data_clean_nan)
+            values = (np.abs(
+                        Icum-(Icum[-1]+Icum[0])/2
+                        )
+                 )
+            value  = np.min(values)
+            index  = np.where(values == value)
+            x0   = x_nan[index][0]
+            Imax = pixel_data[int(x0)]
+            
+        
+        if True: #using maximum value to calculate initiation
+            Imax = np.nanmax(pixel_data)
+            x0   = x2[np.where(pixel_data==Imax)[0][0]]
+        
+        B    = 0.01
+        sigma= win_width/6
+        Gauss_ini_params = [Imax,x0,sigma,B]
+    if type(bounds) == bool:
+        if bounds ==True:
+            bounds = (np.array(4),np.array(4))
+            Imax_max = 100                ;Imax_min = 0
+            x0_max = maxl                 ;x0_min = minl
+            sigma_max = win_width/2       ;sigma_min = 0
+            B_max = 0.5                   ;B_min = 0
+
+            if Imax > Imax_max or Imax < Imax_min:
+                Imax = np.nanmax(pixel_data[int(x0_min):int(x0_max)])
+            if x0 > x0_max or x0 < x0_min:
+                x0 = int(len(pixel_data)*1/2)
+            
+            bounds=([Imax_min,x0_min,sigma_min,B_min],
+                    [Imax_max,x0_max,sigma_max,B_max]
+                    
+                   )
+            Gauss_ini_params = [Imax,x0,sigma,B]
+            #print(Gauss_ini_params, bounds)
+        elif bounds==False:
+            bounds=(-np.inf, np.inf)
+    elif type(bounds)==type(None):
+        bounds=(-np.inf, np.inf)
+    
+    try:
+        # print(x_nan.shape, data_clean_nan.shape)
+        # print(Gauss_ini_params,bounds)
+        # print(x_nan,data_clean_nan)
+        # print(any(np.isnan(x_nan)),any(np.isnan(data_clean_nan)))
+        
+        coeff, var_matrix = curve_fit(Gauss, x_nan, data_clean_nan, p0=Gauss_ini_params,bounds=bounds)        
+    except RuntimeError:
+        warnings.warn("the curve_fit didn't find the optimale parameters",RuntimeWarning)
+        coeff, var_matrix = (np.ones((4  ))*np.inf,
+                            np.ones((4,4))*np.inf)
+    # except Exception:
+    #     print('probably X0 is infeasable')
+    #     print(Gauss_ini_params,bounds)
+    #     coeff, var_matrix = (np.ones((4  ))*np.inf,
+    #                         np.ones((4,4))*np.inf)
+    #     plotit=2
+        
+    if plotit or plotit==2:
+        plt.figure(figsize=(12,8))
+        plt.plot(x,
+                 Gauss(x,*Gauss_ini_params),
+                 ':',label='initial parameters'
+                )
+        plt.plot(x,
+                 Gauss(x,*coeff),
+                 "-.",label='Fit parameters\n$I_{{max}} : {:04.2f}\\_x_0:{:04.1f}\\_\sigma : {:04.1f}\\_B:{:04.2f}$'.format(coeff[0],coeff[1],coeff[2],coeff[3]))
+        plt.plot(x2,
+                 pixel_data,"-o",label="data"
+                )
+        plt.legend()
+        plt.grid()
+        
+        if plotit==2:
+            return coeff, var_matrix
+
+    if refit:
+        _show = False
+        coeff_final = coeff
+        var_matrix_final = var_matrix
+        #_______________________________________________RULE01___________________________________________________
+        #cleaning data from overmax values in the tailes (above sigma)
+        del_arr = np.logical_and(
+                    data_clean_nan>coeff[0]+coeff[3],
+                    np.abs(x_nan-coeff[1])>+coeff[2]
+                    )
+        xn_2 = x_nan[~del_arr]
+        dcn_2= data_clean_nan[~del_arr]
+        
+        if refit_plotit:#len(xn_2)!=len(x_nan):
+            print("found strange intense pixels in the fit-gauss tails")
+            plt.plot(x_nan,data_clean_nan ,'o',color ="blue", label= "data 00") 
+            plt.plot(x_nan[del_arr],data_clean_nan[del_arr] ,'o',color ="orange",label='deleted for refit 03\n$I_{{max}} : {:04.2f}\\_x_0:{:04.1f}\\_\sigma : {:04.1f}\\_B:{:04.2f}$'.format(coeff_final[0],
+                                                                                                                                                              coeff_final[1],
+                                                                                                                                                              coeff_final[2],
+                                                                                                                                                              coeff_final[3],
+                                                                                                                                                             )) 
+            plt.plot(x,
+                 Gauss(x,*coeff_final),
+                 ":",color ="blue", label= "  fit 00"
+                )
+            _show=True
+            plt.legend(fontsize=14)
+        
+        try:
+            # print(x_nan.shape, data_clean_nan.shape)
+            coeff_2, var_matrix_2 = curve_fit(Gauss, xn_2, dcn_2, p0=coeff_final,bounds=bounds)
+            
+        except RuntimeError:
+            warnings.warn("the curve_fit didn't find the optimale parameters-> returning the last fit",RuntimeWarning)
+            return coeff_final, var_matrix_final
+        except Exception:
+            print('probably X0 is infeasable')
+            print(Gauss_ini_params,bounds)
+            return coeff_final, var_matrix_final
+            plotit=2
+        
+        coeff_final = coeff_2
+        var_matrix_final = var_matrix_2
+        
+        #_______________________________________________RULE02___________________________________________________
+        #cleaning data from the overmax values in the body (all the profile)
+        del_arr_2 = dcn_2>coeff_2[0]*1.5+coeff_2[3]
+        xn_3 = xn_2[~del_arr_2]
+        dcn_3= dcn_2[~del_arr_2]
+        if refit_plotit:#len(xn_3)!=len(xn_2):
+            print("found strange intense pixels in the fit-gauss body")
+            plt.plot(x_nan,data_clean_nan ,'o',color ="blue") if not _show else 0
+            plt.plot(xn_2[del_arr_2],dcn_2[del_arr_2] ,'v',color ="green",label='deleted for refit 03\n$I_{{max}} : {:04.2f}\\_x_0:{:04.1f}\\_\sigma : {:04.1f}\\_B:{:04.2f}$'.format(coeff_final[0],
+                                                                                                                                                              coeff_final[1],
+                                                                                                                                                              coeff_final[2],
+                                                                                                                                                              coeff_final[3],
+                                                                                                                                                             ))
+            plt.plot(x,
+                 Gauss(x,*coeff_final),
+                 "-.",color ="orange", label= "refit 01"
+                )
+            
+            _show=True
+            plt.legend(fontsize=14)
+            
+        try:
+            # print(x_nan.shape, data_clean_nan.shape)
+            coeff_3, var_matrix_3 = curve_fit(Gauss, xn_3, dcn_3, p0=coeff_final,bounds=bounds)
+
+        except RuntimeError:
+            warnings.warn("the curve_fit didn't find the optimale parameters-> returning the last fit",RuntimeWarning)
+            return coeff_final, var_matrix_final
+        except Exception:
+            print('probably X0 is infeasable')
+            print(Gauss_ini_params,bounds)
+            return coeff_final, var_matrix_final
+            plotit=2
+            
+        coeff_final = coeff_3
+        var_matrix_final = var_matrix_3
+        
+        
+        #_______________________________________________RULE03___________________________________________________
+        #cleaning data from the overintensified results coùpared with the gaussian values of the fit
+        #del_arr_3 = np.abs(dcn_3-Ga
+        # uss(xn_3,*coeff_final))>0.2*Gauss(xn_3,*coeff_final)+coeff_final[3]
+        if True:
+            del_arr_3 = np.abs(dcn_3-Gauss(xn_3,*coeff_final))>0.2*Gauss(xn_3,*coeff_final)+coeff_final[3]
+            
+            if len(del_arr_3[del_arr_3==False])<=1:
+                print("Warning: 3rd criterion found to be too much exclusive switching to another criterion")
+                del_arr_3 = 1/len(dcn_3)*np.sqrt(np.sum(
+                                            (dcn_3-Gauss(xn_3,*coeff_final))**2/Gauss(xn_3,*coeff_final)**2
+                                        ))< np.abs(np.abs(dcn_3-Gauss(xn_3,*coeff_final)))/Gauss(xn_3,*coeff_final)
+                if len(del_arr_3[del_arr_3==False])<=1:
+                    print("Warning: 3rd criterion found to be too much exclusive again aborting this rule")
+                    del_arr_3 = ~del_arr_3
+            # plt.plot(xn_3,(1/len(dcn_3)*np.sqrt(np.sum(
+            #                                 (dcn_3-Gauss(xn_3,*coeff_final))**2/Gauss(xn_3,*coeff_final)**2
+            #                                ))- np.abs(np.abs(dcn_3-Gauss(xn_3,*coeff_final))-2*coeff_final[3])/Gauss(xn_3,*coeff_final))/250)
+            xn_4 = xn_3[~del_arr_3]
+            dcn_4= dcn_3[~del_arr_3]
+            if refit_plotit:#len(xn_4)!=len(xn_3):
+                print("found strange intense pixels compared with the predicted fit")
+                plt.plot(x_nan,data_clean_nan ,'o',color ="blue") if not _show else 0
+                # print(coeff_final[3])
+                plt.plot(xn_3[del_arr_3],dcn_3[del_arr_3] ,'^',color ="black",label='deleted for refit 03\n$I_{{max}} : {:04.2f}\\_x_0:{:04.1f}\\_\sigma : {:04.1f}\\_B:{:04.2f}$'.format(coeff_final[0],
+                                                                                                                                                                coeff_final[1],
+                                                                                                                                                                coeff_final[2],
+                                                                                                                                                                coeff_final[3],
+                                                                                                                                                                ))
+                plt.plot(x,
+                    Gauss(x,*coeff_final),
+                    "--",color ="green", label= "refit 02"
+                    )
+                # plt.figure()
+                # plt.plot(np.abs(dcn_3-Gauss(xn_3,*coeff_final))/Gauss(xn_3,*coeff_final))
+                _show=True
+                plt.legend(fontsize=14)
+            try:
+                # print(x_nan.shape, data_clean_nan.shape)
+                coeff_4, var_matrix_4 = curve_fit(Gauss, xn_4, dcn_4, p0=coeff_final,bounds=bounds)
+
+            except RuntimeError:
+                warnings.warn("the curve_fit didn't find the optimale parameters-> returning the last fit",RuntimeWarning)
+                return coeff_final, var_matrix_final
+            except Exception:
+                print('probably X0 is infeasable')
+                print(Gauss_ini_params,bounds)
+                return coeff_final, var_matrix_final
+                plotit=2
+                
+            coeff_final = coeff_4
+            var_matrix_final = var_matrix_4
+        
+        
+        plt.plot(x,
+                 Gauss(x,*coeff_final),
+                 "-",color= "black", label= "refit 03"
+                ) if refit_plotit and _show else 0
+        plt.yscale('log') if refit_plotit and _show else 0
+        plt.legend(fontsize=14) if refit_plotit and _show else 0
+        plt.figure() if refit_plotit and _show else 0
+        return coeff_final, var_matrix_final
+             
+    return(coeff, var_matrix)
+
+
+def fit_pixel_multi_v3_0(x:np.ndarray,
+                    y:np.ndarray,
+                    ini_params:np.ndarray,
+                    fit_func:Callable,
+                    bounds:np.ndarray=[np.nan],
+                    plotit: bool=False,
+                    weights: str = None
+                    ):
+    """Function that Fits a pixel data into a gaussian.
+
+    Args:
+        x(np.ndarray): spectrum axis. 
+        pixel_data (np.ndarray): pixel intensity values as function of wavelength.
+        Gauss_ini_params (np.ndarray, shape:4,optional): a list of initiale parameters if not initialized. 
+        bounds (np.array,np.array): The bounds of the parameters
+        plotit (bool, optional): In case you want to plot it. Defaults to False.
+        weights (str, optional): string ["I": for a linear weight depend on the value of intensity]. Defaults to None.
+    Return:
+        coeff (np.ndarray): Fitted parameters.
+        var_matrix (np.ndarray): Variation matrix that represent calculated fitting error.
+    """
+    
+    assert len(ini_params.shape)==1
+    assert x.shape==y.shape
+    _s = ini_params.shape[0]
+    if not (False in  (np.isnan(bounds))):
+        bounds = np.zeros((2,_s))
+        bounds[:,-1] = [0,0.1] 
+        i=0
+        while True:
+            if i==_s-1: break
+            bounds[0,i  ] = 0                              ;   bounds[1,i  ] = 12
+            bounds[0,i+2] = 0                              ;   bounds[1,i+2] = 2
+            bounds[0,i+1] = ini_params[i+1] - bounds[1,i+2]/2;   bounds[1,i+1] = ini_params[i+1]+bounds[1,i+2]/2
+            i+=3
+    _s = ini_params.shape[0]
+    _x,_y,w =  clean_nans(x,y,weights)
+    # if type(weights)==type("I"):
+    #     if weights=="I":
+    #         weights = 12/_y
+            # print(_y.shape,weights.shape,_x.shape)
+         
+    if _y.shape[0]<=_s:
+        return (np.ones((_s  ))*np.nan,
+                np.ones((_s,_s))*np.nan)
+    try:
+        res = curve_fit(fit_func,_x,_y,p0=ini_params,bounds=bounds,sigma=w)
+    except RuntimeError:
+        #print("RuntimeError: Haven't found optimal parameter")
+        res =  (np.ones((_s  ))*np.nan,
+                np.ones((_s,_s))*np.nan)
+        plotit =True
+    if plotit:
+        plt.plot(x,y)
+        # plt.plot(x,fit_func(x,*ini_params))
+        # plt.plot(x,fit_func(x,*res[0]))
+        pass
+    return res
+
+def fit_window_multi_v4_0(x:np.ndarray,
+                     window:np.ndarray,
+                     init_params:np.ndarray,
+                     fit_func:callable,
+                     bounds:np.ndarray=np.array([np.nan]),
+                     segmentation:np.ndarray = np.array([0,np.inf]),
+                     window_size:np.ndarray = np.array([[210,800],[0,-1]]),
+                     adaptive:bool = True,
+                     convolution_function :callable   = lambda lst:np.zeros_like(lst[:,2])+1,
+                     convolution_threshold:np.ndarray      = np.array([0.1,0.1,0.1]),
+                     convolution_extent_list:np.array = np.array([0,1,2,3,4,5]),
+                     weights:str = None,
+                     counter_percent:float = 10,
+                     preclean:bool=True,
+                     preadjust:bool = True,
+                     nJobs = 1,
+                     )->[np.ndarray,np.ndarray,np.ndarray,np.ndarray]:
+    """Fitting a whole window of dimension (n_t x n_lmb x n_y x n_x) and creating a map of fitting parameters
+
+    Args:
+        x (np.ndarray): spectrum_axis of dimension (n_lmb x 1)
+        window (np.ndarray): window data cube of dimension (n_t x n_lmb x n_y x n_x)
+        init_params (np.ndarray): parameters list as an array of dimension ((number_of_gaussians * 3 + 1) x 1)
+        fit_func (collable): the fitting function to use 
+        bounds (np.ndarray, optional): boundary list that contains boundaries of everyparameter. Defaults to np.array([np.nan]).
+        segmentation (np.ndarray, optional): if the window is needed to be segmented in multiple windows or smaller one. Defaults to np.array([0,np.inf]).
+        window_size (np.ndarray, optional): if the window size is needed to be smaller. Defaults to np.array([[210,800],[0,-1]]).
+        adaptive (bool, optional): if we want the window fitting to be convoluting. Defaults to True.
+        convolution_function (collable, optional): function to convolute in case the convolution is needed. Defaults to lambda lst:np.zeros_like(lst[:,2])+1.
+        convolution_threshold (float, optional):the minimu relative error of the parameters else the pixel will be convoluted to the next level. Defaults to 1.
+        convolution_extent_list (np.array, optional): the list of levels of convolution. Defaults to np.array([0,1,2,3,4,5]).
+        weights (str, optional): string ["I": for a linear weight depend on the value of intensity]. Defaults to None.
+        counter_percent (int, optional): percentile counter for visulization. Defaults to 10.
+        preclean (bool, optional): True to clean data from saturated pixels and negative values. Defaults to True.
+        preadjust (bool, optional): first fit of the whole window in order to predict positions. Defaults to True.
+
+    Returns:
+        paramlist,(np.ndarry): data fit map of dimension (shapeinitParam x n_t x n_y x n_x)
+        covlist  ,(np.ndarry): covariance matrix of dimension (? x ? x n_t x n_y x n_x)
+        quentity ,(np.ndarry): the array of the first dimension content of paramlist |I => intensity| x=> peak position| s=> sigma| 
+        convlist ,(np.ndarry): convolution positions levels for every pixel of dimension (n_x x n_y)
+        
+    """
+    if nJobs>os.cpu_count(): print("the number of CPUs is {} but you have specified {} \n the consequences are unknown".format(os.cpu_count(), nJobs))
+    assert (counter_percent<=100 and counter_percent>=0)
+    concat_window = window[:,:,window_size[0,0]:window_size[0,1],
+                               window_size[1,0]:window_size[1,1]]
+    dshape  = np.array([concat_window.shape[0],
+                        concat_window.shape[2],
+                        concat_window.shape[3],
+                       ])
+    
+    _counter = 0
+    _imsize = dshape[0]*dshape[1]*dshape[2]
+    _next = 0
+    
+    if preclean: window = Preclean(window)
+    
+    if preadjust:
+        init_params,var =fit_pixel_multi(x,
+                                           np.nanmean(window,axis=(0,2,3)),
+                                           init_params,
+                                           fit_func=fit_func,plotit=True)
+
+     
+    
+    if adaptive: #creating matrix convolutions
+        convlist = np.zeros((1 if segmentation.shape == 1 else segmentation.shape[0],*dshape))
+        conv_data = np.zeros((*convolution_extent_list.shape,*window.shape))
+        for i in range(convolution_extent_list.shape[0]):
+            if convolution_extent_list[i] == 0:
+                conv_data[i]=window.copy();continue
+            else:
+                ijc_list = fst_neigbors(convolution_extent_list[i])
+                ijc_list [:,2]= convolution_function(ijc_list)
+                conv_data[i]  = join_dt(window, ijc_list)
+    else:
+        conv_data = np.zeros((1,*window.shape))
+        conv_data[0]=window 
+        convlist = np.zeros((1 if segmentation.shape == 1 else segmentation.shape[0],*dshape))
+    conv_data = conv_data[:,:,:,window_size[0,0]:window_size[0,1],
+                                window_size[1,0]:window_size[1,1]]
+    window = concat_window
+    
+    if len(segmentation.shape) == 1: #we apply segmentation here
+        segmentation = np.array([segmentation])
+       
+    quentity = []
+    sub_windows = []
+    sub_xs = []
+    sub_init_params = []
+    for i in range(segmentation.shape[0]):
+        lim_lbda = segmentation[i]
+        assert lim_lbda[0]<lim_lbda[1]
+        sub_xs.append(x[np.logical_and(x>=lim_lbda[0],x<lim_lbda[1])]) 
+        sub_windows.append(conv_data[:,:,
+                                    np.logical_and(x>=lim_lbda[0],x<lim_lbda[1]),
+                                    :,
+                                    :
+                                        ])
+        sub_inits = []    
+        for j in range(int((len(init_params)-1)/3)):
+            x0 = init_params[j*3+1]
+            if x0>lim_lbda[0] and x0<lim_lbda[1]:
+                sub_inits.append(init_params[j*3])
+                sub_inits.append(init_params[j*3+1])
+                sub_inits.append(init_params[j*3+2])   
+                quentity.append('I');quentity.append('x');quentity.append('s') 
+        if len(quentity)==0:
+            raise Exception (
+                """Found an empty sub set 
+                when segmenting there is no need to add empty segments that contains no peak inside 
+                weird segment: {}
+                init_params {}""".format(lim_lbda,init_params[np.arange(len(init_params) )%3==1] ))
+        sub_inits.append(init_params[-1])          
+        quentity.append('B') 
+        sub_init_params.append(np.array(sub_inits))
+        
+                        
+    paramlist = np.zeros((init_params.shape[0]+len(sub_windows)-1, 
+                          *dshape))
+    
+    covlist  = np.zeros((init_params.shape[0]+len(sub_windows)-1, 
+                         init_params.shape[0]+len(sub_windows)-1, 
+                          *dshape));
+    
+    index_list =  np.zeros((_imsize,3),dtype=int)
+    
+    print('generating cursor list')
+    
+    _counters = np.arange(_imsize)
+    _nexts = np.zeros((_imsize,))
+    generate = np.zeros((_imsize,))
+    _next = 0
+    im_cursor = -1
+    
+    for i_t in range(dshape[0]):
+        for i_y in range(dshape[1]):
+            for i_x in range(dshape[2]):
+                im_cursor +=1
+                index_list[im_cursor,:] = np.array([i_t,i_y,i_x],dtype = int)
+                
+                
+                if im_cursor==0: continue
+                if _nexts[im_cursor]<= _counters[im_cursor]:
+                    _nexts[im_cursor:] = int(counter_percent/100 *_imsize + _counters[im_cursor])
+                    generate[im_cursor] = 1
+                else:
+                    _nexts[im_cursor] = _nexts[im_cursor-1] 
+    global Window, job_exec            
+    class Window():
+        def __init__(
+            self,
+            sub_xs = sub_xs,
+            sub_windows = sub_windows,
+            sub_init_params = sub_init_params,
+            index_list = index_list,
+            
+            fit_func = fit_func,
+            bounds = bounds,
+            weights = weights,
+            convolution_threshold = convolution_threshold,
+            
+            convlist = convlist,
+            paramlist = paramlist,
+            covlist = covlist,
+            quentity = quentity,
+            
+    
+            _nexts = _nexts,
+            _counters = _counters,
+            generate= generate,
+            _imsize = _imsize,
+            counter_percent = counter_percent,
+                     ):
+            self.sub_xs = sub_xs
+            self.sub_windows = sub_windows
+            self.sub_init_params = sub_init_params
+            self.index_list = index_list
+            self.fit_func = fit_func
+            self.bounds = bounds
+            self.weights = weights
+            self.convlist = convlist
+            self.paramlist = paramlist
+            self.covlist = covlist
+            self.quentity = quentity
+            
+            self._nexts = _nexts
+            self._counters = _counters
+            self.generate = generate
+            
+            self._imsize = _imsize
+            self.counter_percent = counter_percent
+            self.convolution_threshold = convolution_threshold
+        def get_indices(self,i):
+            return self.index_list[i]
+    WN = Window()
+    def job_exec(i):
+        index = 0
+        i_t , i_y, i_x = WN.get_indices(i=i)
+        for i_seg in range(len(WN.sub_windows)):
+            sub_x = WN.sub_xs[i_seg]
+            sub_window = WN.sub_windows[i_seg]
+            sub_inits = WN.sub_init_params[i_seg]
+            conv_thresh = sub_inits[:-1].copy()*0
+            for i_q in range(int(len(sub_inits)/3)):
+                conv_thresh[i_q+0] = convolution_threshold[0]
+                conv_thresh[i_q+1] = convolution_threshold[1]
+                conv_thresh[i_q+2] = convolution_threshold[2]
+            coeff2 = np.zeros_like(sub_inits) *np.nan
+            var2 = np.zeros((sub_inits.shape[0],
+                                sub_inits.shape[0])) * np.nan
+            best_i = 0
+            for i_ad in range(sub_window.shape[0]):
+                coeff,var = fit_pixel_multi(x =sub_x,
+                                    y=sub_window[i_ad,
+                                                    i_t,
+                                                    :,
+                                                    i_y,
+                                                    i_x],
+                                    ini_params=sub_inits,
+                                    fit_func=WN.fit_func,
+                                    bounds=WN.bounds,
+                                    weights=WN.weights
+                                    )
+                # if any ((np.sqrt(np.diag(var))/coeff)[:-1]>10**2):
+                #     print(np.sqrt(np.diag(var))/coeff)
+                #     input()
+                if all(np.isnan(coeff)):
+                    pass
+                elif all ((np.sqrt(np.diag(var)))[:-1] < conv_thresh):
+                    var2 = var
+                    coeff2 = coeff
+                    best_i = i_ad
+                    break
+                else:
+                    if all (np.isnan(coeff2)):
+                        var2 = var
+                        coeff2 = coeff
+                        best_i = i_ad
+                    elif np.nansum((np.sqrt(np.diag(var )))[:-1]/conv_thresh)<np.nansum((np.sqrt(np.diag(var2)))[:-1]/conv_thresh):
+                        var2 = var
+                        coeff2 = coeff
+                        best_i = i_ad   
+            coeff = coeff2                        
+            var = var2
+            WN.convlist[i_seg,i_t,i_y,i_x] = best_i                        
+            index2 = len(coeff) + index
+            # print(index2,index,WN.paramlist[index:index2,i_t,i_y,i_x].shape,coeff.shape)
+            WN.paramlist[index:index2,i_t,i_y,i_x] = coeff
+            WN.covlist  [index:index2,index:index2,i_t,i_y,i_x] = var
+            index = index2
+            return WN
+        
+        
+        
+        
+        if WN.generate[i] ==1 and counter_percent<100 :
+            print( "{:05.2f}% generated".format(WN._counters[i]/WN._imsize*100))
+        
+    print('Execution')  
+    i_tyx = 0
+    while i_tyx <_imsize:
+        if True:
+            with mp.Pool(nJobs) as p:
+                Res = p.map(job_exec, np.arange(i_tyx,min(_imsize,nJobs+i_tyx)))
+                for i,wn in enumerate(Res):
+                    i_t,i_y,i_x = wn.get_indices(i+i_tyx)
+                    WN.paramlist[:,i_t,i_y,i_x] = wn.paramlist[:,i_t,i_y,i_x]
+                    WN.convlist [:,i_t,i_y,i_x] = wn.convlist [:,i_t,i_y,i_x]
+                    WN.covlist [:,:,i_t,i_y,i_x] = wn.covlist [:,:,i_t,i_y,i_x]
+            # print(i_tyx,min(_imsize,nJobs+i_tyx),_imsize)
+             
+            i_tyx+=nJobs
+            
+        else:
+            job_exec(i_tyx) #for debug Without multiproccess
+            i_tyx += 1
+    # print(WN.paramlist)
+    return WN.paramlist, WN.covlist, WN.quentity, WN.convlist
+
+def fit_window_multi_v5_0(x:np.ndarray,
+                     window:np.ndarray,
+                     init_params:np.ndarray,
+                     fit_func:callable,
+                     bounds:np.ndarray=np.array([np.nan]),
+                     segmentation:np.ndarray = np.array([0,np.inf]),
+                     window_size:np.ndarray = np.array([[210,800],[0,-1]]),
+                     adaptive:bool = True,
+                     convolution_function :callable   = lambda lst:np.zeros_like(lst[:,2])+1,
+                     convolution_threshold:np.ndarray      = np.array([0.1,0.1,0.1]),
+                     convolution_extent_list:np.array = np.array([0,1,2,3,4,5]),
+                     weights:str = None,
+                     counter_percent:float = 10,
+                     preclean:bool=True,
+                     preadjust:bool = True,
+                     nJobs = 1,
+                     )->[np.ndarray,np.ndarray,np.ndarray,np.ndarray]:
+    """Fitting a whole window of dimension (n_t x n_lmb x n_y x n_x) and creating a map of fitting parameters
+
+    Args:
+        x (np.ndarray): spectrum_axis of dimension (n_lmb x 1)
+        window (np.ndarray): window data cube of dimension (n_t x n_lmb x n_y x n_x)
+        init_params (np.ndarray): parameters list as an array of dimension ((number_of_gaussians * 3 + 1) x 1)
+        fit_func (collable): the fitting function to use 
+        bounds (np.ndarray, optional): boundary list that contains boundaries of everyparameter. Defaults to np.array([np.nan]).
+        segmentation (np.ndarray, optional): if the window is needed to be segmented in multiple windows or smaller one. Defaults to np.array([0,np.inf]).
+        window_size (np.ndarray, optional): if the window size is needed to be smaller. Defaults to np.array([[210,800],[0,-1]]).
+        adaptive (bool, optional): if we want the window fitting to be convoluting. Defaults to True.
+        convolution_function (collable, optional): function to convolute in case the convolution is needed. Defaults to lambda lst:np.zeros_like(lst[:,2])+1.
+        convolution_threshold (float, optional):the minimu relative error of the parameters else the pixel will be convoluted to the next level. Defaults to 1.
+        convolution_extent_list (np.array, optional): the list of levels of convolution. Defaults to np.array([0,1,2,3,4,5]).
+        weights (str, optional): string ["I": for a linear weight depend on the value of intensity]. Defaults to None.
+        counter_percent (int, optional): percentile counter for visulization. Defaults to 10.
+        preclean (bool, optional): True to clean data from saturated pixels and negative values. Defaults to True.
+        preadjust (bool, optional): first fit of the whole window in order to predict positions. Defaults to True.
+
+    Returns:
+        paramlist,(np.ndarry): data fit map of dimension (shapeinitParam x n_t x n_y x n_x)
+        covlist  ,(np.ndarry): covariance matrix of dimension (? x ? x n_t x n_y x n_x)
+        quentity ,(np.ndarry): the array of the first dimension content of paramlist |I => intensity| x=> peak position| s=> sigma| 
+        convlist ,(np.ndarry): convolution positions levels for every pixel of dimension (n_x x n_y)
+        
+    """
+    if nJobs>os.cpu_count(): print("the number of CPUs is {} but you have specified {} \n the consequences are unknown".format(os.cpu_count(), nJobs))
+    assert (counter_percent<=100 and counter_percent>=0)
+    concat_window = window[:,:,window_size[0,0]:window_size[0,1],
+                               window_size[1,0]:window_size[1,1]]
+    dshape  = np.array([concat_window.shape[0],
+                        concat_window.shape[2],
+                        concat_window.shape[3],
+                       ])
+    
+    _counter = 0
+    _imsize = dshape[0]*dshape[1]*dshape[2]
+    _next = 0
+    
+    if preclean: window = Preclean(window)
+    
+    if preadjust:
+        init_params,var =fit_pixel_multi(x,
+                                           np.nanmean(window,axis=(0,2,3)),
+                                           init_params,
+                                           fit_func=fit_func,plotit=True)
+
+     
+    
+    if adaptive: #creating matrix convolutions
+        convlist_shape = np.array((1 if segmentation.shape == 1 else segmentation.shape[0],*dshape))
+        convlist = np.zeros(convlist_shape)
+        conv_data = np.zeros((*convolution_extent_list.shape,*window.shape))
+        
+        for i in range(convolution_extent_list.shape[0]):
+            if convolution_extent_list[i] == 0:
+                conv_data[i]=window.copy();continue
+            else:
+                ijc_list = fst_neigbors(convolution_extent_list[i])
+                ijc_list [:,2]= convolution_function(ijc_list)
+                conv_data[i]  = join_dt(window, ijc_list)
+    else:
+        conv_data = np.zeros((1,*window.shape))
+        conv_data[0]=window 
+        convlist = np.zeros((1 if segmentation.shape == 1 else segmentation.shape[0],*dshape))
+    conv_data = conv_data[:,:,:,window_size[0,0]:window_size[0,1],
+                                window_size[1,0]:window_size[1,1]]
+    window = concat_window
+    
+    if len(segmentation.shape) == 1: #we apply segmentation here
+        segmentation = np.array([segmentation])
+       
+    quentity = []
+    sub_windows = []
+    sub_xs = []
+    sub_init_params = []
+    for i in range(segmentation.shape[0]):
+        lim_lbda = segmentation[i]
+        assert lim_lbda[0]<lim_lbda[1]
+        sub_xs.append(x[np.logical_and(x>=lim_lbda[0],x<lim_lbda[1])]) 
+        sub_windows.append(conv_data[:,:,
+                                    np.logical_and(x>=lim_lbda[0],x<lim_lbda[1]),
+                                    :,
+                                    :
+                                        ])
+        sub_inits = []    
+        for j in range(int((len(init_params)-1)/3)):
+            x0 = init_params[j*3+1]
+            if x0>lim_lbda[0] and x0<lim_lbda[1]:
+                sub_inits.append(init_params[j*3])
+                sub_inits.append(init_params[j*3+1])
+                sub_inits.append(init_params[j*3+2])   
+                quentity.append('I');quentity.append('x');quentity.append('s') 
+        if len(quentity)==0:
+            raise Exception (
+                """Found an empty sub set 
+                when segmenting there is no need to add empty segments that contains no peak inside 
+                weird segment: {}
+                init_params {}""".format(lim_lbda,init_params[np.arange(len(init_params) )%3==1] ))
+        sub_inits.append(init_params[-1])          
+        quentity.append('B') 
+        sub_init_params.append(np.array(sub_inits))
+        
+                        
+    paramlist = np.zeros((init_params.shape[0]+len(sub_windows)-1, 
+                          *dshape))
+    
+    covlist  = np.zeros((init_params.shape[0]+len(sub_windows)-1, 
+                         init_params.shape[0]+len(sub_windows)-1, 
+                          *dshape));
+    
+    index_list =  np.zeros((_imsize,3),dtype=int)
+    
+    print('generating cursor list')
+    
+    im_cursor = -1
+    
+    for i_t in range(dshape[0]):
+        for i_y in range(dshape[1]):
+            for i_x in range(dshape[2]):
+                im_cursor +=1
+                index_list[im_cursor,:] = np.array([i_t,i_y,i_x],dtype = int)
+                
+    global job_exec
+    
+    def job_exec(sub_xs,
+                 sub_windows,
+                 sub_init_params,
+                 convolution_threshold,
+                 fit_func,
+                 bounds,
+                 weights,
+                 send_end,
+                 ):
+        
+        index = 0
+        res = []
+        for i_seg in range(len(sub_windows)):
+            
+            sub_x = sub_xs[i_seg]
+            sub_window = sub_windows[i_seg]
+            sub_inits = sub_init_params[i_seg]
+            conv_thresh = sub_inits[:-1].copy()*0
+            for i_q in range(int(len(sub_inits)/3)):
+                conv_thresh[i_q+0] = convolution_threshold[0]
+                conv_thresh[i_q+1] = convolution_threshold[1]
+                conv_thresh[i_q+2] = convolution_threshold[2]
+            coeff2 = np.zeros_like(sub_inits) *np.nan
+            var2 = np.zeros((sub_inits.shape[0],
+                                sub_inits.shape[0])) * np.nan
+            best_i = 0
+            for i_ad in range(sub_window.shape[0]):
+                coeff,var = fit_pixel_multi(x =sub_x,
+                                    y=sub_window[i_ad,
+                                                    :],
+                                    ini_params=sub_inits,
+                                    fit_func=fit_func,
+                                    bounds=bounds,
+                                    weights=weights
+                                    )
+
+                if all(np.isnan(coeff)):
+                    pass
+                elif all ((np.sqrt(np.diag(var)))[:-1] < conv_thresh):
+                    var2 = var
+                    coeff2 = coeff
+                    best_i = i_ad
+                    break
+                else:
+                    if all (np.isnan(coeff2)):
+                        var2 = var
+                        coeff2 = coeff
+                        best_i = i_ad
+                    elif np.nansum((np.sqrt(np.diag(var )))[:-1]/conv_thresh)<np.nansum((np.sqrt(np.diag(var2)))[:-1]/conv_thresh):
+                        var2 = var
+                        coeff2 = coeff
+                        best_i = i_ad   
+            coeff = coeff2                        
+            var   = var2
+            index2 = len(coeff) + index
+            # print(index2,index,WN.paramlist[index:index2,i_t,i_y,i_x].shape,coeff.shape)
+            # WN.convlist[i_seg,i_t,i_y,i_x]                      = best_i         
+            # WN.paramlist[index:index2,i_t,i_y,i_x]              = coeff2
+            # WN.covlist  [index:index2,index:index2,i_t,i_y,i_x] = var2
+            res.append([i_seg,index,index2, coeff2,var2,best_i])
+            index = index2
+        return send_end.send(res)
+        
+        
+        if WN.generate[i] ==1 and counter_percent<100 :
+            print( "{:05.2f}% generated".format(WN._counters[i]/WN._imsize*100))
+        
+    print('Execution')  
+    i_tyx = 0
+    while i_tyx <_imsize:
+        if True:
+            res = []
+            pipe_list= []
+            
+            for im_cursor in range(i_tyx,min(_imsize,nJobs+i_tyx)):
+                recv_end, send_end = mp.Pipe(False)
+                i_t,i_y,i_x = index_list[i_tyx]
+                res.append(mp.Process(target =job_exec, args=[
+                 sub_xs,
+                 [sub_windows[i][:,i_t,:,i_y,i_x] for i in range(len(sub_windows))],
+                 sub_init_params,
+                 convolution_threshold,
+                 fit_func,
+                 bounds,
+                 weights,
+                 send_end,
+                ]))
+                pipe_list.append(recv_end)
+                res[im_cursor-i_tyx].start()
+            for i in range(len(res)):
+                res[i].join()
+            result_list = [x.recv() for x in pipe_list] 
+            for result in result_list:
+                for res in result:
+                    print(res[3])
+                    convlist [res[0],i_t,i_y,i_x]                      = res[5]         
+                    paramlist[res[1]:res[2],i_t,i_y,i_x]               = res[3]
+                    covlist  [res[1]:res[2],res[1]:res[2],i_t,i_y,i_x] = res[4]
+            
+                    
+            # print(i_tyx,min(_imsize,nJobs+i_tyx),_imsize)
+             
+            i_tyx+=nJobs
+            
+        else:
+            job_exec(i_tyx) #for debug Without multiproccess
+            i_tyx += 1
+    # print(WN.paramlist)
+    return paramlist, covlist, quentity, convlist
+
+
+def multi_windows_fit_v3_0(raster,
+                     init_params,
+                     fit_func,
+                     bounds=np.array([np.nan]),
+                     segmentation:np.ndarray = np.array([0,np.inf]),
+                     window_size:np.ndarray = np.array([[500,510],[60,70]]),
+                     adaptive:bool = True,
+                     convolution_function :callable   = lambda lst:np.zeros_like(lst[:,2])+1,
+                     convolution_threshold:float      = 1.,
+                     convolution_extent_list:np.array = np.array([0,1,2,3,4,5]),
+                     weights:str = None,
+                     counter_percent:float = 10,
+                     preclean:bool=True,
+                     preadjust:bool = True, 
+                     save_data=True,
+                     save_plot=True,           
+                     prefix = None,
+                     plot_filename=None,
+                     quite_sun= np.array([0,-1,0,-1]),
+                     min_vel= -100,
+                     data_save_dir = "./.p/"  ,
+                     plot_save_dir = "./imgs/" ,
+                     max_vel= 100,
+                     show_ini_infos = True,
+                     i=None):
+    a ="""The documentation isn't right yet
+
+    Args:
+        raster (_type_): _description_
+        init_params (_type_): _description_
+        fit_func (_type_): _description_
+        bounds (_type_, optional): _description_. Defaults to np.array([np.nan]).
+        counter_percent (int, optional): _description_. Defaults to 10.
+        preclean (bool, optional): _description_. Defaults to True.
+        preadjust (bool, optional): _description_. Defaults to True.
+        prefix (str, optional): _description_. Defaults to "./.p/01_".
+
+    Returns:
+        _type_: _description_
+        
+        
+        x:np.ndarray,
+        window:np.ndarray,
+        init_params:np.ndarray,
+        fit_func:callable,
+        bounds:np.ndarray=np.array([np.nan]),
+        segmentation:np.ndarray = np.array([0,np.inf]),
+        window_size:np.ndarray = np.array([[210,800],[0,-1]]),
+        adaptive:bool = True,
+        convolution_function :callable   = lambda lst:np.zeros_like(lst[:,2])+1,
+        convolution_threshold:float      = 1.,
+        convolution_extent_list:np.array = np.array([0,1,2,3,4,5]),
+        weights:str = None,
+        counter_percent:float = 10,
+        preclean:bool=True,
+        preadjust:bool = True
+        )->[np.ndarray,np.ndarray,np.ndarray,np.ndarray]
+    """
+    
+    unq = spu.unique_windows(raster)
+    KW = [unq[i] for i in range(len(unq))]
+    paramlist2 = []
+    covlist2 = []
+    quentity2 = []
+    convlist2 = []
+
+    if type(prefix)==str:
+        
+        filename = prefix+"window_{:03d}_"+"{:}.p"
+    elif prefix==None:
+        dir = data_save_dir
+        if not os.path.isdir(dir):
+            os.mkdir(dir)
+        dir_list = os.listdir(dir); j=0
+        for file in dir_list:
+            try:
+                j2 = int(file[0:3])
+                if j2>=j:
+                    j=j2+1
+                    
+            except Exception:
+                pass
+        j3 = j
+        dir2 = dir
+    if type(plot_filename)==str:
+        if plot_filename.format(" ",0) == plot_filename: #make sure this passed variable is subscriptable 
+            
+            filename_a = plot_filename+"plot_{:03d}_{}.jpg"
+            filename_b = plot_filename+"hist_{:03d}_{}.jpg"
+    elif prefix==None:
+        dir = plot_save_dir
+        if not os.path.isdir(dir):
+            os.mkdir(dir)
+        dir_list = os.listdir(dir); j=0
+        for file in dir_list:
+            try:
+                
+                j2 = int(file[0:3])
+                
+                if j2>=j:
+                    
+                    j=j2+1
+                    
+                
+            except Exception:
+                pass
+        j = max(j3,j)
+        #Delete these later------
+        j=(i if type(i)!=type(None) else j)
+        print("working with file with prefix i={:03d} ".format(j))
+        #------------------------
+        filename_a = dir + "{:03d}_".format(j)+"plot_{:03d}_"+"{}.jpg"
+        filename_b = dir + "{:03d}_".format(j)+"hits_{:03d}_"+"{}.jpg"
+        filename = dir2+"{:03d}_".format(j)+"window_{:03d}_"+"{}.p"
+    
+    if show_ini_infos:
+        n_windows = len(KW)
+        m = 3; n= int(n_windows/3 + (1 if n_windows%m!= 0 else 0))
+        fig,axis = plt.subplots(n*2,m,figsize = (4*m,6*n))
+        axis = axis.flatten()
+        A_axis= axis[:n_windows]
+        B_axis= axis[n_windows:]
+        for i,k in enumerate(KW):
+            #Window plotting
+            data = np.nanmean(raster[k].data,axis=(0,1))
+            atad = np.nanmean(raster[k].data,axis=(0,2,3))
+            
+            ang_lat = raster[k].celestial.data.lat.deg
+            ang_lon = raster[k].celestial.data.lon.deg
+            ang_lon[ang_lon<=180] = ang_lon[ang_lon<=180]+360 
+            norm = ImageNormalize(data,
+                                    interval=AsymmetricPercentileInterval(1, 99),
+                                    stretch=SqrtStretch())
+            im = A_axis[i].pcolormesh(ang_lon,ang_lat,data,norm=norm,cmap="magma")
+            # im = A_axis[i].pcolormesh(data[110:720],norm=norm,cmap="magma")
+            B_axis[i].plot((raster[k]).spectral_axis*10**10,atad)
+            B_axis[i].set_title(k);A_axis[i].set_title(k)
+            A_axis[i].grid();B_axis[i].grid()
+            plt.colorbar(im,ax= A_axis[i])
+            
+            
+            #ini params and segmentation
+            init_params2 = init_params[i]
+            if len(bounds.shape)!=1:
+                bounds2 = bounds[i]
+            else:
+                bounds2 = bounds
+            if type(segmentation[0]) not in [np.ndarray,list]:
+                segmentation2 = segmentation
+            else:
+                segmentation2 = segmentation[i]
+            if len(segmentation2.shape) == 1:
+                 segmentation2 = np.array([segmentation2])
+            
+            for seg in segmentation2:
+                color = np.random.rand(3)
+                color = 0.8 * color/np.sqrt(np.sum(color**2))
+                B_axis[i].axvspan(seg[0], seg[1], alpha=.3,color = color)
+            
+            B = init_params2[-1] 
+            B_axis[i].axhline(B,ls=":",label="BG",color='black')
+            for j in range(int(len(init_params2)/3)):
+                color = np.random.rand(3)
+                color = 0.8 * color/np.sqrt(np.sum(color**2))
+                I = init_params2[j]; x = init_params2[j+1]; s = init_params2[j+2] 
+                B_axis[i].scatter([x],[I+B],color = color)
+                B_axis[i].axvline(x,ls=":",color = color)
+                B_axis[i].plot([x-s/2,x+s/2],[I*np.exp(-1/2)+B ,I*np.exp(-1/2)+B],color = color,label="line {}".format(j) )
+            
+            
+            
+            #window selection
+            ws = window_size.copy()
+            up_leftx     =  ang_lon[ws[0,1],ws[1,0]]
+            up_lefty     =  ang_lat[ws[0,1],ws[1,0]]
+            up_rightx    =  ang_lon[ws[0,1],ws[1,1]]
+            up_righty    =  ang_lat[ws[0,1],ws[1,1]]
+            down_rightx  =  ang_lon[ws[0,0],ws[1,1]]
+            down_righty  =  ang_lat[ws[0,0],ws[1,1]]
+            down_leftx   =  ang_lon[ws[0,0],ws[1,0]]
+            down_lefty   =  ang_lat[ws[0,0],ws[1,0]]
+            A_axis[i].plot([up_leftx   ,up_rightx ,down_rightx,down_leftx ,up_leftx],
+                           [up_lefty   ,up_righty ,down_righty,down_lefty ,up_lefty],
+                           color='green',lw=2,label='window size')
+            ws = np.array(
+                [
+                    quite_sun[2:],
+                    quite_sun[:2]
+                    ]
+                )
+            up_leftx     =  ang_lon[ws[0,1],ws[1,0]]
+            up_lefty     =  ang_lat[ws[0,1],ws[1,0]]
+            up_rightx    =  ang_lon[ws[0,1],ws[1,1]]
+            up_righty    =  ang_lat[ws[0,1],ws[1,1]]
+            down_rightx  =  ang_lon[ws[0,0],ws[1,1]]
+            down_righty  =  ang_lat[ws[0,0],ws[1,1]]
+            down_leftx   =  ang_lon[ws[0,0],ws[1,0]]
+            down_lefty   =  ang_lat[ws[0,0],ws[1,0]]
+            A_axis[i].plot([up_leftx   ,up_rightx ,down_rightx,down_leftx ,up_leftx],
+                           [up_lefty   ,up_righty ,down_righty,down_lefty ,up_lefty],
+                           color='red',lw=2,label='quite sun reference')
+            #A_axis[i].legend()
+            B_axis[i].legend()
+        fig.suptitle("Pre-analysis info \nStudied window: Green / Quite sun rference: Red")
+        plt.tight_layout()
+        plt.show()
+    
+    
+              
+    for i in range(len(KW)):
+        # if i!=4: continue
+        kw = KW[i]
+        print("fitting window: {:03d} {}".format(i,kw))
+        window = raster[kw]
+        data = window.data 
+        ang_lat = window.celestial.data[window_size[0,0]:window_size[0,1],
+                                        window_size[1,0]:window_size[1,1]].lat.deg
+        ang_lon = window.celestial.data[window_size[0,0]:window_size[0,1],
+                                        window_size[1,0]:window_size[1,1]].lon.deg
+        if (ang_lon<10).any() and (ang_lon>350).any():
+            ang_lon[ang_lon<=180] = ang_lon[ang_lon<=180]+360 
+        if (ang_lat<10).any() and (ang_lat>350).any():
+            ang_lat[ang_lat<=180] = ang_lat[ang_lat<=180]+360 
+        
+        init_params2 = init_params[i]
+        if len(bounds.shape)!=1:
+            bounds2 = bounds[i]
+        else:
+            bounds2 = bounds
+        if type(segmentation[0]) not in [np.ndarray,list]:
+            segmentation2 = segmentation
+        else:
+            segmentation2 = segmentation[i]
+        x = window.spectral_axis
+        paramlist, covlist, quentity, convlist = fit_window_multi(
+                 x = np.array(x*10**10).astype('float32'),
+                 window = np.array(data).astype('float32'),
+                 init_params= init_params2,
+                 counter_percent=counter_percent,
+                 bounds=bounds2,
+                 fit_func= fit_func,
+                 segmentation=segmentation2,
+                 window_size=window_size,
+                 adaptive = adaptive,
+                 convolution_function = convolution_function,
+                 convolution_threshold = convolution_threshold,
+                 convolution_extent_list = convolution_extent_list,
+                 weights = weights,
+                 preclean=preclean,
+                 preadjust = preadjust
+                 )
+        paramlist2.append(paramlist.copy())
+        covlist2.append(covlist.copy())
+        quentity2.append(quentity.copy())
+        convlist2.append(convlist.copy())
+        kw2 = kw.replace("/","_")
+        kw2 = kw2.replace(" ","")
+        if save_data:     
+            pickle.dump((paramlist, covlist, quentity, convlist),open(filename.format(i,kw2),"wb"))
+        plot_window(x*10**10,
+                    data,
+                    paramlist=paramlist,
+                    quentity=quentity,
+                    convlist=convlist,
+                    suptitle=kw,
+                    window_size=window_size,
+                    segmentation=segmentation2,
+                    save=save_plot,
+                    filename=filename_a.format(i,kw2),
+                    quite_sun =quite_sun ,
+                    min_vel =min_vel ,
+                    max_vel =max_vel )
+        plot_error(
+            covlist = covlist,
+            paramlist = paramlist,
+            quentity = quentity,
+            save=save_plot,
+            filename=filename_b.format(i,kw2)
+            )
+    if save_data:     
+            pickle.dump((paramlist2, covlist2, quentity2, convlist2),open(filename.format(len(KW),"all"),"wb"))
+    return paramlist2, covlist2, quentity2, convlist2 
