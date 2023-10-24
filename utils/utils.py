@@ -1,23 +1,29 @@
 import math
-from time import sleep
 import numpy as np
 from scipy.ndimage import uniform_filter
 import cv2
+from time import sleep
+from datetime import datetime 
+
+import astropy
+from astropy.io import fits as fits_reader
+from astropy.io.fits.hdu.image import PrimaryHDU,ImageHDU
+from astropy.visualization import SqrtStretch,PowerStretch, AsymmetricPercentileInterval, ImageNormalize, MinMaxInterval
+from astropy.wcs import WCS
+from sunraster.instr.spice import read_spice_l2_fits
+import ndcube
+
 from numba import jit
 from multiprocess.shared_memory import SharedMemory 
-import matplotlib.pyplot as plt
-# import spice_utils.ias_spice_utils.utils as spu
-from sunraster.instr.spice import read_spice_l2_fits
-from astropy.visualization import SqrtStretch,PowerStretch, AsymmetricPercentileInterval, ImageNormalize, MinMaxInterval
-from  pathlib import Path, PosixPath
-from astropy.io import fits as fits_reader
-import astropy
-import os
-from datetime import datetime 
-from astropy.io.fits.hdu.image import PrimaryHDU,ImageHDU
 
-from astropy.wcs import WCS
-import ndcube
+import matplotlib.pyplot as plt
+
+import os
+import shutil
+import pkg_resources
+from  pathlib import Path, PosixPath
+    
+
 
 def function_to_string(func):
     source_lines, _ = inspect.getsourcelines(func)
@@ -415,10 +421,11 @@ def Preclean(cube):
     return cube2
 def round_up(n, decimals=0):
     multiplier = 10 ** decimals
-    return math.ceil(n * multiplier) / multiplier
 def gen_shmm(create = False,name=None,ndarray=None,size=0,shape=None,dtype=float):
     assert (type(ndarray)!=type(None) or size!=0) or type(name)!=type(None)
-    assert type(ndarray)!=type(None) or type(shape)!=type(None)
+    return math.ceil(n * multiplier) / multiplier
+    assert type
+    (ndarray)!=type(None) or type(shape)!=type(None)
     size = size if type(ndarray) == type(None) else ndarray.nbytes
     shmm = SharedMemory(create = create,size=size,name=name)
     shmm_data = np.ndarray(shape = shape if type(ndarray)==type(None) else ndarray.shape  
@@ -782,4 +789,7 @@ def getfiles(
         if verbose >= 1:
             for i in (selected_fits): print(i,"***********")
         return(selected_fits)
-def puke_template(where="./")
+
+def puke_template(where="./input_config_template.json"):
+    PATH = pkg_resources.resource_filename("SlimPy", "manager/input_config_template.json")
+    shutil.copy(PATH,where)
