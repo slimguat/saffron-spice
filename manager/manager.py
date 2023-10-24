@@ -37,7 +37,6 @@ class Manager():
             self.mode                    = raster_args_confg["mode"                ]
             self.conv_errors             = raster_args_confg["conv_errors"         ]
             self.convolution_extent_list = np.array(raster_args_confg["convolution_extent_list"])
-            self.counter_percent         = raster_args_confg["counter_percent"     ]
             self.save_data               = raster_args_confg["save_data"           ]
             self.save_plot               = raster_args_confg["save_plot"           ]
             self.plot_filename           = raster_args_confg["plot_filename"       ]
@@ -122,7 +121,6 @@ class Manager():
                 mode                     = self.mode                     ,                         
                 conv_errors              = self.conv_errors              ,                                
                 convolution_extent_list  = self.convolution_extent_list  ,                                
-                counter_percent          = self.counter_percent          ,                                    
                 save_data                = self.save_data                , 
                 save_plot                = self.save_plot                ,                              
                 plot_filename            = self.plot_filename            ,
@@ -168,7 +166,6 @@ class Run():
         mode                   : str         = None,
         conv_errors            : dict        = None,
         convolution_extent_list: np.ndarray  = None,
-        counter_percent        : float       = None,
         save_data              : bool        = None,
         save_plot              : bool        = None,
         plot_save_dir          : str         = None,
@@ -201,7 +198,6 @@ class Run():
             mode                    (str)        : Mode for fitting.
             conv_errors             (dict)       : Dictionary of convolution errors.
             convolution_extent_list (np.ndarray) : Array of convolution extent values.
-            counter_percent         (float)      : Counter percent value.
             save_data               (bool)       : Save data flag.
             save_plot               (bool)       : Save plot flag.
             plot_save_dir           (str)        : Plot save directory.
@@ -230,7 +226,6 @@ class Run():
         self.mode                    = mode                               
         self.conv_errors             = conv_errors                 
         self.convolution_extent_list = convolution_extent_list                 
-        self.counter_percent         = counter_percent         
         self.save_data               = save_data                     
         self.save_plot               = save_plot                     
         self.plot_save_dir           = plot_save_dir             
@@ -291,7 +286,6 @@ class Run():
         #     clipping_sigma          = self.clipping_sigma                 ,           
         #     clipping_med_size       = self.clipping_med_size              ,              
         #     clipping_iterations     = self.clipping_iterations            ,                
-        #     counter_percent         = self.counter_percent                ,
         #     preclean                = self.preclean                       ,
         #     preadjust               = self.preadjust                      , 
         #     save_data               = self.save_data                      ,

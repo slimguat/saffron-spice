@@ -1,0 +1,83 @@
+{
+
+
+  "____COMMENT0.0":"You have to specify file selection mode: ",
+  "____COMMENT0.1":"intervale : than give the date",
+  "____COMMENT0.2":"list      : than give list of files ",
+  "____COMMENT0.3":"folder    : than give the folder to look in",
+  "____COMMENT0.4":"configs for other than the one selected have",
+  "____COMMENT0.5":"no impact what so ever even if they were implimented",
+  
+  
+  
+  "SELECTION_MODE": "list",
+  
+
+  
+  "file selection mode=> list":{
+    "files"              : [
+      "/Fits/file/path1",
+      "/Fits/file/path2",
+      "/Fits/file/path3"
+    ]
+      },
+
+  "file selection mode=> folder":{
+    "L2_folder"          : "folder/location/all/files/inside/are/fitted"
+  },
+  
+  "file selection mode=> date intervale": {
+    "L2_folder"          : "/archive/SOLAR-ORBITER/SPICE/fits/level2/",
+    "YEAR"               : ["one year or list"],
+    "MONTH"              : ["one month or list"],
+    "DAY"                : ["one day or list"],
+    "STD_TYP"            : "COMPO",
+    "STP_NUM"            : "all",
+    "SOOP_NAM"           : "all",
+    "MISOSTUD_NUM"       : "all",
+    "in_name"            : null
+  },
+  
+  "fit_raster_args"      : {
+    
+    "____________________COMMENT1": "Precleaning Parameters",
+    "preadjust"          : false,
+    "preclean"           : true,
+    "weights"            : true,
+    "denoise"            : [6, 2, 1, 0, 0],
+    "clipping_sigma"     : 2.5,
+    "clipping_med_size"  : [6, 3, 3],
+    "clipping_iterations": 3,
+    
+    "____________________COMMENT2": "Convolution Parameters",
+    "mode"                    : "box", 
+    "conv_errors"             : {"I": 0.01,"x": 0.0001,"s": 0.01,"B": 100 },
+    "convolution_extent_list" : [0],
+    
+    "____________________COMMENT3": "data storage parameters",
+    "save_data"          : true,
+    "save_plot"          : true,
+    "plot_save_dir"      : "./data_storage2/Test/",
+    "data_save_dir"      : "./data_storage2/Test/",
+    "COMMENT_plot_filename": "use ::SAMENAME to replace the placeholder, ::SAMENAMEL2.5 is to change L2 to L2.5 by the name of the fits input file or ::CONV to replace by the convolution level(s) with - as separator or ::TIME to replace it by fitting start time",
+    "plot_filename"      : "::SAMENAMEL2.5_::PARAMPLACEHOLDER_con-::CONV_time-::TIME.jpg",
+    "data_filename"      : "::SAMENAMEL2.5_::PARAMPLACEHOLDER_con-::CONV_time-::TIME.fits",
+    "plot_kwargs"        : {},
+    "prefix"             : null,
+    "forced_order"       : null,
+    
+    "____________________COMMENT4": "Additional parameters",
+    "quite_sun"          : [0, -1, 110, 720],
+    "window_size"        : [
+                              [0,null],
+                              [0,null]
+                            ],                      
+    "show_ini_infos"     : true,
+    "Jobs"               : {"windows": 6,"pixels": 30}
+  },
+
+  "getfile_verbose"      : -2,
+  "geninits_verbose"     :  4,
+  "fit_verbose"        : -2,
+  "describe_verbose"   : true
+}

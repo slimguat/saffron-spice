@@ -8,7 +8,7 @@ from ..fit_models import flat_inArg_multiGauss as Gauss
 from ..utils import get_celestial,quickview,get_specaxis
 
 from ..fit_functions import fit_pixel_multi
-from ..line_catalogue.catalogue import LineCatalogue 
+from ..line_catalog.catalog import LineCatalog 
 
 from ..fit_models import flat_inArg_multiGauss 
 from astropy.wcs import WCS
@@ -183,9 +183,9 @@ def find_by_default_window(
     lines_names=[i["name"] for i in window_lines]
     lines_names_sorted = sorted((lines_names.copy()))
     if True:
-        catalogue = LineCatalogue()
-        default_lines = catalogue.get_catalogue_lines()
-        def_win = catalogue.get_catalogue_windows()
+        catalog = LineCatalog()
+        default_lines = catalog.get_catalog_lines()
+        def_win = catalog.get_catalog_windows()
         default_windows = def_win["lines"]
         max_I_names     = def_win['max_line']
         
@@ -278,8 +278,8 @@ def gen_fit_inits(
     else: hdul = hdulOrPath
     unq = get_extnames(hdul)
     lon,lat = get_celestial(hdul)
-    catalogue = LineCatalogue()
-    default_lines = catalogue.get_catalogue_lines()
+    catalog = LineCatalog()
+    default_lines = catalog.get_catalog_lines()
     #these are the parameters to passe
     init_params           = []
     quentities            = []

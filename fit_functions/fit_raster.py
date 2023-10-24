@@ -27,7 +27,7 @@ from spice_uncertainties import spice_error
 
 from .fit_pixel                     import fit_pixel as fit_pixel_multi
 from ..fit_models                   import flat_inArg_multiGauss
-from ..line_catalogue.catalogue     import LineCatalogue
+from ..line_catalog.catalog     import LineCatalog
 from ..utils.denoise                import denoise_data
 from ..utils.despike                import despike
 from ..utils.utils                  import gen_shmm,verbose_description,Preclean,Preclean,convolve,get_specaxis,flatten,find_nth_occurrence,ArrToCode
@@ -1103,7 +1103,7 @@ class WindowFit():
             lock.release()
     @staticmethod
     def get_CHIANTI_lineNames(names):
-        cat = LineCatalogue()
+        cat = LineCatalog()
         _CHIANTI_lines = []
         wvl = cat.get_line_wvl(names)
         for i in range(len(names)):

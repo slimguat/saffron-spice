@@ -782,3 +782,4 @@ def getfiles(
         if verbose >= 1:
             for i in (selected_fits): print(i,"***********")
         return(selected_fits)
+def puke_template(where="./")

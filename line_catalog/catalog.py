@@ -4,36 +4,38 @@ import pkg_resources
 import numpy as np 
 
 import pandas as pd
-class LineCatalogue:
-    def __init__(self, file_location: str = "./SPICE_SpecLines.json"):
+class LineCatalog:
+    def __init__(self, file_location: str = None,verbose=0):
         """
-        Initializes the LineCatalogue class.
+        Initializes the LineCatalog class.
 
-        :param file_location: Path to the JSON file containing the line catalogue data.
+        :param file_location: Path to the JSON file containing the line catalog data.
+        :param verbose: showing more info.
         """
         self.PATH = file_location
         self.verbose = 1
         self.load()
         self._LINES = pd.DataFrame(self._CATALOGUE["LINES"])
         self._WINDOWS = pd.DataFrame(self._CATALOGUE["SPECTRAL_WINDOWS_CATALOGUE"])
-
+        self.verbose = verbose
     def load(self) -> None:
         """
-        Loads the line catalogue data from the JSON file.
+        Loads the line catalog data from the JSON file.
         """
         # import os
         # print("current working directory: "+os.getcwd())
-        
-        database_path = pkg_resources.resource_filename("SlimPy", "line_catalogue/SPICE_SpecLines.json")
+        if self.PATH is None:
+            self.PATH = pkg_resources.resource_filename("SlimPy", "line_catalog/SPICE_SpecLines.json")
         # with open(self.PATH, "r") as f:
-        with open(database_path, "r") as f:
+        with open(self.PATH , "r") as f:
+            if self.verbose >= 1 :print('loading from ',self.PATH )
             self._CATALOGUE = json.load(f)
 
     def dump(self, new_path: str = "::SAME") -> None:
         """
-        Dumps the line catalogue and spectral windows catalogue in the specified format.
+        Dumps the line catalog and spectral windows catalog in the specified format.
 
-        :param new_path: Path to save the formatted catalogue. If set to "::SAME", the current file location will be used.
+        :param new_path: Path to save the formatted catalog. If set to "::SAME", the current file location will be used.
         """
         if new_path == "::SAME":
             new_path = self.PATH
@@ -64,16 +66,16 @@ class LineCatalogue:
             f.write("    ]\n")
             f.write("}\n")
 
-    def _update_catalogue(self) -> None:
+    def _update_catalog(self) -> None:
         """
-        Updates the line catalogue data.
+        Updates the line catalog data.
         """
         self._CATALOGUE["LINES"] = self._LINES.to_dict()
         self._CATALOGUE["SPECTRAL_WINDOWS_CATALOGUE"] = self._WINDOWS.to_dict()
 
     def add_window(self, lines: List[str], max_line: str) -> None:
         """
-        Adds a new spectral window to the line catalogue.
+        Adds a new spectral window to the line catalog.
 
         :param lines: List of lines in the new window.
         :param max_line: Maximum line in the new window.
@@ -87,18 +89,18 @@ class LineCatalogue:
         for line in lines:
             if not self._LINES.name.str.contains(line).any():
                 raise ValueError(
-                    f"the line: {line} doesn't exist in the catalogue add it first before adding a windows that contains this line\n use LineCatalogue.new_line() to do it"
+                    f"the line: {line} doesn't exist in the catalog add it first before adding a windows that contains this line\n use LineCatalog.new_line() to do it"
                 )
 
         lines.sort()
         dflines = pd.DataFrame({"lines": [lines], "max_line": max_line}, index=[0])
 
         self._WINDOWS = pd.concat([self._WINDOWS, dflines], axis=0, ignore_index=True)
-        self._update_catalogue()
+        self._update_catalog()
 
     def add_line(self, name: str, wvl: float) -> None:
         """
-        Adds a new line to the line catalogue.
+        Adds a new line to the line catalog.
 
         :param name: Name of the new line.
         :param wvl: Wavelength of the new line.
@@ -120,11 +122,11 @@ class LineCatalogue:
             ignore_index=True,
         )
         self._LINES = self._LINES.sort_values(by="wvl")
-        self._update_catalogue()
+        self._update_catalog()
 
     def remove_window(self, lines: List[str]) -> None:
         """
-        Removes a spectral window from the line catalogue.
+        Removes a spectral window from the line catalog.
 
         :param lines: List of lines in the window to be removed.
         """
@@ -134,11 +136,11 @@ class LineCatalogue:
             raise ValueError(f"the window to remove with this composition: {lines} doesn't exist ")
         else:
             self._WINDOWS = self._WINDOWS[np.logical_not(found)]
-            self._update_catalogue()
+            self._update_catalog()
 
     def remove_line(self, name: str) -> None:
         """
-        Removes a line from the line catalogue.
+        Removes a line from the line catalog.
 
         :param name: Name of the line to be removed.
         """
@@ -152,16 +154,16 @@ class LineCatalogue:
             )
         else:
             self._LINES = self._LINES[np.logical_not(found)]
-            self._update_catalogue()
+            self._update_catalog()
 
     # getters
-    def get_catalogue(self) -> Dict:
+    def get_catalog(self) -> Dict:
         return self._CATALOGUE
 
-    def get_catalogue_lines(self) -> pd.DataFrame:
+    def get_catalog_lines(self) -> pd.DataFrame:
         return self._LINES
 
-    def get_catalogue_windows(self) -> pd.DataFrame:
+    def get_catalog_windows(self) -> pd.DataFrame:
         return self._WINDOWS 
     
     def get_line_wvl(self,lines):
