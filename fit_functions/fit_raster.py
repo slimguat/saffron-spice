@@ -96,6 +96,7 @@ class RasterFit:
         self.lock = Lock()
         
         self.raster                  = None;self.load_data()
+        
         self.headers                  = [self.raster[i].header for i in range(len(self.raster)) if self.raster[i].header['EXTNAME'] not in ["VARIABLE_KEYWORDS",'WCSDVARR',"WCSDVARR"]]
         
         self.windows                 = []  ;self.gen_windows()
@@ -180,6 +181,7 @@ class RasterFit:
             self.raster = [self.raster[i] for i in range(len(self.raster)) if self.raster[i].header['EXTNAME'] not in ["VARIABLE_KEYWORDS",'WCSDVARR',"WCSDVARR"]]
         elif isinstance(self.path_or_hdul,HDUList): self.raster = self.path_or_hdul
         elif isinstance(self.path_or_hdul,NDCollection): raise ValueError('No, No, No, No Sunraster untill another time')
+        if self.select_window is None: self.select_window = np.arange(len(self.path_or_hdul))
         else: raise ValueError('You need to make sure that data file is a path or HDULLIST object ')
         
         raster = [rast for rast in self.raster if rast.header['EXTNAME'] not in ["VARIABLE_KEYWORDS",'WCSDVARR',"WCSDVARR"]]

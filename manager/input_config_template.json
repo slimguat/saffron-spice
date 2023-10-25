@@ -68,6 +68,7 @@
     
     "____________________COMMENT4": "Additional parameters",
     "quite_sun"          : [0, -1, 110, 720],
+    "select_window"      : null,
     "window_size"        : [
                               [0,null],
                               [0,null]
