@@ -30,7 +30,30 @@ import os
 os.environ['XUVTOP'] = 'path/to/your/database'
 ```
 ## Install
+1. Install the right version of python 
 
+```
+pyenv install 3.9.15
+```
+2. Create and activate your environment
 
+```
+pyenv virtualenv 3.9.15 SPICE_SlimPy
+pyenv activate SPICE_SlimPy
+```
+
+3. install requirement
+
+The library hasn't bee packaged yet so it's better to put in the parent folder to be able to use it. This is going to be changed eventually.
+
+Inside SlimPy folder do:
+```
+pip install -r requirements.txt 
+```
 ## Tutorial
+
+1. Fastest way 
+
+The odds is that you will need no major adjustments for the fitting as the input parameters are most likely tuned out.
+In the beginning you will need a input json file 
 ...
