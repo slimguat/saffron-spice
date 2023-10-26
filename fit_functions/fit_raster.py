@@ -76,7 +76,7 @@ class RasterFit:
         clipping_iterations     :int                    = 3                                    ,                
         preclean                :bool                   = True                                 ,
         save_data               :bool                   = True                                 ,
-        data_filename           :str                    = None                                 ,
+        data_filename           :str                    = "NoName.fits"                                 ,
         data_save_dir           :str                    = "./fits/"                              ,
         Jobs                    :int                    = 1                                    ,
         verbose                 :int                    = 0                                    ,
@@ -100,14 +100,14 @@ class RasterFit:
         self.clipping_iterations     = clipping_iterations      
         self.preclean                = preclean                 
         self.save_data               = save_data                
-        self.data_filename           = data_filename            
+        self.data_filename           = data_filename ;self.filenames_generator           
         self.data_save_dir           = data_save_dir            
         self.Jobs                    = Jobs                     
         self.verbose                 = verbose                  
         self.lock = Lock()
         
+        self.L2_path                 = ""
         self.raster                  = None;self.load_data()
-        
         self.headers                 = [self.raster[i].header for i in range(len(self.raster)) if self.raster[i].header['EXTNAME'] not in ["VARIABLE_KEYWORDS",'WCSDVARR',"WCSDVARR"]]
         
         self.windows                 = []  ;self.gen_windows();self.solo_windows_toFit       = np.arange(len(self.windows))
@@ -217,6 +217,7 @@ class RasterFit:
     def load_data(self):
         if self.verbose>1: print("reading data")
         if type(self.path_or_hdul) in (str,PosixPath):
+            self.L2_path = self.path_or_hdul
             if self.verbose>1: print(f"data is given as path:  {self.path_or_hdul  }")
             self.raster = fits.open(self.path_or_hdul)
             self.raster = [self.raster[i] for i in range(len(self.raster)) if self.raster[i].header['EXTNAME'] not in ["VARIABLE_KEYWORDS",'WCSDVARR',"WCSDVARR"]]
@@ -226,6 +227,8 @@ class RasterFit:
         else: raise ValueError('You need to make sure that data file is a path or HDULLIST object ')
         
         raster = [rast for rast in self.raster if rast.header['EXTNAME'] not in ["VARIABLE_KEYWORDS",'WCSDVARR',"WCSDVARR"]]
+        self.filenames_generator()
+        # TODO DELETE
         # if self.select_window is None:
         #     self.select_window = np.arange(len(raster))
         # elif isinstance(self.select_window,Iterable):
@@ -233,6 +236,45 @@ class RasterFit:
         # elif isinstance(self.select_window, int):
         #     self.select_window = [self.select_window]
         # else: raise SyntaxError(f'selected window\'s type error {self.select_window}')
+    def filenames_generator(self):
+        """
+        Generate filenames using templates and replace placeholders.
+        """
+        
+        if "::PARAMPLACEHOLDER" in self.data_filename:
+            self.data_filename = self.data_filename.replace("::PARAMPLACEHOLDER","{}")
+        if "::SAMENAME" in self.data_filename:
+            if "::SAMENAMEL2.5" in self.data_filename:
+                filename = self.L2_path.stem
+                filename = filename.replace("L2","L2.5")
+                self.data_filename = self.data_filename.replace("::SAMENAMEL2.5",filename)
+            else:
+                self.data_filename = self.data_filename.replace("::SAMENAME",self.L2_path.stem)
+
+        now = datetime.datetime.now()
+        formatted_time = now.strftime(r"%y%m%dT%H%M%S")
+        if "::TIME" in self.data_filename:
+            self.data_filename = self.data_filename.replace("::TIME",formatted_time)
+        
+        strConv = "".join([f"{i:02d}"for i in self.convolution_extent_list ])
+        if "::CONV" in self.data_filename:
+            self.data_filename = self.data_filename.replace("::CONV",strConv)
+        #TODO DELETE
+        # if "::PARAMPLACEHOLDER" in self.plot_filename:
+        #     self.plot_filename = self.plot_filename.replace("::PARAMPLACEHOLDER","{}")
+        
+        # if "::SAMENAME" in self.plot_filename:
+        #     if "::SAMENAMEL2.5" in self.plot_filename:
+        #         filename = self.L2_path.stem
+        #         filename = filename.replace("L2","L2.5")
+        #         self.plot_filename = self.plot_filename.replace("::SAMENAMEL2.5",filename)
+        #     else:
+        #         self.plot_filename = self.plot_filename.replace("::SAMENAME",self.L2_path.stem)
+        # if "::TIME" in self.plot_filename:
+        #     self.plot_filename = self.plot_filename.replace("::TIME",formatted_time)
+        # if "::CONV" in self.plot_filename:
+        #     self.plot_filename = self.plot_filename.replace("::CONV",strConv)
+
 
 class ProgressFollower():
     def __init__(self,file_path=None):
@@ -871,7 +913,7 @@ class WindowFit():
             else:
                 # print('number of Bvalues',self.quentities.count('B'))
                 # bg_filename = self.data_filename.format("Bg"+str(self.quentities[:0*3].count('B')))
-                bg_filename = self.data_filename.format("Bg"+str(iter-1)+"-"+str(np.int(np.random.random()*100)))
+                bg_filename = self.data_filename.format("Bg"+str(iter-1)+"-"+str(int(np.random.random()*100)))
                 header = (wcs_par.to_header())
                 data = self.data_par[ind,0]
                 sigma = np.sqrt(self.data_cov[ind,0]) 
@@ -1067,12 +1109,10 @@ class WindowFit():
         if type(wgt)!=type(None):
             shmm_wgt,data_wgt = gen_shmm(create=False,**wgt) 
         
-        print(data_par.shape[0],len(convolution_threshold))
         if len(convolution_threshold)==data_par.shape[0]:conv_thresh = convolution_threshold 
         else:
             conv_thresh = np.zeros(data_par.shape[0]) 
-            print(conv_thresh,convolution_threshold)
-            print(conv_thresh[-1],convolution_threshold[-1])
+            
             conv_thresh[-1] = convolution_threshold[-1]
             for i_q in range(data_par.shape[0]//3):
                 conv_thresh[i_q+0] = convolution_threshold[0]

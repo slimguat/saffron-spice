@@ -8,7 +8,7 @@ from datetime import datetime
 import astropy
 from astropy.io import fits as fits_reader
 from astropy.io.fits.hdu.image import PrimaryHDU,ImageHDU
-from astropy.visualization import SqrtStretch,PowerStretch, AsymmetricPercentileInterval, ImageNormalize, MinMaxInterval
+from astropy.visualization import SqrtStretch,PowerStretch,LogStretch, AsymmetricPercentileInterval, ImageNormalize, MinMaxInterval, interval,stretch
 from astropy.wcs import WCS
 from sunraster.instr.spice import read_spice_l2_fits
 import spice_utils.ias_spice_utils.utils as spu
@@ -803,3 +803,34 @@ def suppress_output():
     with open(os.devnull, 'w') as devnull:
         with contextlib.redirect_stdout(devnull):
             yield
+
+def normit(
+    data=None,
+    interval:interval=AsymmetricPercentileInterval(1,99),
+    stretch:stretch=SqrtStretch(), 
+    vmin:float=None, 
+    vmax:float=None,
+    clip:bool =False,
+    invalid=-1.0,
+           ) -> ImageNormalize:
+    """Normalize the data using the specified interval, stretch, vmin, and vmax.
+    
+    Args:
+        data (numpy.ndarray): The data to be normalized.
+        interval (astropy.visualization.Interval, optional): The interval to use for normalization.
+            Defaults to AsymmetricPercentileInterval(1, 99).
+        stretch (astropy.visualization.Stretch, optional): The stretch to apply to the data.
+            Defaults to SqrtStretch().
+        vmin (float, optional): The minimum value for normalization. Defaults to None.
+        vmax (float, optional): The maximum value for normalization. Defaults to None.
+        
+    Returns:
+        astropy.visualization.ImageNormalize: The normalized data.
+    """
+    if vmin is not None or vmax is not None:
+        interval = None
+    if stretch is not None:
+        if np.all(np.isnan(data)): return None 
+        return ImageNormalize(data,interval,stretch=stretch,vmin=vmin,vmax=vmax,clip=clip,invalid=invalid)
+    
+    return ImageNormalize(data,interval,vmin=vmin,vmax=vmax,clip=clip,invalid=invalid)
