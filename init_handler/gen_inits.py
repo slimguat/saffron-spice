@@ -1,21 +1,22 @@
 import numpy as np 
 import  matplotlib.pyplot as plt
 import datetime
-from pathlib import PosixPath
+
 from astropy.io import fits as fits_reader
-
-from ..fit_models import flat_inArg_multiGauss as Gauss
-from ..utils import get_celestial,quickview,get_specaxis
-
-from ..fit_functions import fit_pixel_multi
-from ..line_catalog.catalog import LineCatalog 
-
-from ..fit_models import flat_inArg_multiGauss 
-from astropy.wcs import WCS
-
-from typing import Union, List, Dict, Any, Callable, Tuple
 from astropy.io.fits import HDUList
 from astropy.io.fits.hdu.image import PrimaryHDU,ImageHDU
+from astropy.wcs import WCS
+
+from ..line_catalog.catalog import LineCatalog 
+from ..fit_functions import fit_pixel_multi
+from ..fit_models import flat_inArg_multiGauss 
+from ..utils import get_celestial,quickview,get_specaxis
+
+
+
+from pathlib import PosixPath
+from typing import Union, List, Dict, Any, Callable, Tuple
+import warnings
 
 def gen_lock_params(
     init_params: List[float], 
@@ -183,7 +184,7 @@ def find_by_default_window(
     lines_names=[i["name"] for i in window_lines]
     lines_names_sorted = sorted((lines_names.copy()))
     if True:
-        catalog = LineCatalog()
+        catalog = LineCatalog(verbose=verbose)
         default_lines = catalog.get_catalog_lines()
         def_win = catalog.get_catalog_windows()
         default_windows = def_win["lines"]
@@ -223,7 +224,7 @@ def find_by_default_window(
             init_params2[0::3][init_params2[0::3]<0]=0
             return init_params2,specaxis,specdata
     
-    print(f"The window you have chosen is not in the catalog\n\tLOG!\n\t\t:\n\t\tspecaxis    {specaxis    }\n\t\tspecdata    {specdata    }\n\t\tinit_params {init_params }\n\t\twindow_lines{window_lines}")
+    if verbose>-1:print(f"The window you have chosen is not in the catalog\n\tLOG!\n\t\t:\n\t\tspecaxis    {specaxis    }\n\t\tspecdata    {specdata    }\n\t\tinit_params {init_params }\n\t\twindow_lines{window_lines}")
     return(init_params*np.nan,specaxis,specdata)
 
     if False:raise SystemError(f"The window you have chosen is not in the catalog\n\tLOG!\n\t\t:\n\t\tspecaxis    {specaxis    }\n\t\tspecdata    {specdata    }\n\t\tinit_params {init_params }\n\t\twindow_lines{window_lines}")
@@ -254,6 +255,8 @@ def gen_fit_inits(
     wvl_interval: Dict[str, List[int]] = {"low": [7, -7], "high": [5, -5]},
     verbose: int = 0
 ) -> Dict[str, Any]:
+    if verbose==-2: 
+        warnings.filterwarnings('ignore')
     """
         Generate initial parameters for fitting spectral data using Gaussian functions.
 
@@ -278,7 +281,7 @@ def gen_fit_inits(
     else: hdul = hdulOrPath
     unq = get_extnames(hdul)
     lon,lat = get_celestial(hdul)
-    catalog = LineCatalog()
+    catalog = LineCatalog(verbose=verbose)
     default_lines = catalog.get_catalog_lines()
     #these are the parameters to passe
     init_params           = []
@@ -335,11 +338,11 @@ def gen_fit_inits(
         if verbose >= 4 or verbose<-2:
             plt.figure()
             plt.step(specaxis,specdata,label="original spectrum")
-            plt.step(specaxis,Gauss(specaxis,*init_param),label="predefined params{}".format(" NANs" if np.isnan(init_param).any()else""))        
+            plt.step(specaxis,flat_inArg_multiGauss(specaxis,*init_param),label="predefined params{}".format(" NANs" if np.isnan(init_param).any()else""))        
         if verbose>=2: print("______________window_lines",window_lines)
         init_param,specaxis,specdata = find_by_default_window(specaxis,specdata,init_param,window_lines)
         if verbose >= 4 or verbose<-2:
-            plt.step(specaxis,Gauss(specaxis,*init_param),label="default windows adjustement{}".format(" NANs" if np.isnan(init_param).any()else""))    
+            plt.step(specaxis,flat_inArg_multiGauss(specaxis,*init_param),label="default windows adjustement{}".format(" NANs" if np.isnan(init_param).any()else""))    
         if len(init_param)>4:#fitting with one position of the fit
             #Generating an all in all locked init_param
             lock_state = [["free"]]
@@ -368,16 +371,14 @@ def gen_fit_inits(
                                         specdata,
                                         np.array(init_param),
                                         quentities=quentity,
-                                        fit_func=Gauss,
+                                        fit_func=flat_inArg_multiGauss,
                                         plot_title_prefix = "preadjust")
         dtime = str(datetime.datetime.now())[:19].replace(":","-")
         if verbose >= 4 or verbose<-2:
-            print(quentity)
             array_quentity= np.array(quentity)
-            print(init_param2[array_quentity=="x"])
             for i,l in enumerate(init_param2[array_quentity=="x"]):
                 plt.axvline(l,label=str(l),ls=":")        
-            plt.step(specaxis,Gauss(specaxis,*init_param2),label="Unlocked fit{}".format(" NANs" if np.isnan(init_param2).any() else""))
+            plt.step(specaxis,flat_inArg_multiGauss(specaxis,*init_param2),label="Unlocked fit{}".format(" NANs" if np.isnan(init_param2).any() else""))
             plt.legend()
             
             plt.savefig(f"./tmp/{dtime}_window{kw_i}.jpg")
@@ -391,7 +392,7 @@ def gen_fit_inits(
         ((fig1,ax1),(fig2,ax2)) = quickview(hdulOrPath)
         for i,params in enumerate(init_params):
             specaxis =get_specaxis( hdul[unq[i]])
-            ax2[i].step(specaxis,Gauss(specaxis,*params))
+            ax2[i].step(specaxis,flat_inArg_multiGauss(specaxis,*params))
         fig1.savefig(f"./tmp/{dtime}_window_all.jpg")
         fig2.savefig(f"./tmp/{dtime}_spectrum_all.jpg")
     return {

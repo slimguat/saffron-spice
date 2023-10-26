@@ -27,21 +27,41 @@ from spice_uncertainties import spice_error
 
 from .fit_pixel                     import fit_pixel as fit_pixel_multi
 from ..fit_models                   import flat_inArg_multiGauss
-from ..line_catalog.catalog     import LineCatalog
+from ..line_catalog.catalog         import LineCatalog
 from ..utils.denoise                import denoise_data
 from ..utils.despike                import despike
-from ..utils.utils                  import gen_shmm,verbose_description,Preclean,Preclean,convolve,get_specaxis,flatten,find_nth_occurrence,ArrToCode
+from ..utils.utils                  import gen_shmm,Preclean,Preclean,convolve,get_specaxis,flatten,find_nth_occurrence,ArrToCode
 from ..utils.lock_tools             import gen_locked_params,gen_unlocked_params,gen_lock_fit_func,LockProtocols
 
 
 class RasterFit:
+    def __repr__(self) -> str:
+        value = (
+        # "init_params             "+ str(self.init_params)             +  "\n"+             
+        # "quentities              "+ str(self.quentities)              +  "\n"+
+        "fit_func                "+ str(self.fit_func)                +  "\n"+                
+        "convolution_extent_list "+ str(self.convolution_extent_list) +  "\n"+ 
+        "weights                 "+ str(self.weights)                 +  "\n"+                     
+        "denoise                 "+ str(self.denoise)                 +  "\n"+                     
+        "preclean                "+ str(self.preclean)                +  "\n"+                     
+        "save_data               "+ str(self.save_data)               +  "\n"+                    
+        "data_filename           "+ str(self.data_filename)           +  "\n"+                
+        "data_save_dir           "+ str(self.data_save_dir)           +  "\n"+                
+        "Jobs                    "+ str(self.Jobs)                    +  "\n"+                         
+        "verbose                 "+ str(self.verbose)                 +  "\n"+                      
+        "len(windows)            "+ str(len(self.windows))                 +  "\n"+    
+        "len(fused_windows)      "+ str(len(self.fused_windows))           +  "\n"+                      
+        "window_size             "+ str(self.window_size)             +  "\n"+             
+        "init_params/quentities  "+ "\n"+"\n\t".join([str(self.init_params[i])+'\n'+str(self.quentities[i]) for i in range(len(self.init_params))])
+
+        )
+        return value
     def __init__(
         self,
         path_or_hdul            :str or NDCollection                                           ,                                                            
         init_params             :list                                                          ,                                                      
         quentities              :list                                                          ,                                                      
         fit_func                :callable                                                      ,  
-        select_window           :int or List[int]       = None                                 ,
         windows_names           :list                   = None                                 ,                                                    
         bounds                  :np.array               = np.array([np.nan])                   , 
         window_size             :np.ndarray             = np.array([[500,510],[60,70]])        ,
@@ -56,21 +76,16 @@ class RasterFit:
         clipping_iterations     :int                    = 3                                    ,                
         preclean                :bool                   = True                                 ,
         save_data               :bool                   = True                                 ,
-        save_plot               :bool                   = True                                 ,           
-        plot_filename           :str                    = None                                 ,
         data_filename           :str                    = None                                 ,
         data_save_dir           :str                    = "./fits/"                              ,
-        plot_save_dir           :str                    = "./imgs/"                            ,
         Jobs                    :int                    = 1                                    ,
         verbose                 :int                    = 0                                    ,
-        describe_verbose        :bool                   = True                                      
         
         ):
         self.path_or_hdul            = path_or_hdul             
         self.init_params             = init_params              
         self.quentities              = quentities               
         self.fit_func                = fit_func                 
-        self.select_window           = select_window 
         self.windows_names           = windows_names
         self.bounds                  = bounds                   
         self.window_size             = window_size              
@@ -85,45 +100,70 @@ class RasterFit:
         self.clipping_iterations     = clipping_iterations      
         self.preclean                = preclean                 
         self.save_data               = save_data                
-        self.save_plot               = save_plot                
-        self.plot_filename           = plot_filename            
         self.data_filename           = data_filename            
         self.data_save_dir           = data_save_dir            
-        self.plot_save_dir           = plot_save_dir            
         self.Jobs                    = Jobs                     
         self.verbose                 = verbose                  
-        self.describe_verbose        = describe_verbose         
         self.lock = Lock()
         
         self.raster                  = None;self.load_data()
         
-        self.headers                  = [self.raster[i].header for i in range(len(self.raster)) if self.raster[i].header['EXTNAME'] not in ["VARIABLE_KEYWORDS",'WCSDVARR',"WCSDVARR"]]
+        self.headers                 = [self.raster[i].header for i in range(len(self.raster)) if self.raster[i].header['EXTNAME'] not in ["VARIABLE_KEYWORDS",'WCSDVARR',"WCSDVARR"]]
         
-        self.windows                 = []  ;self.gen_windows()
-        
-        if verbose<=-2: warnings.filterwarnings("ignore");sleep(5)
-        verbose_description(verbose)
+        self.windows                 = []  ;self.gen_windows();self.solo_windows_toFit       = np.arange(len(self.windows))
+        self.fused_windows           = []
+        if verbose<=-2: warnings.filterwarnings("ignore")
         tmp_dir = Path(r'.\tmp')
         if not tmp_dir.exists():os.mkdir(tmp_dir)
 
         return None
+    def fuse_windows(self,*indices):
+        self.fused_windows.append(WindowFit(
+            hdu                      = [self.windows[i].hdu          for i in indices],
+            init_params              = [self.windows[i].init_params  for i in indices],
+            quentities               = [self.windows[i].quentities   for i in indices],
+            window_names             = [self.windows[i].window_names for i in indices],
+            fit_func                 = self.windows[0].fit_func     ,
+            bounds                   = self.bounds                  , 
+            window_size              = self.window_size             ,
+            convolution_function     = self.convolution_function    ,
+            convolution_threshold    = self.convolution_threshold if not isinstance(self.convolution_threshold[0],Iterable) else [self.convolution_threshold[i]  for i in indices] ,            
+            convolution_extent_list  = self.convolution_extent_list ,
+            mode                     = self.mode                    ,
+            weights                  = self.weights                 ,
+            denoise                  = self.denoise                 ,
+            clipping_sigma           = self.clipping_sigma          ,           
+            clipping_med_size        = self.clipping_med_size       ,              
+            clipping_iterations      = self.clipping_iterations     ,                
+            preclean                 = self.preclean                ,
+            save_data                = self.save_data               ,
+            data_filename            = self.data_filename           ,
+            data_save_dir            = self.data_save_dir           ,
+            Jobs                     = self.Jobs                    ,
+            verbose                  = self.verbose                 , 
+            lock                     = self.lock                    , 
+        ))
+        x = self.solo_windows_toFit
+        y = indices 
+        self.solo_windows_toFit = [value for value in x if value not in y]
+        
     def gen_windows(self):
         if self.windows_names is None:
             self.windows_names = [None for i in self.raster]
-        elif isinstance(self.windows_names,list ):
-            if len(self.windows_names) == len(self.raster):pass
-            elif len(self.windows_names) == len(self.select_window):
-                windows_names2 = [None for i in self.raster]
-                for j,i in enumerate(self.select_window): 
-                    windows_names2[i]=self.windows_names[j].copy()
+        # # elif isinstance(self.windows_names,list ):
+        # #     if len(self.windows_names) == len(self.raster):pass
+        # #     elif len(self.windows_names) != len(self.select_window):
+        # #         windows_names2 = [None for i in self.raster]
+        # #         for j,i in enumerate(self.select_window): 
+        # #             windows_names2[i]=self.windows_names[j].copy()
                 
-                self.windows_names = windows_names2
+        #         self.windows_names = windows_names2
         elif isinstance(self.windows_names,dict ):
             self.windows_names = [self.windows_names[rast.header['EXTNAME']] for rast in self.raster] 
             
         else: raise SyntaxError(f"Please revise the windows_names argument {self.windows_names}")
     
-        for i in self.select_window:
+        for i in range(len(self.raster)):
             window = WindowFit(
 
                 hdu                      = self.raster[i]               ,                                                            
@@ -134,7 +174,7 @@ class RasterFit:
                 window_size              = self.window_size             ,
                 window_names             = self.windows_names[i]        ,
                 convolution_function     = self.convolution_function    ,
-                convolution_threshold    = self.convolution_threshold   ,
+                convolution_threshold    = self.convolution_threshold if not isinstance(self.convolution_threshold[0],Iterable) else self.convolution_threshold[i]  ,
                 convolution_extent_list  = self.convolution_extent_list ,
                 mode                     = self.mode                    ,
                 weights                  = self.weights                 ,
@@ -144,28 +184,29 @@ class RasterFit:
                 clipping_iterations      = self.clipping_iterations     ,                
                 preclean                 = self.preclean                ,
                 save_data                = self.save_data               ,
-                save_plot                = self.save_plot               ,           
-                plot_filename            = self.plot_filename           ,
                 data_filename            = self.data_filename           ,
                 data_save_dir            = self.data_save_dir           ,
-                plot_save_dir            = self.plot_save_dir           ,
                 Jobs                     = self.Jobs                    ,
                 verbose                  = self.verbose                 , 
                 lock                     = self.lock                    ,               
             ) 
             self.windows.append(window)
-        pass
-    def fit_raster(self):
-        # Setting windows object function.  
-            # Organize a matrix of raw_data.
-            # Get the incertainty values.
-            # set Locking structures.
-            # Naming the diferent line results 
-            # fusing windows if possible
-            
-        # Starting fitting project
-            #   
-        pass
+    def run_preparations(self,redo=False):
+        for i in range(len(self.windows)):
+            self.windows[i].run_preparations(redo=redo)
+        for i in range(len(self.fused_windows)):
+            self.fused_windows[i].run_preparations(redo=redo)
+        
+    def fit_raster(self,progress_follower=None):
+        if progress_follower is None: progress_follower = ProgressFollower()
+        for ind in self.solo_windows_toFit:
+            self.windows[ind].fit_window(progress_follower=progress_follower)
+            self.windows[ind].write_data()
+        for window in self.fused_windows:
+            window.fit_window(progress_follower=progress_follower)
+            window.write_data()
+        
+        
     def check_object_arguments(self):
         if self.verbose > 0: print("checking adequacy of given parameters")
         if type(self.quentities[0]) != list: print(f"ERROR queities sould be a list of lists\n quentities given {self.quentities}")
@@ -181,17 +222,17 @@ class RasterFit:
             self.raster = [self.raster[i] for i in range(len(self.raster)) if self.raster[i].header['EXTNAME'] not in ["VARIABLE_KEYWORDS",'WCSDVARR',"WCSDVARR"]]
         elif isinstance(self.path_or_hdul,HDUList): self.raster = self.path_or_hdul
         elif isinstance(self.path_or_hdul,NDCollection): raise ValueError('No, No, No, No Sunraster untill another time')
-        if self.select_window is None: self.select_window = np.arange(len(self.path_or_hdul))
+        # if self.select_window is None: self.select_window = np.arange(len(self.path_or_hdul))
         else: raise ValueError('You need to make sure that data file is a path or HDULLIST object ')
         
         raster = [rast for rast in self.raster if rast.header['EXTNAME'] not in ["VARIABLE_KEYWORDS",'WCSDVARR',"WCSDVARR"]]
-        if self.select_window is None:
-            self.select_window = np.arange(len(raster))
-        elif isinstance(self.select_window,Iterable):
-            pass
-        elif isinstance(self.select_window, int):
-            self.select_window = [self.select_window]
-        else: raise SyntaxError(f'selected window\'s type error {self.select_window}')
+        # if self.select_window is None:
+        #     self.select_window = np.arange(len(raster))
+        # elif isinstance(self.select_window,Iterable):
+        #     pass
+        # elif isinstance(self.select_window, int):
+        #     self.select_window = [self.select_window]
+        # else: raise SyntaxError(f'selected window\'s type error {self.select_window}')
 
 class ProgressFollower():
     def __init__(self,file_path=None):
@@ -338,6 +379,20 @@ class ProgressFollower():
                     reload_counter = datetime.datetime.now()             
 
 class WindowFit():
+    def __repr__(self):
+        val = (
+            "Extnames                "+self.hdu.header['EXTNAME'] if not isinstance(self.hdu,Iterable) else ' '.join([h.header["EXTNAME"] for h in self.hdu])+"\n"+
+            "fit_func                "+str(self.fit_func)                +"\n"+
+            "init_params             "+str(self.init_params)             +"\n"+
+            "quentities              "+str(self.quentities)              +"\n"+
+            "window_size             "+str(self.window_size)             +"\n"+
+            "convolution_extent_list "+str(self.convolution_extent_list) +"\n"+
+            "data_filename           "+str(self.data_filename)           +"\n"+
+            "data_save_dir           "+str(self.data_save_dir)           +"\n"+
+            "Jobs                    "+str(self.Jobs)                    +"\n"+
+            "verbose                 "+str(self.verbose)                 +"\n"
+        )
+        return val
     def __init__(   
             self                                                                                                   ,
             hdu                     :str or NDCollection or List[str or NDCollection]                              ,                                                            
@@ -358,16 +413,13 @@ class WindowFit():
             clipping_iterations     :int                                    = 3                                    ,                
             preclean                :bool                                   = True                                 ,
             save_data               :bool                                   = True                                 ,
-            save_plot               :bool                                   = True                                 ,           
-            plot_filename           :str                                    = None                                 ,
             data_filename           :str                                    = None                                 ,
             data_save_dir           :str                                    = "./.p/"                              ,
-            plot_save_dir           :str                                    = "./imgs/"                            ,
             Jobs                    :int                                    = 1                                    ,
             verbose                 :int                                    = 0                                    ,
             lock                                                            = None                                 ,
             
-            share_B                                                         = True                                 ,
+            share_B                 :bool                                   = False                                ,
             dir_tmp_functions       :str                                    = None                                 , 
             import_function_list    :list                                   = []                                   ,
         ):                        
@@ -397,11 +449,8 @@ class WindowFit():
         self.clipping_iterations     = clipping_iterations          
         self.preclean                = preclean                                
         self.save_data               = save_data                              
-        self.save_plot               = save_plot                              
-        self.plot_filename           = plot_filename                      
         self.data_filename           = data_filename                      
         self.data_save_dir           = data_save_dir                      
-        self.plot_save_dir           = plot_save_dir                      
         self.Jobs                    = Jobs                                        
         self.verbose                 = verbose
         self.lock                    = Lock() if lock is None else lock
@@ -432,7 +481,6 @@ class WindowFit():
         self.lock_protocols          = LockProtocols()
 
         if dir_tmp_functions is None:
-            
             self._dir_tmp_functions = Path("./tmp_functions").resolve()
             self._dir_tmp_functions.mkdir(parents=True,exist_ok=True)
             sys.path.append(self._dir_tmp_functions)
@@ -440,7 +488,7 @@ class WindowFit():
             self.lock_protocols._dir_tmp_functions
         else: self._dir_tmp_functions = dir_tmp_functions
         self.import_function_list = import_function_list
-        self.lock_protocols.import_function_list = self.import_function_list
+        self.lock_protocols .import_function_list = self.import_function_list
         
         self.has_treated = {"preclean":False,"sigma":False,"despike":False, "convolve":False, "denoise":False}
         #In case of multiple windows these windows will be stored in here
@@ -453,7 +501,7 @@ class WindowFit():
             self.separate_fit_func                = None       
         
         
-        self.run_preparations()
+        # self.run_preparations()
         # self.FIT_window()
     def run_preparations(self,redo=False):
         if isinstance(self.hdu,Iterable):
@@ -465,7 +513,7 @@ class WindowFit():
         self.specaxis=get_specaxis(self.hdu)
         self._preclean(redo=redo)
         self._get_sigma_data(redo=redo)
-        self._despike(redo=redo)
+        # self._despike(redo=redo)
         self._convolve(redo=redo)
         self._denoise(redo=redo)
         self._Gen_output_shared_memory()
@@ -484,7 +532,7 @@ class WindowFit():
             self.separate_window_names = self.window_names.copy()
             self.separate_fit_func     = self.fit_func.copy() if isinstance(self.fit_func,Iterable) else self.fit_func
             for ind,hdu in enumerate(self.hdu):
-                print(f"Generating window {ind}")
+                # print(f"Generating window {ind}")
                 
                 self.separate_windows.append(
                     WindowFit(
@@ -496,7 +544,7 @@ class WindowFit():
                         bounds                  = self.bounds                                                                            ,
                         window_size             = self.window_size                                                                       ,
                         convolution_function    = self.convolution_function                                                              ,
-                        convolution_threshold   = self.convolution_threshold                                                             ,
+                        convolution_threshold   = self.convolution_threshold if not isinstance(self.convolution_threshold[0],Iterable) else self.convolution_threshold[ind]  ,
                         convolution_extent_list = self.convolution_extent_list                                                           ,
                         mode                    = self.mode                                                                              ,
                         weights                 = self.weights                                                                           ,
@@ -506,20 +554,18 @@ class WindowFit():
                         clipping_iterations     = self.clipping_iterations                                                               ,
                         preclean                = self.preclean                                                                          ,
                         save_data               = self.save_data                                                                         ,
-                        save_plot               = self.save_plot                                                                         ,
-                        plot_filename           = self.plot_filename                                                                     ,
                         data_filename           = self.data_filename                                                                     ,
                         data_save_dir           = self.data_save_dir                                                                     ,
-                        plot_save_dir           = self.plot_save_dir                                                                     ,
                         Jobs                    = self.Jobs                                                                              ,
                         verbose                 = self.verbose                                                                           ,
                         lock                    = self.lock                                                                              ,
                     )
                 )
-            old_v = self.separate_windows[-1].verbose;self.separate_windows[-1].verbose =-np.inf
-            self.separate_windows[-1].run_preparations()
-            self.separate_windows[-1].verbose = old_v
+                old_v = self.separate_windows[-1].verbose;self.separate_windows[-1].verbose =-np.inf
+                self.separate_windows[-1].run_preparations()
+                self.separate_windows[-1].verbose = old_v
 
+        self.convolution_threshold = np.concatenate([i.convolution_threshold     for i in self.separate_windows], axis = 0)
         self.build_fused_params()
         self.build_fused_FitFunc()
         
@@ -527,7 +573,9 @@ class WindowFit():
         # new convdata
         # new specaxis
         # new sigma
-        self.specaxis  = np.concatenate([i.specaxis  for i in self.separate_windows], axis = 0)
+        # self.has_treated = {"preclean":False,"sigma":False,"despike":False, "convolve":False, "denoise":False}
+        
+        self.specaxis  = np.concatenate([get_specaxis(i.hdu)  for i in self.separate_windows], axis = 0)
         self.sigma     = np.concatenate([i.sigma     for i in self.separate_windows], axis = 1)
         self.conv_sigma     = np.concatenate([i.conv_sigma     for i in self.separate_windows], axis = 2)
         self.conv_data = np.concatenate([i.conv_data for i in self.separate_windows], axis = 2)
@@ -535,7 +583,8 @@ class WindowFit():
         self._Gen_output_shared_memory()
     def build_fused_params(self):
         init_params  = []#new init_params
-        quentities   = []#new quetities
+        convolution_threshold = []
+        quentities   = []#new quentities
         window_names = []#new window_names
         B_ind        = []#index of Background in init_params
         
@@ -547,12 +596,15 @@ class WindowFit():
                 for nI in range(window.quentities.count('I')):
                     indI = find_nth_occurrence(window.quentities,'I',nI+1)
                     init_params .extend(window.init_params[indI:indI+3])
+                    convolution_threshold.extend(window.convolution_threshold[indI:indI+3])
                     quentities  .extend(window.quentities [indI:indI+3])
                     window_names.append( None if not isinstance(window.window_names,Iterable) else window.window_names[nI] )
+                    
                 B_ind.append(
                     [find_nth_occurrence(window.quentities,"B",n) for n in range(window.quentities.count("B"))] 
                 )
             init_params .append(1.e-1) #TODO later just take the average vlaue for each B in the system
+            convolution_threshold .append(100) #TODO later just take the average vlaue for each B in the system
             quentities  .append("B") 
             
         else:  
@@ -560,11 +612,14 @@ class WindowFit():
                 init_params  .extend(window.init_params)
                 quentities   .extend(window.quentities )
                 window_names .extend(window.window_names)
+                convolution_threshold  .extend(window.convolution_threshold)
         
                     
         self.init_params  = np.array(init_params) 
         self.quentities   = quentities 
         self.window_names = window_names   
+        self.convolution_threshold  = np.array(convolution_threshold) 
+        
     def build_fused_FitFunc(self):
         B_ind = []
         for ind,window in enumerate(self.separate_windows):
@@ -667,10 +722,15 @@ class WindowFit():
         if self.has_treated['sigma'] and not redo: 
             if self.verbose>=0: print('already done')
             return 
-        av_constant_noise_level, sigma = spice_error(self.hdu,verbose=self.verbose)
+        if self.verbose>=1:
+            av_constant_noise_level, sigma = spice_error(self.hdu,verbose=self.verbose)
+        else:
+            from ..utils.utils import suppress_output
+            with suppress_output():
+                av_constant_noise_level, sigma = spice_error(self.hdu,verbose=self.verbose)
+                
         self.sigma = sigma['Total'].value.astype(float)
         self.has_treated['sigma']=True
-        
     def _preclean(self,redo= False):
         if self.verbose>=0: print("Precleaning data")
         if self.has_treated['preclean'] and not redo: 
@@ -908,7 +968,7 @@ class WindowFit():
         for col in  hdul_list:
             print(f'saving_to {data_save_dir/col[1]}') 
             col[0].writeto(data_save_dir/col[1], overwrite=True)  
-    def FIT_window(self,progress_follower=None):
+    def fit_window(self,progress_follower=None):
         if progress_follower is None:
             progress_follower = ProgressFollower()
         
@@ -979,10 +1039,7 @@ class WindowFit():
                 if self.verbose>=0:print("remaining_pixels= ",nan_size,'/',data.size)
                 sleep(2)
         for process in Processes: process.join()
-        # for i in range(self.Jobs): #join all processes
-        #     Processes[i].join()
-        #     pass
-            
+        
     @staticmethod
     def task_fit_pixel(x:np.ndarray                     ,
                     list_indeces:np.ndarray             ,
@@ -999,7 +1056,6 @@ class WindowFit():
                     convolution_extent_list = None      , 
                     verbose=0                           ,
                     lock=None                           ,
-                    describe_verbose = False            ,
                     lock_protocols   = LockProtocols() ,
                     **kwargs                            ,
         ):        
@@ -1011,10 +1067,12 @@ class WindowFit():
         if type(wgt)!=type(None):
             shmm_wgt,data_wgt = gen_shmm(create=False,**wgt) 
         
-        
+        print(data_par.shape[0],len(convolution_threshold))
         if len(convolution_threshold)==data_par.shape[0]:conv_thresh = convolution_threshold 
         else:
             conv_thresh = np.zeros(data_par.shape[0]) 
+            print(conv_thresh,convolution_threshold)
+            print(conv_thresh[-1],convolution_threshold[-1])
             conv_thresh[-1] = convolution_threshold[-1]
             for i_q in range(data_par.shape[0]//3):
                 conv_thresh[i_q+0] = convolution_threshold[0]
@@ -1046,7 +1104,6 @@ class WindowFit():
                                                     bounds=bounds,
                                                     weights=None if type(wgt)==type(None) else data_wgt[i_ad,0,:,i_y,i_x],
                                                     verbose=verbose,
-                                                    describe_verbose=describe_verbose,
                                                     plot_title_prefix=f"{i_y:04d},{i_x:03d},{i_ad:03d}",
                                                     lock_protocols=lock_protocols
                                                     )

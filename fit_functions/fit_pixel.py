@@ -41,10 +41,10 @@ def fit_pixel_multi(x:np.ndarray,
     assert len(ini_params.shape)==1
     assert x.shape==y.shape
     _s = ini_params.shape[0]
+    
     if callable(bounds):
         bounds = bounds(par=ini_params,que=quentities)
-        
-    elif not (False in  (np.isnan(bounds))):
+    elif bounds is None or not (False in  (np.isnan(bounds))):
         bounds = np.zeros((2,_s))
         for i in range(_s):
             if quentities[i] == "B":

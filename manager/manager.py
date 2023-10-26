@@ -9,11 +9,11 @@ from ..fit_models import flat_inArg_multiGauss
 from ..utils import getfiles
 from ..init_handler import gen_fit_inits
 from ..fit_functions.fit_raster import RasterFit
-from typing import Union, List, Dict, Any, Callable, Tuple, Optional
+from typing import Union, List, Dict, Any, Callable, Tuple, Optional,Iterable
 
 
 class Manager():
-    def __init__(self, Input_JSON: Optional[str] = None):
+    def __init__(self, Input_JSON: Optional[str]):
         """
         Initialize an instance of the Manager class.
 
@@ -28,7 +28,6 @@ class Manager():
             #In the future you need to add a reference JSON whene there is 
             self.SELECTION_MODE          = self.config      ["SELECTION_MODE"      ]
             raster_args_confg            = self.config      ["fit_raster_args"]
-            self.preadjust               = raster_args_confg['preadjust'           ]           
             self.preclean                = raster_args_confg['preclean'            ]            
             self.weights                 = raster_args_confg['weights'             ]             
             self.denoise                 = raster_args_confg['denoise'             ]             
@@ -39,26 +38,26 @@ class Manager():
             self.conv_errors             = raster_args_confg["conv_errors"         ]
             self.convolution_extent_list = np.array(raster_args_confg["convolution_extent_list"])
             self.save_data               = raster_args_confg["save_data"           ]
-            self.save_plot               = raster_args_confg["save_plot"           ]
-            self.plot_filename           = raster_args_confg["plot_filename"       ]
             self.data_filename           = raster_args_confg["data_filename"       ]
-            self.plot_save_dir           = raster_args_confg["plot_save_dir"       ]
             self.data_save_dir           = raster_args_confg["data_save_dir"       ]
             self.forced_order            = raster_args_confg["forced_order"        ]
             self.quite_sun               = raster_args_confg["quite_sun"           ]
             self.window_size             = np.array(raster_args_confg["window_size"  ])
-            self.select_window           = np.array(raster_args_confg["select_window"])
             self.show_ini_infos          = raster_args_confg["show_ini_infos"        ]
             self.Jobs                    = raster_args_confg["Jobs"                  ]     
             self.geninits_verbose        = self.config["geninits_verbose"            ]
             self.fit_verbose             = self.config["fit_verbose"                 ]
-            self.describe_verbose        = self.config["describe_verbose"            ]
-            
+            self.selected_fits = []
             self.rasters = []
-            for directory in [self.plot_save_dir,self.data_save_dir]:
-                if not Path(directory).exists():
-                    print(f"the directory:{directory} doesn't exist creating it now")
-                    os.mkdir(directory)
+            #TODO DELET
+            # self.plot_filename           = raster_args_confg["plot_filename"       ]
+            # self.save_plot               = raster_args_confg["save_plot"           ]
+            # self.plot_save_dir           = raster_args_confg["plot_save_dir"       ]
+            # for directory in [self.plot_save_dir,self.data_save_dir]:
+                # if not Path(directory).exists():
+                #     print(f"the directory:{directory} doesn't exist creating it now")
+                #     os.mkdir(directory)
+            
             
     def build_files_list(self):
         """
@@ -106,22 +105,33 @@ class Manager():
         """
         Create Run instances for each selected FITS file and configure their parameters.
         """
-        try: self.selected_fits 
-        except: raise ValueError('files selected yet run self.Build_file_list() to have it')
-        
+        if self.selected_fits is None :
+            raise ValueError('files resolved yet run self.Build_file_list()')
+        self.rasters = []
         for i,file in enumerate(self.selected_fits):
             # self.RasterFit
+            
+            fit_args = gen_fit_inits(
+                file ,
+                conv_errors=self.conv_errors,
+                verbose=self.geninits_verbose,
+                )
+        
+            self.window_name           = fit_args['windows_lines'        ]
+            self.init_params           = fit_args['init_params'          ]
+            self.quentities            = fit_args['quentities'           ]
+            self.convolution_threshold = fit_args['convolution_threshold']
+
             self.rasters.append(RasterFit(
                 path_or_hdul             = file                          ,
-                init_params              = ...                           ,#TODO                                         
-                quentities               = ...                           ,#TODO                                         
-                fit_func                 = ...                           ,#TODO    
-                select_window            = self.select_window            ,     
-                windows_names            = None                          ,                                
+                init_params              = self.init_params              ,                                         
+                quentities               = self.quentities               ,                                         
+                fit_func                 = flat_inArg_multiGauss         ,    
+                windows_names            = self.window_name                          ,                                
                 bounds                   = None                          ,
                 window_size              = self.window_size              ,                                
                 convolution_function     = lambda lst:np.zeros_like(lst[:,2])+1,
-                convolution_threshold    = self.conv_errors              ,                                
+                convolution_threshold    = self.convolution_threshold    ,                                
                 convolution_extent_list  = self.convolution_extent_list  ,    
                 mode                     = self.mode                     ,                         
                 weights                  = self.weights                  ,                            
@@ -131,33 +141,75 @@ class Manager():
                 clipping_iterations      = self.clipping_iterations      ,                                        
                 preclean                 = self.preclean                 ,                             
                 save_data                = self.save_data                , 
-                save_plot                = self.save_plot                ,                              
-                plot_filename            = self.plot_filename            ,
                 data_filename            = self.data_filename            ,             
-                plot_save_dir            = self.plot_save_dir            ,                                  
                 data_save_dir            = self.data_save_dir            ,                                  
                 Jobs                     = self.Jobs                     ,                         
                 verbose                  = self.fit_verbose              ,                            
-                describe_verbose         = self.describe_verbose         ,                                     
-                # forced_order             = self.forced_order             ,                                 
-                # quite_sun                = self.quite_sun                ,                              
-                # show_ini_infos           = self.show_ini_infos           ,                                   
-                # geninits_verbose         = self.geninits_verbose         ,
+                # save_plot                = self.save_plot                ,#TODO DELETE                              
+                # plot_filename            = self.plot_filename            ,#TODO DELETE
+                # plot_save_dir            = self.plot_save_dir            ,#TODO DELETE                                  
+                # forced_order             = self.forced_order             ,#TODO DELETE                                 
+                # quite_sun                = self.quite_sun                ,#TODO DELETE                              
+                # show_ini_infos           = self.show_ini_infos           ,#TODO DELETE                                   
+                # geninits_verbose         = self.geninits_verbose         ,#TODO DELETE
             ))
             pass
-    def build_initial_parameters(self):
-        """
-        Build initial parameters for the runs.
-        """
+    def fuse_windows(self,indices):
+        if not isinstance(indices[0],Iterable): indices = [indices]*len(self.rasters)
+        for ind in range(len(self.rasters)):
+            self.rasters[ind].fuse_windows(*indices[ind])
+    
+    def set_lock_protocol(self,window_type:"solo" or "fuse", window_index,lock_line1_index:int,lock_line2_index:int,lock_distance:float)->None:
+        for ind in range(len(self.rasters)):
+            if window_type == "solo":
+                self.rasters[ind].windows[window_index].lock_protocols.add_lock(lock_line1_index,lock_line2_index,lock_distance)
+            elif window_type == "fuse":
+                self.rasters[ind].fused_windows[window_index].lock_protocols.add_lock(lock_line1_index,lock_line2_index,lock_distance)
+            else: raise Exception(f"window_type is eather 'solo' or 'fuse' your value is {window_type}")
+    def run_preparations(self,redo = False):
         for i in range(len(self.rasters)):
-            self.rasters[i].build_initial_parameters()
-    def execute_all(self):
+            self.rasters[i].run_preparations(redo=redo)
+        
+    #TODO DELETE
+    # def build_initial_parameters(self):
+    #     """
+    #     Build initial parameters for the runs.
+    #     """
+    #     for i in range(len(self.rasters)):
+    #         self.rasters[i].build_initial_parameters()
+    def execute_fitting(self):
         """
         Execute the fitting process for all runs.
         """
         for i in range(len(self.rasters)):
-            self.rasters[i].execute_fit()
-    
+            self.rasters[i].fit_raster()
+    def __repr__(self) -> str:
+        val = (
+        "SELECTION_MODE          "+str(self.SELECTION_MODE)          +"\n"+
+        "preclean                "+str(self.preclean)                +"\n"+
+        "weights                 "+str(self.weights)                 +"\n"+
+        "denoise                 "+str(self.denoise)                 +"\n"+
+        "clipping_sigma          "+str(self.clipping_sigma)          +"\n"+
+        "clipping_med_size       "+str(self.clipping_med_size)       +"\n"+
+        "clipping_iterations     "+str(self.clipping_iterations)     +"\n"+
+        "mode                    "+str(self.mode)                    +"\n"+
+        "conv_errors             "+str(self.conv_errors)             +"\n"+
+        "convolution_extent_list "+str(self.convolution_extent_list) +"\n"+
+        "save_data               "+str(self.save_data)               +"\n"+
+        "data_filename           "+str(self.data_filename)           +"\n"+
+        "data_save_dir           "+str(self.data_save_dir)           +"\n"+
+        "forced_order            "+str(self.forced_order)            +"\n"+
+        "quite_sun               "+str(self.quite_sun)               +"\n"+
+        "window_size             "+str(self.window_size)             +"\n"+
+        "show_ini_infos          "+str(self.show_ini_infos)          +"\n"+
+        "Jobs                    "+str(self.Jobs)                    +"\n"+
+        "geninits_verbose        "+str(self.geninits_verbose)        +"\n"+
+        "fit_verbose             "+str(self.fit_verbose)             +"\n"+
+        "len(rasters)            "+str(len(self.rasters))            +"\n"
+        "selected_fits           "+"\n"+"\n".join([str(file) for file in self.selected_fits])     +"\n"
+        )
+        return val
+#TODO DELETE
 # class Run():
 #     def __init__(
 #         self,

@@ -11,6 +11,8 @@ from astropy.io.fits.hdu.image import PrimaryHDU,ImageHDU
 from astropy.visualization import SqrtStretch,PowerStretch, AsymmetricPercentileInterval, ImageNormalize, MinMaxInterval
 from astropy.wcs import WCS
 from sunraster.instr.spice import read_spice_l2_fits
+import spice_utils.ias_spice_utils.utils as spu
+
 import ndcube
 
 from numba import jit
@@ -19,6 +21,7 @@ from multiprocess.shared_memory import SharedMemory
 import matplotlib.pyplot as plt
 
 import os
+import contextlib
 import shutil
 import pkg_resources
 from  pathlib import Path, PosixPath
@@ -371,7 +374,7 @@ def join_dt(data,ijc_list):
                     data_new[k,l,i,j] = join_px(data[k,l],i,j,ijc_list)
     return data_new
 def convolve(window,mode,lon_pixel_size,lat_pixel_size,convolution_extent_list,convolution_function,verbose=0   ):
-    print(f"convolving using {mode}")
+    if verbose >= 1: print(f"convolving using {mode}")
     if mode == "cercle":
         conv_data = np.zeros((*convolution_extent_list.shape,*window.shape))
         if verbose>=2: print('creating convolution list...')
@@ -421,11 +424,10 @@ def Preclean(cube):
     return cube2
 def round_up(n, decimals=0):
     multiplier = 10 ** decimals
+    return math.ceil(n * multiplier) / multiplier
 def gen_shmm(create = False,name=None,ndarray=None,size=0,shape=None,dtype=float):
     assert (type(ndarray)!=type(None) or size!=0) or type(name)!=type(None)
-    return math.ceil(n * multiplier) / multiplier
-    assert type
-    (ndarray)!=type(None) or type(shape)!=type(None)
+    assert type(ndarray)!=type(None) or type(shape)!=type(None)
     size = size if type(ndarray) == type(None) else ndarray.nbytes
     shmm = SharedMemory(create = create,size=size,name=name)
     shmm_data = np.ndarray(shape = shape if type(ndarray)==type(None) else ndarray.shape  
@@ -439,6 +441,7 @@ def gen_shmm(create = False,name=None,ndarray=None,size=0,shape=None,dtype=float
     return shmm,shmm_data
 def verbose_description(verbose):
     print(f"level {verbose:01d} verbosity")
+    raise Exception
     if verbose ==-2:
         print("On-screen information mode: Dead \nNo information including warnings  (CAREFUL DUDE!!)")
     elif verbose ==-1:
@@ -793,3 +796,10 @@ def getfiles(
 def puke_template(where="./input_config_template.json"):
     PATH = pkg_resources.resource_filename("SlimPy", "manager/input_config_template.json")
     shutil.copy(PATH,where)
+
+
+@contextlib.contextmanager
+def suppress_output():
+    with open(os.devnull, 'w') as devnull:
+        with contextlib.redirect_stdout(devnull):
+            yield

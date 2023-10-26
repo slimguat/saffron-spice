@@ -16,10 +16,8 @@
   
   "file selection mode=> list":{
     "files"              : [
-      "/Fits/file/path1",
-      "/Fits/file/path2",
-      "/Fits/file/path3"
-    ]
+    "/archive/SOLAR-ORBITER/SPICE/fits/level2/2020/11/21/solo_L2_spice-n-ras_20201121T110913_V12_33554613-000.fits"
+  ]
       },
 
   "file selection mode=> folder":{
@@ -41,7 +39,6 @@
   "fit_raster_args"      : {
     
     "____________________COMMENT1": "Precleaning Parameters",
-    "preadjust"          : false,
     "preclean"           : true,
     "weights"            : true,
     "denoise"            : [6, 2, 1, 0, 0],
@@ -56,29 +53,22 @@
     
     "____________________COMMENT3": "data storage parameters",
     "save_data"          : true,
-    "save_plot"          : true,
-    "plot_save_dir"      : "./data_storage2/Test/",
     "data_save_dir"      : "./data_storage2/Test/",
-    "COMMENT_plot_filename": "use ::SAMENAME to replace the placeholder, ::SAMENAMEL2.5 is to change L2 to L2.5 by the name of the fits input file or ::CONV to replace by the convolution level(s) with - as separator or ::TIME to replace it by fitting start time",
-    "plot_filename"      : "::SAMENAMEL2.5_::PARAMPLACEHOLDER_con-::CONV_time-::TIME.jpg",
+    "___________COMMENT4": "use ::SAMENAME to replace the placeholder, ::SAMENAMEL2.5 is to change L2 to L2.5 by the name of the fits input file or ::CONV to replace by the convolution level(s) with - as separator or ::TIME to replace it by fitting start time",
     "data_filename"      : "::SAMENAMEL2.5_::PARAMPLACEHOLDER_con-::CONV_time-::TIME.fits",
-    "plot_kwargs"        : {},
     "prefix"             : null,
     "forced_order"       : null,
     
-    "____________________COMMENT4": "Additional parameters",
+    "____________________COMMENT5": "Additional parameters",
     "quite_sun"          : [0, -1, 110, 720],
-    "select_window"      : null,
     "window_size"        : [
                               [0,null],
                               [0,null]
                             ],                      
-    "show_ini_infos"     : true,
-    "Jobs"               : {"windows": 6,"pixels": 30}
+    "Jobs"               : 30
   },
 
   "getfile_verbose"      : -2,
   "geninits_verbose"     :  4,
-  "fit_verbose"        : -2,
-  "describe_verbose"   : true
+  "fit_verbose"          : -2,
 }

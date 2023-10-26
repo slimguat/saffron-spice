@@ -13,7 +13,7 @@ class LineCatalog:
         :param verbose: showing more info.
         """
         self.PATH = file_location
-        self.verbose = 1
+        self.verbose = verbose
         self.load()
         self._LINES = pd.DataFrame(self._CATALOGUE["LINES"])
         self._WINDOWS = pd.DataFrame(self._CATALOGUE["SPECTRAL_WINDOWS_CATALOGUE"])
