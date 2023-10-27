@@ -4,7 +4,6 @@ import matplotlib
 from matplotlib.colors import ListedColormap
 
 import numpy as np 
-from ..spice_utils.ias_spice_utils import utils as spu 
 
 from astropy.visualization import SqrtStretch, AsymmetricPercentileInterval, ImageNormalize
 

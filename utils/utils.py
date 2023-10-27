@@ -659,7 +659,7 @@ def quickview(
               ):
     from pathlib import PosixPath,Path
     if type(RasterOrPath) in (str,PosixPath):
-        raster = read_spice_l2_fits(str(RasterOrPath))
+        raster = read_spice_l2_fits(str(RasterOrPath)) 
     else: raster = RasterOrPath
     unq = spu.unique_windows(raster)
     lon,lat = get_celestial(raster)

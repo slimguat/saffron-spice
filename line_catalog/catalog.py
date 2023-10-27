@@ -174,6 +174,8 @@ class LineCatalog:
                 return wvl.iloc[0]
             else:
                 return np.array([self.get_line_wvl(i) for i in lines])
+
+# TODO DELETE
 # import json
 # from typing import Dict, List
 # import os 
