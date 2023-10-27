@@ -27,21 +27,22 @@ class Manager():
             
             #In the future you need to add a reference JSON whene there is 
             self.SELECTION_MODE          = self.config      ["SELECTION_MODE"      ]
-            raster_args_confg            = self.config      ["fit_raster_args"]
+            raster_args_confg            = self.config      ["fit_raster_args"     ]
             self.preclean                = raster_args_confg['preclean'            ]            
             self.weights                 = raster_args_confg['weights'             ]             
-            self.denoise                 = raster_args_confg['denoise'             ]             
-            self.clipping_sigma          = raster_args_confg['clipping_sigma'      ]      
-            self.clipping_med_size       = raster_args_confg['clipping_med_size'   ]   
-            self.clipping_iterations     = raster_args_confg['clipping_iterations' ]
-            self.mode                    = raster_args_confg["mode"                ]
+            self.denoise                 = raster_args_confg['denoise'             ] 
+            self.despike                 = raster_args_confg['despike'             ]
+            self.convolute               = raster_args_confg['convolute'           ]
+            self.denoise_intervals       = [6, 2, 1, 0, 0]
+            self.clipping_sigma          = 2.5      
+            self.clipping_med_size       = [6, 3, 3]   
+            self.clipping_iterations     = 3
+            self.mode                    = "box"
             self.conv_errors             = raster_args_confg["conv_errors"         ]
             self.convolution_extent_list = np.array(raster_args_confg["convolution_extent_list"])
             self.save_data               = raster_args_confg["save_data"           ]
             self.data_filename           = raster_args_confg["data_filename"       ]
             self.data_save_dir           = raster_args_confg["data_save_dir"       ]
-            self.forced_order            = raster_args_confg["forced_order"        ]
-            self.quite_sun               = raster_args_confg["quite_sun"           ]
             self.window_size             = np.array(raster_args_confg["window_size"  ])
             self.Jobs                    = raster_args_confg["Jobs"                  ]     
             self.geninits_verbose        = self.config["geninits_verbose"            ]
@@ -62,6 +63,8 @@ class Manager():
         """
         Build the list of selected FITS files based on the chosen selection mode.
         """
+        
+        if len(self.selected_fits)!=0: print("Warning : self.selected_fits is not empty it will be overwritten")
         if self.SELECTION_MODE == "intervale": 
             intervale_config         = self.config     ["file selection mode=> date intervale"]
             self.L2_folder           = intervale_config['L2_folder'           ] 
@@ -126,7 +129,7 @@ class Manager():
                 init_params              = self.init_params              ,                                         
                 quentities               = self.quentities               ,                                         
                 fit_func                 = flat_inArg_multiGauss         ,    
-                windows_names            = self.window_name                          ,                                
+                windows_names            = self.window_name              ,                                
                 bounds                   = None                          ,
                 window_size              = self.window_size              ,                                
                 convolution_function     = lambda lst:np.zeros_like(lst[:,2])+1,
@@ -134,7 +137,10 @@ class Manager():
                 convolution_extent_list  = self.convolution_extent_list  ,    
                 mode                     = self.mode                     ,                         
                 weights                  = self.weights                  ,                            
-                denoise                  = self.denoise                  ,                            
+                denoise                  = self.denoise                  , 
+                despike                  = self.despike                  , 
+                convolute                = self.convolute                , 
+                denoise_intervals        = self.denoise_intervals        ,                            
                 clipping_sigma           = self.clipping_sigma           ,                                   
                 clipping_med_size        = self.clipping_med_size        ,                                      
                 clipping_iterations      = self.clipping_iterations      ,                                        
@@ -143,13 +149,7 @@ class Manager():
                 data_filename            = self.data_filename            ,             
                 data_save_dir            = self.data_save_dir            ,                                  
                 Jobs                     = self.Jobs                     ,                         
-                verbose                  = self.fit_verbose              ,                            
-                # save_plot                = self.save_plot                ,#TODO DELETE                              
-                # plot_filename            = self.plot_filename            ,#TODO DELETE
-                # plot_save_dir            = self.plot_save_dir            ,#TODO DELETE                                  
-                # forced_order             = self.forced_order             ,#TODO DELETE                                 
-                # quite_sun                = self.quite_sun                ,#TODO DELETE                              
-                # geninits_verbose         = self.geninits_verbose         ,#TODO DELETE
+                verbose                  = self.fit_verbose              ,            
             ))
             pass
     def fuse_windows(self,indices):
@@ -187,17 +187,13 @@ class Manager():
         "preclean                "+str(self.preclean)                +"\n"+
         "weights                 "+str(self.weights)                 +"\n"+
         "denoise                 "+str(self.denoise)                 +"\n"+
-        "clipping_sigma          "+str(self.clipping_sigma)          +"\n"+
-        "clipping_med_size       "+str(self.clipping_med_size)       +"\n"+
-        "clipping_iterations     "+str(self.clipping_iterations)     +"\n"+
-        "mode                    "+str(self.mode)                    +"\n"+
+        "despike                 "+str(self.denoise)                 +"\n"+
+        "convolute               "+str(self.denoise)                 +"\n"+
         "conv_errors             "+str(self.conv_errors)             +"\n"+
         "convolution_extent_list "+str(self.convolution_extent_list) +"\n"+
         "save_data               "+str(self.save_data)               +"\n"+
         "data_filename           "+str(self.data_filename)           +"\n"+
         "data_save_dir           "+str(self.data_save_dir)           +"\n"+
-        "forced_order            "+str(self.forced_order)            +"\n"+
-        "quite_sun               "+str(self.quite_sun)               +"\n"+
         "window_size             "+str(self.window_size)             +"\n"+
         "Jobs                    "+str(self.Jobs)                    +"\n"+
         "geninits_verbose        "+str(self.geninits_verbose)        +"\n"+

@@ -58,7 +58,7 @@ class RasterFit:
         return value
     def __init__(
         self,
-        path_or_hdul            :str or NDCollection                                           ,                                                            
+        path_or_hdul                                                                           ,                                                            
         init_params             :list                                                          ,                                                      
         quentities              :list                                                          ,                                                      
         fit_func                :callable                                                      ,  
@@ -70,7 +70,10 @@ class RasterFit:
         convolution_extent_list :np.array               = np.array([0,1,2,3,4,5])              ,
         mode                    :str                    = "box"                                ,
         weights                 :bool                   = True                                 ,
-        denoise                 :list or None           = None                                 ,
+        denoise                 :bool                   = True                                 , 
+        despike                 :bool                   = True                                 , 
+        convolute               :bool                   = True                                 , 
+        denoise_intervals       :list                   = [6, 2, 1, 0, 0]                      ,
         clipping_sigma          :float                  = 2.5                                  ,           
         clipping_med_size       :list                   = [6,3,3]                              ,              
         clipping_iterations     :int                    = 3                                    ,                
@@ -94,7 +97,10 @@ class RasterFit:
         self.convolution_extent_list = convolution_extent_list  
         self.mode                    = mode                     
         self.weights                 = weights                  
-        self.denoise                 = denoise                  
+        self.denoise                 = denoise  
+        self.despike                 = despike             
+        self.convolute               = convolute               
+        self.denoise_intervals       = denoise_intervals                                       
         self.clipping_sigma          = clipping_sigma           
         self.clipping_med_size       = clipping_med_size        
         self.clipping_iterations     = clipping_iterations      
@@ -132,6 +138,9 @@ class RasterFit:
             mode                     = self.mode                    ,
             weights                  = self.weights                 ,
             denoise                  = self.denoise                 ,
+            despike                  = self.despike                 ,                                    
+            convolute                = self.convolute               ,                                        
+            denoise_intervals        = self.denoise_intervals       ,                                                        
             clipping_sigma           = self.clipping_sigma          ,           
             clipping_med_size        = self.clipping_med_size       ,              
             clipping_iterations      = self.clipping_iterations     ,                
@@ -179,6 +188,9 @@ class RasterFit:
                 mode                     = self.mode                    ,
                 weights                  = self.weights                 ,
                 denoise                  = self.denoise                 ,
+                despike                  = self.despike                 ,                                    
+                convolute                = self.convolute               ,                                        
+                denoise_intervals        = self.denoise_intervals       ,                                                        
                 clipping_sigma           = self.clipping_sigma          ,           
                 clipping_med_size        = self.clipping_med_size       ,              
                 clipping_iterations      = self.clipping_iterations     ,                
@@ -422,8 +434,18 @@ class ProgressFollower():
 
 class WindowFit():
     def __repr__(self):
+        if not isinstance(self.hdu,Iterable):
+            extnames = self.hdu.header['EXTNAME']
+        else:
+            extnames = ' '.join([h.header["EXTNAME"] for h in self.hdu])
+        
         val = (
-            "Extnames                "+self.hdu.header['EXTNAME'] if not isinstance(self.hdu,Iterable) else ' '.join([h.header["EXTNAME"] for h in self.hdu])+"\n"+
+            "Extnames                "+ extnames                         +"\n"+
+            "weights                 "+str(self.weights )                +"\n"+                                                
+            "denoise                 "+str(self.denoise )                +"\n"+                                                
+            "despike                 "+str(self.despike )                +"\n"+                                                
+            "convolute               "+str(self.convolute )              +"\n"+ 
+            "has_treated             "+str(self.has_treated)             +"\n"+                                                            
             "fit_func                "+str(self.fit_func)                +"\n"+
             "init_params             "+str(self.init_params)             +"\n"+
             "quentities              "+str(self.quentities)              +"\n"+
@@ -431,8 +453,7 @@ class WindowFit():
             "convolution_extent_list "+str(self.convolution_extent_list) +"\n"+
             "data_filename           "+str(self.data_filename)           +"\n"+
             "data_save_dir           "+str(self.data_save_dir)           +"\n"+
-            "Jobs                    "+str(self.Jobs)                    +"\n"+
-            "verbose                 "+str(self.verbose)                 +"\n"
+            "Jobs                    "+str(self.Jobs)                    +"\n"
         )
         return val
     def __init__(   
@@ -449,7 +470,10 @@ class WindowFit():
             convolution_extent_list :np.array                               = np.array([0,1,2,3,4,5])              ,
             mode                    :str                                    = "box"                             ,
             weights                 :bool                                   = True                                 ,
-            denoise                 :list or None                           = None                                 ,
+            denoise                 :bool                                   = True                                 ,                                                                                             
+            despike                 :bool                                   = True                                 ,                                                                                         
+            convolute               :bool                                   = True                                 ,                                                                                           
+            denoise_intervals       :list                                   = [6, 2, 1, 0, 0]                      ,
             clipping_sigma          :float                                  = 2.5                                  ,           
             clipping_med_size       :list                                   = [6,3,3]                              ,              
             clipping_iterations     :int                                    = 3                                    ,                
@@ -485,7 +509,10 @@ class WindowFit():
         self.convolution_extent_list = convolution_extent_list  
         self.mode                    = mode                                        
         self.weights                 = weights                                  
-        self.denoise                 = denoise                                  
+        self.denoise                 = denoise                                                                                                              
+        self.despike                 = despike                                                                                                          
+        self.convolute               = convolute                                                                                                          
+        self.denoise_intervals       = denoise_intervals       
         self.clipping_sigma          = clipping_sigma                    
         self.clipping_med_size       = clipping_med_size              
         self.clipping_iterations     = clipping_iterations          
@@ -555,7 +582,7 @@ class WindowFit():
         self.specaxis=get_specaxis(self.hdu)
         self._preclean(redo=redo)
         self._get_sigma_data(redo=redo)
-        # self._despike(redo=redo)
+        self._despike(redo=redo)
         self._convolve(redo=redo)
         self._denoise(redo=redo)
         self._Gen_output_shared_memory()
@@ -589,12 +616,15 @@ class WindowFit():
                         convolution_threshold   = self.convolution_threshold if not isinstance(self.convolution_threshold[0],Iterable) else self.convolution_threshold[ind]  ,
                         convolution_extent_list = self.convolution_extent_list                                                           ,
                         mode                    = self.mode                                                                              ,
+                        preclean                = self.preclean                                                                          ,
                         weights                 = self.weights                                                                           ,
                         denoise                 = self.denoise                                                                           ,
+                        despike                 = self.despike                                                                           ,
+                        convolute               = self.convolute                                                                         ,
+                        denoise_intervals       = self.denoise_intervals                                                                 ,
                         clipping_sigma          = self.clipping_sigma                                                                    ,
                         clipping_med_size       = self.clipping_med_size                                                                 ,
                         clipping_iterations     = self.clipping_iterations                                                               ,
-                        preclean                = self.preclean                                                                          ,
                         save_data               = self.save_data                                                                         ,
                         data_filename           = self.data_filename                                                                     ,
                         data_save_dir           = self.data_save_dir                                                                     ,
@@ -764,6 +794,10 @@ class WindowFit():
         if self.has_treated['sigma'] and not redo: 
             if self.verbose>=0: print('already done')
             return 
+        elif not self.weights:
+            if self.verbose>=0: print("weights is set to false it's not going to be computed")
+            self.sigma = np.ones(self.hdu.data.shape)
+            return 
         if self.verbose>=1:
             av_constant_noise_level, sigma = spice_error(self.hdu,verbose=self.verbose)
         else:
@@ -778,12 +812,22 @@ class WindowFit():
         if self.has_treated['preclean'] and not redo: 
             if self.verbose>=0: print('already done')
             return
+        elif not self.preclean:
+            if self.verbose>=0: print("preclean is set to false it's not going to be computed")
+            if self.clean_data is None:
+                self.clean_data = (self.hdu.data).astype(float).copy()
+            return
         self.clean_data = Preclean((self.hdu.data).astype(float).copy()) 
         self.has_treated['preclean']=True
     def _despike(self,redo= False):
         if self.verbose>=0: print('Despiking data')
         if self.has_treated['despike'] and not redo: 
             if self.verbose>=0: print('already done')
+            return
+        elif not self.despike:
+            if self.verbose>=0: print("despike is set to false it's not going to be computed")
+            if self.clean_data is None:
+                self.clean_data = (self.hdu.data).astype(float).copy()
             return
         self.clean_data = despike(
             raw_data            = self.clean_data,
@@ -797,6 +841,28 @@ class WindowFit():
         if self.has_treated['convolve'] and not redo: 
             if self.verbose>=0: print('already done')
             return
+        elif not self.convolute:
+            if self.verbose>=0: print("convolute is set to false it's not going to be computed")
+            
+            self.conv_data = convolve(
+                window=self.clean_data,
+                mode="box",
+                lon_pixel_size=self.hdu.header["CDELT1"],
+                lat_pixel_size = self.hdu.header["CDELT2"],
+                convolution_extent_list=np.array([0]),
+                convolution_function = self.convolution_function,
+                )
+            self.conv_sigma = convolve(
+                window=self.sigma**2,
+                mode="box",
+                lon_pixel_size=self.hdu.header["CDELT1"],
+                lat_pixel_size = self.hdu.header["CDELT2"],
+                convolution_extent_list=np.array([0]),
+                convolution_function = self.convolution_function,
+                )
+            
+            self.conv_sigma = np.sqrt(self.conv_sigma)
+            
         self.conv_data = convolve(
             window=self.clean_data,
             mode=self.mode,
@@ -805,7 +871,6 @@ class WindowFit():
             convolution_extent_list=self.convolution_extent_list,
             convolution_function = self.convolution_function,
             )
-        # TODO conv_sigma a creé
         self.conv_sigma = convolve(
             window=self.sigma**2,
             mode=self.mode,
@@ -822,10 +887,13 @@ class WindowFit():
         if self.has_treated['denoise'] and not redo: 
             if self.verbose>=0: print('already done')
             return
+        elif not self.denoise:
+            if self.verbose>=0: print("denoise is set to false it's not going to be computed")
+            return
         if type(self.denoise) != type(None):
                 if self.verbose>=1: print(f'Generating denoised maps with denoise sigma => {self.denoise}')
                 for i in range(self.convolution_extent_list.shape[0]):
-                    Dnois_conv_data = denoise_data(self.conv_data[i,0],denoise_sigma=self.denoise)
+                    Dnois_conv_data = denoise_data(self.conv_data[i,0],denoise_sigma=self.denoise_intervals)
                     self.conv_data[i,0] = Dnois_conv_data.copy() 
                     
         self.has_treated['denoise']=True

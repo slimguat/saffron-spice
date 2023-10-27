@@ -38,16 +38,14 @@
   
   "fit_raster_args"      : {
     
-    "____________________COMMENT1": "Precleaning Parameters",
+    "____________________COMMENT1": "data improving",
     "preclean"           : true,
     "weights"            : true,
-    "denoise"            : [6, 2, 1, 0, 0],
-    "clipping_sigma"     : 2.5,
-    "clipping_med_size"  : [6, 3, 3],
-    "clipping_iterations": 3,
+    "denoise"            : true,
+    "despike"            : true,
+    "convolute"          : true,
     
     "____________________COMMENT2": "Convolution Parameters",
-    "mode"                    : "box", 
     "conv_errors"             : {"I": 0.01,"x": 0.0001,"s": 0.01,"B": 100 },
     "convolution_extent_list" : [0],
     
@@ -56,11 +54,8 @@
     "data_save_dir"      : "./data_storage2/Test/",
     "___________COMMENT4": "use ::SAMENAME to replace the placeholder, ::SAMENAMEL2.5 is to change L2 to L2.5 by the name of the fits input file or ::CONV to replace by the convolution level(s) with - as separator or ::TIME to replace it by fitting start time",
     "data_filename"      : "::SAMENAMEL2.5_::PARAMPLACEHOLDER_con-::CONV_time-::TIME.fits",
-    "prefix"             : null,
-    "forced_order"       : null,
     
     "____________________COMMENT5": "Additional parameters",
-    "quite_sun"          : [0, -1, 110, 720],
     "window_size"        : [
                               [0,null],
                               [0,null]
