@@ -234,32 +234,6 @@ def join_px(data,i,j,ijc_list):
         return (res_px/ s)
     else: return np.nan
 
-# def join_dt(data,ijc_list):
-#     ijc_list = np.array(ijc_list)
-#     XY = ijc_list[:,0:2] 
-#     maxes = np.max(np.abs(XY),axis=0).astype(int)
-    
-#     shape = data.shape
-#     shape_ld     = np.array(data.shape)
-#     shape_ld[2] += maxes[0]*2+1
-#     shape_ld[3] += maxes[1]*2+1
-#     _largedata = np.zeros(shape_ld)*np.nan
-#     _largedata[:,:,maxes[0]:-maxes[0]-1,maxes[1]:-maxes[1]-1] = data
-#     _shifted_datas = np.zeros([len(ijc_list),*data.shape])*np.nan
-#     _coeffs_data   = np.zeros_like(_shifted_datas)*np.nan
-#     for i in range(len(ijc_list)):
-#          min_x = int(maxes[0]+XY[i,0])
-#          max_x = int(_largedata.shape[2]-1+int(XY[i,0]-maxes[0]))
-#          min_y = int(maxes[1]+XY[i,1])
-#          max_y = int(_largedata.shape[3]-1+int(XY[i,1]-maxes[1]))
-#          _shifted_datas[i] = _largedata[
-#               :,:,
-#               min_x:max_x,
-#               min_y:max_y,
-#               ] * ijc_list[i,2]
-#          _coeffs_data[i][np.logical_not(np.isnan(_shifted_datas[i]))] = ijc_list[i,2]
-#     conv_data = np.nansum(_shifted_datas,axis=0)/np.nansum(_coeffs_data,axis=0)
-#     return conv_data
 
 
 def _cv2blur(data,size):

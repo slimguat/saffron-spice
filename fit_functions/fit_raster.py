@@ -159,14 +159,7 @@ class RasterFit:
     def gen_windows(self):
         if self.windows_names is None:
             self.windows_names = [None for i in self.raster]
-        # # elif isinstance(self.windows_names,list ):
-        # #     if len(self.windows_names) == len(self.raster):pass
-        # #     elif len(self.windows_names) != len(self.select_window):
-        # #         windows_names2 = [None for i in self.raster]
-        # #         for j,i in enumerate(self.select_window): 
-        # #             windows_names2[i]=self.windows_names[j].copy()
-                
-        #         self.windows_names = windows_names2
+
         elif isinstance(self.windows_names,dict ):
             self.windows_names = [self.windows_names[rast.header['EXTNAME']] for rast in self.raster] 
             
@@ -240,14 +233,7 @@ class RasterFit:
         
         raster = [rast for rast in self.raster if rast.header['EXTNAME'] not in ["VARIABLE_KEYWORDS",'WCSDVARR',"WCSDVARR"]]
         self.filenames_generator()
-        # TODO DELETE
-        # if self.select_window is None:
-        #     self.select_window = np.arange(len(raster))
-        # elif isinstance(self.select_window,Iterable):
-        #     pass
-        # elif isinstance(self.select_window, int):
-        #     self.select_window = [self.select_window]
-        # else: raise SyntaxError(f'selected window\'s type error {self.select_window}')
+
     def filenames_generator(self):
         """
         Generate filenames using templates and replace placeholders.
@@ -271,22 +257,7 @@ class RasterFit:
         strConv = "".join([f"{i:02d}"for i in self.convolution_extent_list ])
         if "::CONV" in self.data_filename:
             self.data_filename = self.data_filename.replace("::CONV",strConv)
-        #TODO DELETE
-        # if "::PARAMPLACEHOLDER" in self.plot_filename:
-        #     self.plot_filename = self.plot_filename.replace("::PARAMPLACEHOLDER","{}")
         
-        # if "::SAMENAME" in self.plot_filename:
-        #     if "::SAMENAMEL2.5" in self.plot_filename:
-        #         filename = self.L2_path.stem
-        #         filename = filename.replace("L2","L2.5")
-        #         self.plot_filename = self.plot_filename.replace("::SAMENAMEL2.5",filename)
-        #     else:
-        #         self.plot_filename = self.plot_filename.replace("::SAMENAME",self.L2_path.stem)
-        # if "::TIME" in self.plot_filename:
-        #     self.plot_filename = self.plot_filename.replace("::TIME",formatted_time)
-        # if "::CONV" in self.plot_filename:
-        #     self.plot_filename = self.plot_filename.replace("::CONV",strConv)
-
 
 class ProgressFollower():
     def __init__(self,file_path=None):
@@ -1087,8 +1058,9 @@ class WindowFit():
             con=self._con,
             window_size=self.window_size
             )
-        if not progress_follower.is_launched: progress_follower.launch() 
-        
+        try: 
+            if not progress_follower.is_launched: progress_follower.launch() 
+        except: pass  
         print('par',self._par)
         print('cov',self._cov)
         print('con',self._con)
