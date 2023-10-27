@@ -198,5 +198,5 @@ zarr==2.16.1
 zeep==4.2.1
 zipp==3.17.0
 git+https://git.ias.u-psud.fr/spice/spice_uncertainties.git
-git+https://git.ias.u-psud.fr/spice/pre-analysis.git
+git+https://git.ias.u-psud.fr/spice/spice_utils.git
 git+https://github.com/frederic-auchere/wavelets.git
