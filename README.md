@@ -143,4 +143,6 @@ Credit:  [Eric Buchlin]([eric.buchlin@universite-paris-saclay.fr])
 1. Estimate errors on data: Ask Eric Buchlin.
 2. Estimation after convolution: $\frac{\sqrt{\Sigma_{Conv\_pixels}{I_{val}^2 }}}{N_Conv\_pixels}$
 3. with after denoise: Nothing done. That means we overshoot error values a bit because of denoise
-  
+
+### Postprocessing (Composition maps)
+TODO
