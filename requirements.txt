@@ -43,7 +43,6 @@ dill==0.3.7
 distlib==0.3.7
 docutils==0.18.1
 drms==0.6.4
-eispac @ file:///home/smzergua/workshop/eispac
 entrypoints==0.4
 exceptiongroup==1.1.3
 executing==2.0.0
@@ -57,7 +56,6 @@ frozenlist==1.4.0
 fsspec==2023.9.2
 gwcs==0.19.0
 h5py==3.9.0
-ias-spice-utils @ file:///home/smzergua/workshop/spice_utils-master
 identify==2.5.30
 idna==3.4
 imagesize==1.4.1
@@ -175,7 +173,6 @@ sphinxcontrib-jquery==4.1
 sphinxcontrib-jsmath==1.0.1
 sphinxcontrib-qthelp==1.0.6
 sphinxcontrib-serializinghtml==1.1.9
-spice-uncertainties @ file:///home/smzergua/workshop/spice_uncertainties
 stack-data==0.6.3
 sunpy==5.0.1
 sunpy-soar==1.9
@@ -193,7 +190,6 @@ typing_extensions==4.8.0
 tzdata==2023.3
 urllib3==2.0.6
 virtualenv==20.24.5
-watroo @ file:///home/smzergua/workshop/wavelets
 wcwidth==0.2.8
 webencodings==0.5.1
 widgetsnbextension==4.0.9
@@ -201,3 +197,10 @@ yarl==1.9.2
 zarr==2.16.1
 zeep==4.2.1
 zipp==3.17.0
+
+
+# watroo @ file:///home/smzergua/workshop/wavelets
+# eispac @ file:///home/smzergua/workshop/eispac
+# ias-spice-utils @ file:///home/smzergua/workshop/spice_utils-master
+# spice-uncertainties @ file:///home/smzergua/workshop/spice_uncertainties
+
