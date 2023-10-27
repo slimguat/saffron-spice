@@ -4,14 +4,14 @@ from scipy.ndimage import uniform_filter
 import cv2
 from time import sleep
 from datetime import datetime 
+from typing import Union, List, Dict, Any, Callable, Tuple, Optional,Iterable
 
 import astropy
 from astropy.io import fits as fits_reader
 from astropy.io.fits.hdu.image import PrimaryHDU,ImageHDU
 from astropy.visualization import SqrtStretch,PowerStretch,LogStretch, AsymmetricPercentileInterval, ImageNormalize, MinMaxInterval, interval,stretch
 from astropy.wcs import WCS
-from sunraster.instr.spice import read_spice_l2_fits
-import spice_utils.ias_spice_utils.utils as spu
+
 
 import ndcube
 
@@ -495,80 +495,8 @@ def correct_velocity(velocity_hist,velocity_values,verbose=0):
     velocity_values_corr = velocity_values-ref_velocity
     return velocity_values_corr,ref_velocity
 
-# def get_celestial(raster):
- #    unq = spu.unique_windows(raster)
- #    lon = raster[unq[0]].celestial.data.lon.arcsec
- #    lat = raster[unq[0]].celestial.data.lat.arcsec
- #    lon[lon>180*3600]-=360*3600
- #    lat[lat>180*3600]-=360*3600
- #    return lon,lat
-#def get_celestial(raster,include_time=False):
-  #      if type(raster)==astropy.io.fits.hdu.hdulist.HDUList:
-           
-  #          shape = raster[0].data.shape
-  #          wcs = WCS(raster[0].header)
-  #          y   = np.arange(shape[2],dtype=np.int)
-  #          x   = np.arange(shape[3],dtype=np.int)
-           
-  #          y = np.repeat(y,shape[3]).reshape(shape[2],shape[3])    
-  #          x = np.repeat(x,shape[2]).reshape(shape[3],shape[2])
-  #          x = x.T
-  #          lon,lat,_,time = wcs.wcs_pix2world(x.flatten(),y.flatten(),0,0,0)
-  #          time = time.reshape(shape[2],shape[3])
-           
-  #          lon[lon>180] -= 360
-  #          lat[lat>180] -= 360   
-           
-  #          lon[lon<-180] += 360
-  #          lat[lat<-180] += 360   
-                
-  #          lon  = lon.reshape(shape[2],shape[3])*3600
-  #          lat  = lat.reshape(shape[2],shape[3])*3600
-           
-           
-  #      elif type(raster) == ndcube.ndcollection.NDCollection:
-  #          if include_time:raise ValueError("you can't get time with sunraster data set either change to astropy raster or set include_time to False")
-  #          unq = spu.unique_windows(raster)
-  #          lon = raster[unq[0]].celestial.data.lon.arcsec
-  #          lat = raster[unq[0]].celestial.data.lat.arcsec
-       
-  #      elif type(raster) == tuple:
-  #          header_dict = raster[4][0]
-  #          shape = raster[0][0][0][0].shape
-  #          wcs_dict = {}
-  #          for key in header_dict:
-  #              if (
-  #                  "" != key and 
-  #                  "\n"  not in str(header_dict[key]) and 
-  #                  len(str(header_dict[key]))<=30 and 
-  #                  len(key)<=10):
-  #                  wcs_dict[key]=header_dict[key]
-  #          wcs = WCS(wcs_dict)   
-  #          y   = np.arange(shape[0],dtype=np.int)
-  #          x   = np.arange(shape[1],dtype=np.int)
-           
-  #          y = np.repeat(y,shape[1]).reshape(shape[0],shape[1])    
-  #          x = np.repeat(x,shape[0]).reshape(shape[1],shape[0])
-  #          x = x.T
-  #          lon,lat,_,time = wcs.wcs_pix2world(x.flatten(),y.flatten(),0,0,0)
-  #          time = time.reshape(shape[0],shape[1])
-           
-  #          lon[lon>180] -= 360
-  #          lat[lat>180] -= 360   
-           
-  #          lon[lon<-180] += 360
-  #          lat[lat<-180] += 360   
-                
-  #          lon  = lon.reshape(shape[0],shape[1])*3600
-  #          lat  = lat.reshape(shape[0],shape[1])*3600
-                
-  #      else:
-  #          print(f"The raster passed doesn't match any known types: {type(raster)} but it has to be one of these types: \n{ndcube.ndcollection.NDCollection}\n{astropy.io.fits.hdu.hdulist.HDUList}")
-  #          raise ValueError("inacceptable type")
-  
-  #      return (lon,lat,time) if include_time else (lon,lat)
 def get_celestial(raster,include_time=False,**kwargs):
-    if type(raster)==astropy.io.fits.hdu.hdulist.HDUList:
+    if type(raster)==astropy.io.fits.hdu.hdulist.HDUList or isinstance(raster,Iterable) :
         
         shape = raster[0].data.shape
         wcs = WCS(raster[0].header)
@@ -590,42 +518,6 @@ def get_celestial(raster,include_time=False,**kwargs):
         lon  = lon.reshape(shape[2],shape[3])*3600
         lat  = lat.reshape(shape[2],shape[3])*3600
     
-    elif type(raster) == ndcube.ndcollection.NDCollection:
-        if include_time:raise ValueError("you can't get time with sunraster data set either change to astropy raster or set include_time to False")
-        unq = spu.unique_windows(raster)
-        
-        lon = raster[unq[0]].celestial.spherical.lon.arcsec
-        lat = raster[unq[0]].celestial.spherical.lat.arcsec
-    
-    elif type(raster) == tuple:
-        header_dict = raster[4][0]
-        shape = raster[0][0][0][0].shape
-        wcs_dict = {}
-        for key in header_dict:
-            if (
-                "" != key and 
-                "\n"  not in str(header_dict[key]) and 
-                len(str(header_dict[key]))<=30 and 
-                len(key)<=10):
-                wcs_dict[key]=header_dict[key]
-        wcs = WCS(wcs_dict)   
-        y   = np.arange(shape[0],dtype=int)
-        x   = np.arange(shape[1],dtype=int)
-        
-        y = np.repeat(y,shape[1]).reshape(shape[0],shape[1])    
-        x = np.repeat(x,shape[0]).reshape(shape[1],shape[0])
-        x = x.T
-        lon,lat,_,time = wcs.wcs_pix2world(x.flatten(),y.flatten(),0,0,0)
-        time = time.reshape(shape[0],shape[1])
-        
-        lon[lon>180] -= 360
-        lat[lat>180] -= 360   
-        
-        lon[lon<-180] += 360
-        lat[lat<-180] += 360   
-             
-        lon  = lon.reshape(shape[0],shape[1])*3600
-        lat  = lat.reshape(shape[0],shape[1])*3600
         
     elif isinstance(raster,WCS):
         shape = kwargs['shape']
@@ -659,22 +551,24 @@ def quickview(
               ):
     from pathlib import PosixPath,Path
     if type(RasterOrPath) in (str,PosixPath):
-        raster = read_spice_l2_fits(str(RasterOrPath)) 
+        raster = fits_reader.open(RasterOrPath) 
     else: raster = RasterOrPath
-    unq = spu.unique_windows(raster)
+    raster = [rast for rast in raster if rast.header['EXTNAME'] not in ["VARIABLE_KEYWORDS",'WCSDVARR',"WCSDVARR"]]
+    
     lon,lat = get_celestial(raster)
     n= 3
-    m= len(unq)//3 +( 1 if len(unq)%3 != 0 else 0)
+    m= len(raster)//3 +( 1 if len(raster)%3 != 0 else 0)
     
     if type(imag_ax) == type(None): fig1,ax1 = plt.subplots(m,n,figsize=(n*3,m*3),sharex=True,sharey=True);ax1 = ax1.flatten() 
     if type(spec_ax) == type(None): fig2,ax2 = plt.subplots(m,n,figsize=(n*3,m*3)                        );ax2 = ax2.flatten() 
-    fig1.suptitle(raster[unq[0]].meta['DATE_EAR'])
-    fig2.suptitle(raster[unq[0]].meta['DATE_EAR'])
-    for i,kw in enumerate(unq):
-        data = raster[unq[i]].data
+    fig1.suptitle(raster[0].header['DATE_EAR'])
+    fig2.suptitle(raster[0].header['DATE_EAR'])
+    for i in range(len(raster)):
+        data = raster[i].data
         image = np.nanmean(data, axis =(0,1))
         spect = np.nanmean(data, axis =(0,2,3))
-        spec_ax = raster[unq[i]].spectral_axis*10**10
+        spec_ax = get_specaxis(raster[i])
+        kw = raster[i].header["EXTNAME"]
         
         norm = ImageNormalize(data,
                               interval=AsymmetricPercentileInterval(1, 99),
