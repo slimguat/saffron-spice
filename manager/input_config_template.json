@@ -70,5 +70,5 @@
 
   "getfile_verbose"      : -2,
   "geninits_verbose"     :  4,
-  "fit_verbose"          : -2,
+  "fit_verbose"          : -2
 }

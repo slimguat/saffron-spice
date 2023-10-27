@@ -793,7 +793,7 @@ def getfiles(
             for i in (selected_fits): print(i,"***********")
         return(selected_fits)
 
-def puke_template(where="./input_config_template.json"):
+def get_input_template(where="./input_config_template.json"):
     PATH = pkg_resources.resource_filename("SlimPy", "manager/input_config_template.json")
     shutil.copy(PATH,where)
 

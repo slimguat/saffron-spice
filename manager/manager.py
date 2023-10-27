@@ -43,7 +43,6 @@ class Manager():
             self.forced_order            = raster_args_confg["forced_order"        ]
             self.quite_sun               = raster_args_confg["quite_sun"           ]
             self.window_size             = np.array(raster_args_confg["window_size"  ])
-            self.show_ini_infos          = raster_args_confg["show_ini_infos"        ]
             self.Jobs                    = raster_args_confg["Jobs"                  ]     
             self.geninits_verbose        = self.config["geninits_verbose"            ]
             self.fit_verbose             = self.config["fit_verbose"                 ]
@@ -150,7 +149,6 @@ class Manager():
                 # plot_save_dir            = self.plot_save_dir            ,#TODO DELETE                                  
                 # forced_order             = self.forced_order             ,#TODO DELETE                                 
                 # quite_sun                = self.quite_sun                ,#TODO DELETE                              
-                # show_ini_infos           = self.show_ini_infos           ,#TODO DELETE                                   
                 # geninits_verbose         = self.geninits_verbose         ,#TODO DELETE
             ))
             pass
@@ -177,7 +175,7 @@ class Manager():
     #     """
     #     for i in range(len(self.rasters)):
     #         self.rasters[i].build_initial_parameters()
-    def execute_fitting(self):
+    def fit_manager(self):
         """
         Execute the fitting process for all runs.
         """
@@ -201,7 +199,6 @@ class Manager():
         "forced_order            "+str(self.forced_order)            +"\n"+
         "quite_sun               "+str(self.quite_sun)               +"\n"+
         "window_size             "+str(self.window_size)             +"\n"+
-        "show_ini_infos          "+str(self.show_ini_infos)          +"\n"+
         "Jobs                    "+str(self.Jobs)                    +"\n"+
         "geninits_verbose        "+str(self.geninits_verbose)        +"\n"+
         "fit_verbose             "+str(self.fit_verbose)             +"\n"+
