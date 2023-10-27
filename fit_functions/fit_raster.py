@@ -10,7 +10,7 @@ import inspect
 from time import sleep
 import multiprocessing as mp
 from multiprocessing import Process,Lock
-from pathlib import PosixPath, Path
+from pathlib import PosixPath, WindowsPath, Path
 import datetime
 import pickle 
 from rich.progress import Progress
@@ -216,7 +216,7 @@ class RasterFit:
         if self.verbose > 0: print("passed tests: the parameters are initially right")
     def load_data(self):
         if self.verbose>1: print("reading data")
-        if type(self.path_or_hdul) in (str,PosixPath):
+        if type(self.path_or_hdul) in (str,PosixPath, WindowsPath):
             self.L2_path = self.path_or_hdul
             if self.verbose>1: print(f"data is given as path:  {self.path_or_hdul  }")
             self.raster = fits.open(self.path_or_hdul)

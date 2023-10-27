@@ -24,7 +24,7 @@ import os
 import contextlib
 import shutil
 import pkg_resources
-from  pathlib import Path, PosixPath
+from  pathlib import Path, PosixPath, WindowsPath
     
 
 
@@ -549,8 +549,8 @@ def quickview(
     fig1 = None, imag_ax = None, 
     fig2 = None, spec_ax = None, 
               ):
-    from pathlib import PosixPath,Path
-    if type(RasterOrPath) in (str,PosixPath):
+    from pathlib import PosixPath, WindowsPath,Path
+    if type(RasterOrPath) in (str,PosixPath, WindowsPath):
         raster = fits_reader.open(RasterOrPath) 
     else: raster = RasterOrPath
     raster = [rast for rast in raster if rast.header['EXTNAME'] not in ["VARIABLE_KEYWORDS",'WCSDVARR',"WCSDVARR"]]

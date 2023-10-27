@@ -14,7 +14,7 @@ from ..utils import get_celestial,quickview,get_specaxis
 
 
 
-from pathlib import PosixPath
+from pathlib import PosixPath, WindowsPath
 from typing import Union, List, Dict, Any, Callable, Tuple
 import warnings
 
@@ -250,7 +250,7 @@ def get_extnames(
         
 
 def gen_fit_inits(
-    hdulOrPath: Union[str, PosixPath, HDUList],
+    hdulOrPath: Union[str, PosixPath, WindowsPath, HDUList],
     conv_errors: Dict[str, float] = {"I": 0.1, "x": 10**-4, "s": 0.1, "B": 100},
     wvl_interval: Dict[str, List[int]] = {"low": [7, -7], "high": [5, -5]},
     verbose: int = 0
@@ -261,7 +261,7 @@ def gen_fit_inits(
         Generate initial parameters for fitting spectral data using Gaussian functions.
 
         Args:
-            hdulOrPath (Union[str, PosixPath, HDUList]): Fits HDUList object or path to FITS file.
+            hdulOrPath (Union[str, PosixPath, WindowsPath, HDUList]): Fits HDUList object or path to FITS file.
             conv_errors (dict, optional): Dictionary of convolution errors for different parameters.
                 Defaults: {"I": 0.1, "x": 10**-4, "s": 0.1, "B": 100}
             wvl_interval (dict, optional): Wavelength intervals for data processing.
@@ -275,7 +275,7 @@ def gen_fit_inits(
                 "quentities": List of quantities corresponding to each parameter.
                 "convolution_threshold": List of convolution errors for each parameter.
     """
-    from pathlib import PosixPath,Path
+    from pathlib import PosixPath, WindowsPath,Path
     if type(hdulOrPath) in (str,PosixPath):
         hdul = fits_reader.open(hdulOrPath)
     else: hdul = hdulOrPath

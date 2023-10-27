@@ -265,8 +265,8 @@ def gen_fit_inits(
     wvl_interval = {"low":[7,-7],"high":[5,-5]},
     verbose=0
     ):
-    from pathlib import PosixPath,Path
-    if type(RasterOrPath) in (str,PosixPath):
+    from pathlib import PosixPath, WindowsPath,Path
+    if type(RasterOrPath) in (str,PosixPath, WindowsPath):
         raster = read_spice_l2_fits(str(RasterOrPath))
     else: raster = RasterOrPath
     unq = spu.unique_windows(raster)
@@ -437,8 +437,8 @@ def gen_fit_inits(
 #                   verbose=0
 #                   ):
     
-#     from pathlib import PosixPath,Path
-#     if type(RasterOrPath) in (str,PosixPath):
+#     from pathlib import PosixPath, WindowsPath,Path
+#     if type(RasterOrPath) in (str,PosixPath, WindowsPath):
 #         raster = read_spice_l2_fits(str(RasterOrPath))
 #     else: raster = RasterOrPath
 #     unq = spu.unique_windows(raster)
