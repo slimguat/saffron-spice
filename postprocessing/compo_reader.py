@@ -1,3 +1,4 @@
+#TODO DELETE
 # import matplotlib.pyplot as plt
 # import matplotlib as mplt
 # from astropy.visualization import SqrtStretch, AsymmetricPercentileInterval, ImageNormalize
@@ -1080,7 +1081,7 @@ from astropy.io import fits
 from pathlib import Path
 import matplotlib.pyplot as plt
 import os
-from analysers import normit, get_coord_mat,suppress_output,FIP_error
+from ..utils import normit,suppress_output
 from collections.abc import Iterable
 from astropy.visualization import SqrtStretch,PowerStretch,LogStretch, AsymmetricPercentileInterval, ImageNormalize, MinMaxInterval, interval,stretch
 from sunpy.map import Map
@@ -1088,7 +1089,105 @@ from fiplcr import Line
 from fiplcr import LinearComb as lc
 from fiplcr import fip_map
 import astropy.units as u
+import sunpy
 
+#TODO MOVE somewhere else
+def get_coord_mat(map,as_skycoord = False):
+    res = sunpy.map.maputils.all_coordinates_from_map(map)
+    if as_skycoord: return res
+    try:
+        lon = res.spherical.lon.arcsec
+        lat = res.spherical.lat.arcsec
+    except AttributeError:    
+        lon = res.lon.value
+        lat = res.lat.value 
+    return lon,lat
+def FIP_error(ll,Errors,Datas):
+    S_delHF = 0
+    S_delLF = 0
+    
+    # S_LF = ll.lc_LF.value
+    # S_HF = ll.lc_HF.value
+    S_LF   = 0
+    S_HF   = 0 
+        
+    for i in range(len(ll.lines)):
+        
+        if i < ll.xLF.shape[1]: 
+            S_delLF += (
+                ll.ionsLF[i                ].coeff_map / ll.ionsLF[i                ].ph_abund * 
+            Errors[i])
+            S_LF    += (
+                ll.ionsLF[i                ].coeff_map / ll.ionsLF[i                ].ph_abund * 
+            Datas[i])
+            # plt.figure()
+            # plt.pcolormesh(S_delLF,vmin=0,vmax=150);plt.colorbar()
+            # plt.title("S_delLF")
+        else: 
+            S_delHF += (
+                ll.ionsHF[i-ll.xLF.shape[1]].coeff_map / ll.ionsHF[i-ll.xLF.shape[1]].ph_abund * 
+            Errors[i]
+            )
+            S_HF    += (
+                ll.ionsHF[i-ll.xLF.shape[1]].coeff_map / ll.ionsHF[i-ll.xLF.shape[1]].ph_abund * 
+            Datas[i]
+            )
+            
+    FIP_error = S_delHF/S_HF + S_delLF/S_LF 
+    if False:
+        if False:
+            norm = ImageNormalize(S_delHF,interval=AsymmetricPercentileInterval(1,99),stretch=SqrtStretch())
+            plt.figure()
+            plt.pcolormesh(S_delHF,norm=norm,cmap="magma",
+            # vmin=0,vmax=150
+            );plt.colorbar()
+            plt.title("S_delHF")
+                    
+            plt.figure()
+            norm = ImageNormalize(S_delLF,interval=AsymmetricPercentileInterval(1,99),stretch=SqrtStretch())
+            plt.pcolormesh(S_delLF,norm=norm,cmap='magma',
+            # vmin=0,vmax=150
+            );plt.colorbar()
+            plt.title("S_delLF")
+            
+            plt.figure()
+            norm = ImageNormalize(S_HF,interval=AsymmetricPercentileInterval(1,99),stretch=SqrtStretch())
+            plt.pcolormesh(S_HF,norm=norm,cmap='magma',
+            # vmin=0,vmax=150
+            );plt.colorbar()
+            plt.title("S_HF")
+            
+            plt.figure()
+            norm = ImageNormalize(S_LF,interval=AsymmetricPercentileInterval(1,99),stretch=SqrtStretch())
+            plt.pcolormesh(S_LF,norm=norm,cmap='magma',
+            # vmin=0,vmax=150
+            );plt.colorbar()
+            plt.title("S_LF")
+            
+            plt.figure()
+            norm = ImageNormalize(S_delLF/S_LF,interval=AsymmetricPercentileInterval(1,99),stretch=SqrtStretch())
+            plt.pcolormesh(S_delLF/S_LF,norm=norm,cmap='magma',
+            # vmin=0,vmax=150
+            );plt.colorbar()
+            plt.title("S_delLF/S_LF")
+            
+            plt.figure()
+            norm = ImageNormalize(S_delHF/S_HF,interval=AsymmetricPercentileInterval(1,99),stretch=SqrtStretch())
+            plt.pcolormesh(S_delHF/S_HF,norm=norm,cmap='magma',
+            # vmin=0,vmax=150
+            );plt.colorbar()
+            plt.title("S_delHF/S_HF")
+            
+        plt.figure()
+        norm = ImageNormalize(FIP_error,interval=AsymmetricPercentileInterval(1,99),stretch=SqrtStretch())
+        plt.pcolormesh(FIP_error,norm=norm,cmap='magma',
+        # vmin=0,vmax=1
+        );plt.colorbar()
+        plt.title("FIP_error")
+        
+    return FIP_error
+
+  
 def filePath_manager(data_dir):
   files = os.listdir(data_dir)
   files.sort()
