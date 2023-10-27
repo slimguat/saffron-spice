@@ -276,7 +276,7 @@ def gen_fit_inits(
                 "convolution_threshold": List of convolution errors for each parameter.
     """
     from pathlib import PosixPath, WindowsPath,Path
-    if type(hdulOrPath) in (str,PosixPath):
+    if type(hdulOrPath) in (str,PosixPath,WindowsPath):
         hdul = fits_reader.open(hdulOrPath)
     else: hdul = hdulOrPath
     unq = get_extnames(hdul)
