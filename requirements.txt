@@ -197,10 +197,6 @@ yarl==1.9.2
 zarr==2.16.1
 zeep==4.2.1
 zipp==3.17.0
-
-
-# watroo @ file:///home/smzergua/workshop/wavelets
-# eispac @ file:///home/smzergua/workshop/eispac
-# ias-spice-utils @ file:///home/smzergua/workshop/spice_utils-master
-# spice-uncertainties @ file:///home/smzergua/workshop/spice_uncertainties
-
+git+https://git.ias.u-psud.fr/spice/spice_uncertainties.git
+git+https://git.ias.u-psud.fr/spice/pre-analysis.git
+git+https://github.com/frederic-auchere/wavelets.git
