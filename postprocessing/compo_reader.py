@@ -5,7 +5,7 @@ from astropy.io.fits.hdu.hdulist import HDUList
 import pathlib
 import numpy as np 
 from astropy.io import fits
-from pathlib import Path
+from pathlib import Path,WindowsPath,pathlib
 import matplotlib.pyplot as plt
 import os
 from ..utils import normit,suppress_output
@@ -151,9 +151,9 @@ class SPECLine():
     self.compute_params()
     
   def charge_data(self,hdul_or_path):
-    if isinstance(hdul_or_path,(str, pathlib.PosixPath, WindowsPath, pathlib.WindowsPath,HDUList)):raise ValueError('The hdul_or_path sould be a list of 3')
+    if isinstance(hdul_or_path,(str, PosixPath, WindowsPath, pathlib.WindowsPath,HDUList)):raise ValueError('The hdul_or_path sould be a list of 3')
     for val in hdul_or_path:
-      if isinstance(val, (str, pathlib.PosixPath, WindowsPath, pathlib.WindowsPath)):
+      if isinstance(val, (str, PosixPath, WindowsPath, pathlib.WindowsPath)):
         hdul = fits.open(val)
       elif isinstance(val,HDUList):
         hdul = val.copy()
