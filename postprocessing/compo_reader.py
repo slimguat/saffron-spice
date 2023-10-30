@@ -5,7 +5,7 @@ from astropy.io.fits.hdu.hdulist import HDUList
 import pathlib
 import numpy as np 
 from astropy.io import fits
-from pathlib import Path,WindowsPath,WindowsPath
+from pathlib import Path,WindowsPath,PosixPath
 import matplotlib.pyplot as plt
 import os
 from ..utils import normit,suppress_output
