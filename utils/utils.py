@@ -405,7 +405,7 @@ def gen_shmm(create = False,name=None,ndarray=None,size=0,shape=None,dtype=float
     size = size if type(ndarray) == type(None) else ndarray.nbytes
     shmm = SharedMemory(create = create,size=size,name=name)
     shmm_data = np.ndarray(shape = shape if type(ndarray)==type(None) else ndarray.shape  
-                           , buffer = shmm.buf , dtype=dtype)
+                        , buffer = shmm.buf , dtype=(dtype if type(ndarray) is None else ndarray.dtype))
     
     if create and type(ndarray)!=type(None):
         shmm_data[:] = ndarray[:]
