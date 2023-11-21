@@ -402,10 +402,12 @@ def round_up(n, decimals=0):
 def gen_shmm(create = False,name=None,ndarray=None,size=0,shape=None,dtype=float):
     assert (type(ndarray)!=type(None) or size!=0) or type(name)!=type(None)
     assert type(ndarray)!=type(None) or type(shape)!=type(None)
+    if ndarray is not None:
+        dtype = ndarray.dtype
     size = size if type(ndarray) == type(None) else ndarray.nbytes
     shmm = SharedMemory(create = create,size=size,name=name)
     shmm_data = np.ndarray(shape = shape if type(ndarray)==type(None) else ndarray.shape  
-                        , buffer = shmm.buf , dtype=(dtype if type(ndarray) is None else ndarray.dtype))
+                        , buffer = shmm.buf , dtype=dtype)
     
     if create and type(ndarray)!=type(None):
         shmm_data[:] = ndarray[:]
