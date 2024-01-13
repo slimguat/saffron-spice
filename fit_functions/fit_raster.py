@@ -262,8 +262,8 @@ class RasterFit:
 class ProgressFollower():
     def __init__(self,file_path=None):
         data = np.array([0],dtype=int)
-        shmm,data = gen_shmm(create=True,ndarray=data)
-        prg = {'name':shmm.name,'dtype':data.dtype,"shape":data.shape}
+        self.shmm,self.data = gen_shmm(create=True,ndarray=data)
+        prg = {'name':self.shmm.name,'dtype':self.data.dtype,"shape":self.data.shape}
         self.file_path = file_path
         self.pickle_lock = Lock()
         if file_path is None:
@@ -909,9 +909,11 @@ class WindowFit():
         self.data_cov  = np.zeros((self.init_params.shape[0],*dshape))* np.nan
         self.data_con  = np.zeros(                            dshape )* np.nan
         
+        
         self._shmm_par,self.data_par = gen_shmm(create=True,ndarray=self.data_par) 
         self._shmm_cov,self.data_cov = gen_shmm(create=True,ndarray=self.data_cov) 
         self._shmm_con,self.data_con = gen_shmm(create=True,ndarray=self.data_con) 
+        
         self._par = {"name":self._shmm_par.name ,"dtype":self.data_par.dtype ,"shape":self.data_par.shape }
         self._cov = {"name":self._shmm_cov.name ,"dtype":self.data_cov.dtype ,"shape":self.data_cov.shape }
         self._con = {"name":self._shmm_con.name ,"dtype":self.data_con.dtype ,"shape":self.data_con.shape}
@@ -921,6 +923,21 @@ class WindowFit():
         if self.weights is not None:
             self._shmm_sgm, self.conv_sigma = gen_shmm(create = True, ndarray=self.conv_sigma)
             self._sgm = {"name":self._shmm_sgm.name,"dtype":self.conv_sigma.dtype,"shape":self.conv_sigma.shape}
+        
+        self._shmm_par_backup,self.data_par_backup  = gen_shmm(create= True , ndarray=self.data_par ) 
+        self._shmm_cov_backup,self.data_cov_backup  = gen_shmm(create= True , ndarray=self.data_cov ) 
+        self._shmm_con_backup,self.data_con_backup  = gen_shmm(create= True , ndarray=self.data_con ) 
+        self._shmm_war_backup,self.conv_data_backup = gen_shmm(create = True, ndarray=self.conv_data)
+        
+        self._par_backup = {"name":self._shmm_par_backup.name ,"dtype":self.data_par_backup.dtype  ,"shape":self.data_par_backup .shape}
+        self._cov_backup = {"name":self._shmm_cov_backup.name ,"dtype":self.data_cov_backup.dtype  ,"shape":self.data_cov_backup .shape}
+        self._con_backup = {"name":self._shmm_con_backup.name ,"dtype":self.data_con_backup.dtype  ,"shape":self.data_con_backup .shape}
+        self._war_backup = {"name":self._shmm_war_backup.name ,"dtype":self.conv_data_backup.dtype ,"shape":self.conv_data_backup.shape}
+        
+        if self.weights is not None:
+            self._shmm_sgm_backup, self.conv_sigma_backup = gen_shmm(create = True, ndarray=self.conv_sigma)
+            self._sgm_backup = {"name":self._shmm_sgm_backup.name,"dtype":self.conv_sigma_backup.dtype,"shape":self.conv_sigma_backup.shape}
+        
     def write_data(self):
         if isinstance(self.hdu,Iterable): hdu= flatten(self.hdu)[0]
         else:hdu = self.hdu 
@@ -1075,6 +1092,11 @@ class WindowFit():
                     "cov"                    : self._cov                           ,
                     "con"                    : self._con                           ,
                     "wgt"                    : self._sgm                           ,
+                    "war_backup"             : self._war_backup                    ,
+                    "par_backup"             : self._par_backup                    ,
+                    "cov_backup"             : self._cov_backup                    ,
+                    "con_backup"             : self._con_backup                    ,
+                    "wgt_backup"             : self._sgm_backup                    ,
                     "ini_params"             : self.init_params                    ,
                     "quentities"             : self.quentities                     ,
                     "fit_func"               : fit_func2                       ,
@@ -1129,10 +1151,15 @@ class WindowFit():
                     par: dict                           ,
                     cov: dict                           ,
                     con: dict                           ,
+                    war_backup: dict                    ,
+                    par_backup: dict                    ,
+                    cov_backup: dict                    ,
+                    con_backup: dict                    ,
                     ini_params:np.ndarray               ,
                     quentities: list[str]               ,
                     fit_func:callable                   ,
                     wgt: None = None                    ,
+                    wgt_backup: None = None                    ,
                     bounds:np.ndarray=[np.nan]          ,
                     convolution_threshold = None        ,
                     convolution_extent_list = None      , 
@@ -1142,12 +1169,79 @@ class WindowFit():
                     **kwargs                            ,
         ):        
         
-        shmm_war,data_war = gen_shmm(create=False,**war) 
-        shmm_par,data_par = gen_shmm(create=False,**par) 
-        shmm_cov,data_cov = gen_shmm(create=False,**cov) 
-        shmm_con,data_con = gen_shmm(create=False,**con) 
+        is_war_backup_generated = False
+        is_par_backup_generated = False
+        is_cov_backup_generated = False
+        is_con_backup_generated = False
+        is_wgt_backup_generated = False
+        try:
+            shmm_war,data_war = gen_shmm(create=False,**war)
+        except Exception as e: 
+            print('memory reading issue\n---------------\n',e,'\n--------------\n')
+            shmm_war_backup,data_war_backup = gen_shmm(create=False,**war_backup)
+            shmm_war,data_war = gen_shmm(create=True,ndarray=data_war_backup.copy(),name=shmm_war.name) 
+            is_war_backup_generated = True
+        
+        try:
+            shmm_par,data_par = gen_shmm(create=False,**par)
+        except Exception as e: 
+            print('memory reading issue\n---------------\n',e,'\n--------------\n')
+            shmm_par_backup,data_par_backup = gen_shmm(create=False,**par_backup)
+            shmm_par,data_par = gen_shmm(create=True,ndarray=data_par_backup.copy(),name=shmm_par.name) 
+            is_par_backup_generated = True
+        if not is_par_backup_generated:
+            try:
+                shmm_par_backup,data_par_backup = gen_shmm(create=False,**par_backup)
+            except Exception as e: 
+                print('memory reading issue\n---------------\n',e,'\n--------------\n')
+                shmm_par,data_par = gen_shmm(create=False,**par)
+                shmm_par_backup,data_par_backup = gen_shmm(create=True,ndarray=data_par.copy(),name=shmm_par_backup.name) 
+            
+        try:
+            shmm_cov,data_cov = gen_shmm(create=False,**cov)
+        except Exception as e: 
+            print('memory reading issue\n---------------\n',e,'\n--------------\n')
+            shmm_cov_backup,data_cov_backup = gen_shmm(create=False,**cov_backup)
+            shmm_cov,data_cov = gen_shmm(create=True,ndarray=data_cov_backup.copy(),name=shmm_cov.name) 
+            is_cov_backup_generated = True
+        if not is_cov_backup_generated:
+            try:
+                shmm_cov_backup,data_cov_backup = gen_shmm(create=False,**cov_backup)
+            except Exception as e: 
+                print('memory reading issue\n---------------\n',e,'\n--------------\n')
+                shmm_cov,data_cov = gen_shmm(create=False,**cov)
+                shmm_cov_backup,data_cov_backup = gen_shmm(create=True,ndarray=data_cov.copy(),name=shmm_cov_backup.name) 
+
+        try:
+            shmm_con,data_con = gen_shmm(create=False,**con)
+        except Exception as e: 
+            print('memory reading issue\n---------------\n',e,'\n--------------\n')
+            shmm_con_backup,data_con_backup = gen_shmm(create=False,**con_backup)
+            shmm_con,data_con = gen_shmm(create=True,ndarray=data_con_backup.copy(),name=shmm_con.name) 
+            is_con_backup_generated = True
+        if not is_con_backup_generated:
+            try:
+                shmm_con_backup,data_con_backup = gen_shmm(create=False,**con_backup)
+            except Exception as e: 
+                print('memory reading issue\n---------------\n',e,'\n--------------\n')
+                shmm_con,data_con = gen_shmm(create=False,**con)
+                shmm_con_backup,data_con_backup = gen_shmm(create=True,ndarray=data_con.copy(),name=shmm_con_backup.name) 
+
         if type(wgt)!=type(None):
-            shmm_wgt,data_wgt = gen_shmm(create=False,**wgt) 
+            try:
+                shmm_wgt,data_wgt = gen_shmm(create=False,**wgt)
+            except Exception as e: 
+                print('memory reading issue\n---------------\n',e,'\n--------------\n')
+                shmm_wgt_backup,data_wgt_backup = gen_shmm(create=False,**wgt_backup)
+                shmm_wgt,data_wgt = gen_shmm(create=True,ndarray=data_wgt_backup.copy(),name=shmm_wgt.name) 
+                is_wgt_backup_generated = True
+        
+        # shmm_war,data_war = gen_shmm(create=False,**war) 
+        # shmm_par,data_par = gen_shmm(create=False,**par) 
+        # shmm_cov,data_cov = gen_shmm(create=False,**cov) 
+        # shmm_con,data_con = gen_shmm(create=False,**con) 
+        # if type(wgt)!=type(None):
+        #     shmm_wgt,data_wgt = gen_shmm(create=False,**wgt) 
         
         if len(convolution_threshold)==data_par.shape[0]:conv_thresh = convolution_threshold 
         else:
