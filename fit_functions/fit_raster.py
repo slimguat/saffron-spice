@@ -1177,15 +1177,22 @@ class WindowFit():
         try:
             shmm_war,data_war = gen_shmm(create=False,**war)
         except Exception as e: 
-            print('memory reading issue\n---------------\n',e,'\n--------------\n')
+            print('memory reading issue with war \n---------------\n',e,'\n--------------\n')
             shmm_war_backup,data_war_backup = gen_shmm(create=False,**war_backup)
             shmm_war,data_war = gen_shmm(create=True,ndarray=data_war_backup.copy(),name=shmm_war.name) 
             is_war_backup_generated = True
-        
+        if not is_war_backup_generated:
+            try:
+                shmm_war_backup,data_war_backup = gen_shmm(create=False,**war_backup)
+            except Exception as e: 
+                print('memory reading issue with war \n---------------\n',e,'\n--------------\n')
+                shmm_war,data_war = gen_shmm(create=False,**war)
+                shmm_war_backup,data_war_backup = gen_shmm(create=True,ndarray=data_war.copy(),name=shmm_war_backup.name) 
+            
         try:
             shmm_par,data_par = gen_shmm(create=False,**par)
         except Exception as e: 
-            print('memory reading issue\n---------------\n',e,'\n--------------\n')
+            print('memory reading issue with par \n---------------\n',e,'\n--------------\n')
             shmm_par_backup,data_par_backup = gen_shmm(create=False,**par_backup)
             shmm_par,data_par = gen_shmm(create=True,ndarray=data_par_backup.copy(),name=shmm_par.name) 
             is_par_backup_generated = True
@@ -1193,14 +1200,14 @@ class WindowFit():
             try:
                 shmm_par_backup,data_par_backup = gen_shmm(create=False,**par_backup)
             except Exception as e: 
-                print('memory reading issue\n---------------\n',e,'\n--------------\n')
+                print('memory reading issue with par \n---------------\n',e,'\n--------------\n')
                 shmm_par,data_par = gen_shmm(create=False,**par)
                 shmm_par_backup,data_par_backup = gen_shmm(create=True,ndarray=data_par.copy(),name=shmm_par_backup.name) 
             
         try:
             shmm_cov,data_cov = gen_shmm(create=False,**cov)
         except Exception as e: 
-            print('memory reading issue\n---------------\n',e,'\n--------------\n')
+            print('memory reading issue with cov \n---------------\n',e,'\n--------------\n')
             shmm_cov_backup,data_cov_backup = gen_shmm(create=False,**cov_backup)
             shmm_cov,data_cov = gen_shmm(create=True,ndarray=data_cov_backup.copy(),name=shmm_cov.name) 
             is_cov_backup_generated = True
@@ -1208,14 +1215,14 @@ class WindowFit():
             try:
                 shmm_cov_backup,data_cov_backup = gen_shmm(create=False,**cov_backup)
             except Exception as e: 
-                print('memory reading issue\n---------------\n',e,'\n--------------\n')
+                print('memory reading issue with cov \n---------------\n',e,'\n--------------\n')
                 shmm_cov,data_cov = gen_shmm(create=False,**cov)
                 shmm_cov_backup,data_cov_backup = gen_shmm(create=True,ndarray=data_cov.copy(),name=shmm_cov_backup.name) 
 
         try:
             shmm_con,data_con = gen_shmm(create=False,**con)
         except Exception as e: 
-            print('memory reading issue\n---------------\n',e,'\n--------------\n')
+            print('memory reading issue with con \n---------------\n',e,'\n--------------\n')
             shmm_con_backup,data_con_backup = gen_shmm(create=False,**con_backup)
             shmm_con,data_con = gen_shmm(create=True,ndarray=data_con_backup.copy(),name=shmm_con.name) 
             is_con_backup_generated = True
@@ -1223,7 +1230,7 @@ class WindowFit():
             try:
                 shmm_con_backup,data_con_backup = gen_shmm(create=False,**con_backup)
             except Exception as e: 
-                print('memory reading issue\n---------------\n',e,'\n--------------\n')
+                print('memory reading issue with con\n---------------\n',e,'\n--------------\n')
                 shmm_con,data_con = gen_shmm(create=False,**con)
                 shmm_con_backup,data_con_backup = gen_shmm(create=True,ndarray=data_con.copy(),name=shmm_con_backup.name) 
 
@@ -1231,11 +1238,18 @@ class WindowFit():
             try:
                 shmm_wgt,data_wgt = gen_shmm(create=False,**wgt)
             except Exception as e: 
-                print('memory reading issue\n---------------\n',e,'\n--------------\n')
+                print('memory reading issue with wgt\n---------------\n',e,'\n--------------\n')
                 shmm_wgt_backup,data_wgt_backup = gen_shmm(create=False,**wgt_backup)
                 shmm_wgt,data_wgt = gen_shmm(create=True,ndarray=data_wgt_backup.copy(),name=shmm_wgt.name) 
                 is_wgt_backup_generated = True
-        
+        if not is_wgt_backup_generated:
+            try:
+                shmm_wgt_backup,data_wgt_backup = gen_shmm(create=False,**wgt_backup)
+            except Exception as e: 
+                print('memory reading issue with wgt\n---------------\n',e,'\n--------------\n')
+                shmm_wgt,data_wgt = gen_shmm(create=False,**wgt)
+                shmm_wgt_backup,data_wgt_backup = gen_shmm(create=True,ndarray=data_wgt.copy(),name=shmm_wgt_backup.name) 
+
         # shmm_war,data_war = gen_shmm(create=False,**war) 
         # shmm_par,data_par = gen_shmm(create=False,**par) 
         # shmm_cov,data_cov = gen_shmm(create=False,**cov) 
@@ -1333,6 +1347,10 @@ class WindowFit():
             data_par[:,0,i_y,i_x] = best_par #the result UUUUUUgh finally it's here every pixel will be here
             data_cov[:,0,i_y,i_x] = best_cov #the result UUUUUUgh finally it's here every pixel will be here
             data_con[  0,i_y,i_x] = best_con #the result UUUUUUgh finally it's here every pixel will be here
+            
+            data_par_backup[:,0,i_y,i_x] = best_par #the result UUUUUUgh finally it's here every pixel will be here
+            data_cov_backup[:,0,i_y,i_x] = best_cov #the result UUUUUUgh finally it's here every pixel will be here
+            data_con_backup[  0,i_y,i_x] = best_con #the result UUUUUUgh finally it's here every pixel will be here
             lock.release()
     @staticmethod
     def get_CHIANTI_lineNames(names):
