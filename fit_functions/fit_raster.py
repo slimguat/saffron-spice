@@ -1242,13 +1242,13 @@ class WindowFit():
                 shmm_wgt_backup,data_wgt_backup = gen_shmm(create=False,**wgt_backup)
                 shmm_wgt,data_wgt = gen_shmm(create=True,ndarray=data_wgt_backup.copy(),name=shmm_wgt.name) 
                 is_wgt_backup_generated = True
-        if not is_wgt_backup_generated:
-            try:
-                shmm_wgt_backup,data_wgt_backup = gen_shmm(create=False,**wgt_backup)
-            except Exception as e: 
-                print('memory reading issue with wgt\n---------------\n',e,'\n--------------\n')
-                shmm_wgt,data_wgt = gen_shmm(create=False,**wgt)
-                shmm_wgt_backup,data_wgt_backup = gen_shmm(create=True,ndarray=data_wgt.copy(),name=shmm_wgt_backup.name) 
+            if not is_wgt_backup_generated:
+                try:
+                    shmm_wgt_backup,data_wgt_backup = gen_shmm(create=False,**wgt_backup)
+                except Exception as e: 
+                    print('memory reading issue with wgt\n---------------\n',e,'\n--------------\n')
+                    shmm_wgt,data_wgt = gen_shmm(create=False,**wgt)
+                    shmm_wgt_backup,data_wgt_backup = gen_shmm(create=True,ndarray=data_wgt.copy(),name=shmm_wgt_backup.name) 
 
         # shmm_war,data_war = gen_shmm(create=False,**war) 
         # shmm_par,data_par = gen_shmm(create=False,**par) 
