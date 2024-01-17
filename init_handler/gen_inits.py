@@ -255,8 +255,10 @@ def gen_fit_inits(
     wvl_interval: Dict[str, List[int]] = {"low": [7, -7], "high": [5, -5]},
     verbose: int = 0
 ) -> Dict[str, Any]:
-    if verbose==-2: 
+    if verbose<=-2: 
         warnings.filterwarnings('ignore')
+    else:
+        warnings.filterwarnings('always')
     """
         Generate initial parameters for fitting spectral data using Gaussian functions.
 

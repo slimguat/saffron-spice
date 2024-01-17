@@ -1040,26 +1040,34 @@ class WindowFit():
             sigma2 = np.sqrt(self.data_cov[ind+2,0]) 
 
             
-            hdu00 = fits.PrimaryHDU(data = data0 , header=header00)
-            hdu01 = fits.ImageHDU  (data = sigma0, header=header01)
-            hdu10 = fits.PrimaryHDU(data = data1 , header=header10)
-            hdu11 = fits.ImageHDU  (data = sigma1, header=header11)
-            hdu20 = fits.PrimaryHDU(data = data2 , header=header20)
-            hdu21 = fits.ImageHDU  (data = sigma2, header=header21)
-            
-            hdul0 = HDUList([hdu00,hdu01])
-            hdul1 = HDUList([hdu10,hdu11])
-            hdul2 = HDUList([hdu20,hdu21])
-            
-            I_filename = self.data_filename.format(header00['ION_ID']+"-"+header00["MEASRMNT"][0:3] )
-            v_filename = self.data_filename.format(header10['ION_ID']+"-"+header10["MEASRMNT"][0:3] )
-            w_filename = self.data_filename.format(header20['ION_ID']+"-"+header20["MEASRMNT"][0:3] )
-            
-            hdul_list.append([hdul0.copy(),I_filename]) 
-            hdul_list.append([hdul1.copy(),v_filename]) 
-            hdul_list.append([hdul2.copy(),w_filename]) 
-            pass
-        #saving data
+            if False: # No need to put parameters in different files
+                hdu00 = fits.PrimaryHDU(data = data0 , header=header00)
+                hdu01 = fits.ImageHDU  (data = sigma0, header=header01)
+                hdu10 = fits.PrimaryHDU(data = data1 , header=header10)
+                hdu11 = fits.ImageHDU  (data = sigma1, header=header11)
+                hdu20 = fits.PrimaryHDU(data = data2 , header=header20)
+                hdu21 = fits.ImageHDU  (data = sigma2, header=header21)
+                hdul0 = HDUList([hdu00,hdu01])
+                hdul1 = HDUList([hdu10,hdu11])
+                hdul2 = HDUList([hdu20,hdu21])
+                I_filename = self.data_filename.format(header00['ION_ID']+"-"+header00["MEASRMNT"][0:3] )
+                v_filename = self.data_filename.format(header10['ION_ID']+"-"+header10["MEASRMNT"][0:3] )
+                w_filename = self.data_filename.format(header20['ION_ID']+"-"+header20["MEASRMNT"][0:3] )
+                hdul_list.append([hdul0.copy(),I_filename]) 
+                hdul_list.append([hdul1.copy(),v_filename]) 
+                hdul_list.append([hdul2.copy(),w_filename]) 
+            else: #now all parameters of a given line are inside 1 fits file are in the 
+                hdu00 = fits.PrimaryHDU(data = data0 , header=header00)
+                hdu10 = fits.ImageHDU(data = data1 , header=header10)
+                hdu20 = fits.ImageHDU(data = data2 , header=header20)
+                hdu01 = fits.ImageHDU(data = sigma0, header=header01)
+                hdu11 = fits.ImageHDU(data = sigma1, header=header11)
+                hdu21 = fits.ImageHDU(data = sigma2, header=header21)
+                
+                hdul = HDUList([hdu00,hdu10,hdu20,hdu01,hdu11,hdu21])
+                l_filename = self.data_filename.format(header00['ION_ID'])
+                hdul_list.append([hdul.copy(),l_filename])
+                
         
         data_save_dir = Path(self.data_save_dir).resolve() if self.data_save_dir is not None else Path("./")
         data_save_dir.mkdir(exist_ok=True)
@@ -1067,6 +1075,7 @@ class WindowFit():
             print(f'saving_to {data_save_dir/col[1]}') 
             col[0].writeto(data_save_dir/col[1], overwrite=True)  
     def fit_window(self,progress_follower=None):
+        warnings.filterwarnings(("ignore" if self.verbose<=-2 else 'always'))
         if progress_follower is None:
             progress_follower = ProgressFollower()
         
@@ -1107,42 +1116,43 @@ class WindowFit():
                     "lock"                   : self.lock                           ,
                     'lock_protocols'         : self.lock_protocols                 ,
             } 
-            # self.task_fit_pixel(**keywords)
-            
-            Processes.append(Process(target=self.task_fit_pixel,kwargs=keywords))
-            Processes[-1].start()
-            if self.verbose>=0: print(f"Starting process job: {i+1:02d}/{len(self.Job_index_list):.4g} on raster fits\nJob list contains: {len(self.Job_index_list[i])} pixels")
-            while True:
-                # print("live processes: ",np.sum([1 for p in Processes if p.is_alive()]))
-                if np.sum([1 for p in Processes if p.is_alive()])>= self.Jobs:
-                    if self.verbose>=1:
-                        print('Live Processes: ',np.sum([1 for p in Processes if p.is_alive()]))
-                        data = self.data_con[
-                            0,
-                            self.window_size[0,0]:self.window_size[0,1],
-                            self.window_size[1,0]:self.window_size[1,1]
-                            ].copy()
-                        nan_size = data[(np.isnan(data))].size
-                        print("remaining_pixels= ",nan_size,'/',data.size)
-                    # sleep(0.5)
-                else:
-                    for j,p in enumerate(Processes): 
-                        if not p.is_alive():
-                            p.close()
-                            Processes.pop(j)
-                    break
-                
-        while np.sum([1 for p in Processes if p.is_alive()])!= 0:
-                if self.verbose>=0:print('Live Processes: ',np.sum([1 for p in Processes if p.is_alive()]))
-                data = self.data_con[
-                            0,
-                            self.window_size[0,0]:self.window_size[0,1],
-                            self.window_size[1,0]:self.window_size[1,1]
-                            ].copy()
-                nan_size = data[(np.isnan(data))].size
-                if self.verbose>=0:print("remaining_pixels= ",nan_size,'/',data.size)
-                sleep(2)
-        for process in Processes: process.join()
+            if True:
+                self.task_fit_pixel(**keywords)
+            else:    
+                Processes.append(Process(target=self.task_fit_pixel,kwargs=keywords))
+                Processes[-1].start()
+                if self.verbose>=0: print(f"Starting process job: {i+1:02d}/{len(self.Job_index_list):.4g} on raster fits\nJob list contains: {len(self.Job_index_list[i])} pixels")
+                while True:
+                    # print("live processes: ",np.sum([1 for p in Processes if p.is_alive()]))
+                    if np.sum([1 for p in Processes if p.is_alive()])>= self.Jobs:
+                        if self.verbose>=1:
+                            print('Live Processes: ',np.sum([1 for p in Processes if p.is_alive()]))
+                            data = self.data_con[
+                                0,
+                                self.window_size[0,0]:self.window_size[0,1],
+                                self.window_size[1,0]:self.window_size[1,1]
+                                ].copy()
+                            nan_size = data[(np.isnan(data))].size
+                            print("remaining_pixels= ",nan_size,'/',data.size)
+                        # sleep(0.5)
+                    else:
+                        for j,p in enumerate(Processes): 
+                            if not p.is_alive():
+                                p.close()
+                                Processes.pop(j)
+                        break
+                    
+            while np.sum([1 for p in Processes if p.is_alive()])!= 0:
+                    if self.verbose>=0:print('Live Processes: ',np.sum([1 for p in Processes if p.is_alive()]))
+                    data = self.data_con[
+                                0,
+                                self.window_size[0,0]:self.window_size[0,1],
+                                self.window_size[1,0]:self.window_size[1,1]
+                                ].copy()
+                    nan_size = data[(np.isnan(data))].size
+                    if self.verbose>=0:print("remaining_pixels= ",nan_size,'/',data.size)
+                    sleep(2)
+            for process in Processes: process.join()
         
     @staticmethod
     def task_fit_pixel(x:np.ndarray                     ,
