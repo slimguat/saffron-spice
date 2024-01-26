@@ -210,8 +210,13 @@ class RasterFit:
         for window in self.fused_windows:
             window.fit_window(progress_follower=progress_follower)
             window.write_data()
-        
-        
+
+    def write_data(self):
+        for ind in self.solo_windows_toFit:
+            self.windows[ind].write_data()
+        for window in self.fused_windows:
+            self.windows[ind].write_data()
+
     def check_object_arguments(self):
         if self.verbose > 0: print("checking adequacy of given parameters")
         if type(self.quentities[0]) != list: print(f"ERROR queities sould be a list of lists\n quentities given {self.quentities}")
@@ -257,7 +262,6 @@ class RasterFit:
         strConv = "".join([f"{i:02d}"for i in self.convolution_extent_list ])
         if "::CONV" in self.data_filename:
             self.data_filename = self.data_filename.replace("::CONV",strConv)
-        
 
 class ProgressFollower():
     def __init__(self,file_path=None):
@@ -948,6 +952,8 @@ class WindowFit():
             str(datetime.datetime.now()).replace("-",'').replace(":",'').replace(" ",'')[:-4]+
             "_{}.fits"
             )
+        
+        self.data_filename = self.data_filename[1:] if self.data_filename[0]=="/" else self.data_filename 
             
         wcs = WCS(hdu.header)
         wcs_par = wcs.dropaxis(2)
@@ -980,8 +986,8 @@ class WindowFit():
                 header0 = header.copy()
                 header1 = header.copy()
                 
-                header0["MEASRMNT"] = 'background'
-                header1["MEASRMNT"] = 'background_error'
+                header0["MEASRMNT"] = 'bg'
+                header1["MEASRMNT"] = 'bg_err'
 
                 hdu0 = fits.PrimaryHDU(data = data, header=header0)
                 hdu1 = fits.ImageHDU(data = sigma, header=header1)
@@ -1001,16 +1007,15 @@ class WindowFit():
                 ]
             B_count = 0
             for j in range(3):
+                headers[j]['OBSERVATORY'] = "Solar Orbiter"                                                               
+                headers[j]['INSTRUMENT'] = "SPICE"                                                             
                 headers[j]['WAVELENGTH'] = wvl                                      if self.window_names is not None else "unknown"                         
                 headers[j]['ION'       ] = name                                     if self.window_names is not None else "unknown"                         
-                headers[j]['ION_ID'    ] = (f"{wvl:08.2f}-{name}").replace(" ","_") if self.window_names is not None else "unknown"                        
+                headers[j]['LINE_ID'   ] = (f"{wvl:08.2f}-{name}").replace(" ","_") if self.window_names is not None else "unknown"                        
                 headers[j]['WAVEUNIT'  ] = "Angstrom"            
-                
-                # headers[j]["BG_file"]    = [name[1] for name in hdul_list][self.quentities[:ind].count('B')]
-                # for ind_file,bg_filename in enumerate(bg_filenames):  
-                #     headers[j]["BFile_{ind:02d}"] = bg_filenames[ind_file]
-                #     print(bg_filenames[ind_file])
-                # headers[j]["L2_NAME"] = hdu.header["FILENAME"]
+                for k,con in enumerate(self.convolution_extent_list):
+                    headers[j][f'con{k}'] = con
+                    
             headers[0]["BTYPE"] = I_BTYPE
             headers[0]["BUNIT"] = I_BUNIT
             headers[1]["BTYPE"] = v_BTYPE
@@ -1025,12 +1030,12 @@ class WindowFit():
             header20 = headers[2].copy()
             header21 = headers[2].copy()
             
-            header00["MEASRMNT"] = 'intensity'
-            header01["MEASRMNT"] = 'intensity_error'
-            header10["MEASRMNT"] = 'wavelength'
-            header11["MEASRMNT"] = 'wavelength_error'
-            header20["MEASRMNT"] = 'width'
-            header21["MEASRMNT"] = 'width_error'
+            header00["MEASRMNT"] = 'int'
+            header01["MEASRMNT"] = 'int_err'
+            header10["MEASRMNT"] = 'wav'
+            header11["MEASRMNT"] = 'wav_err'
+            header20["MEASRMNT"] = 'wid'
+            header21["MEASRMNT"] = 'wid_err'
             
             data0 = self.data_par[ind,0]
             sigma0 = np.sqrt(self.data_cov[ind,0]) 
@@ -1050,9 +1055,9 @@ class WindowFit():
                 hdul0 = HDUList([hdu00,hdu01])
                 hdul1 = HDUList([hdu10,hdu11])
                 hdul2 = HDUList([hdu20,hdu21])
-                I_filename = self.data_filename.format(header00['ION_ID']+"-"+header00["MEASRMNT"][0:3] )
-                v_filename = self.data_filename.format(header10['ION_ID']+"-"+header10["MEASRMNT"][0:3] )
-                w_filename = self.data_filename.format(header20['ION_ID']+"-"+header20["MEASRMNT"][0:3] )
+                I_filename = self.data_filename.format(header00['LINE_ID']+"-"+header00["MEASRMNT"])
+                v_filename = self.data_filename.format(header10['LINE_ID']+"-"+header10["MEASRMNT"])
+                w_filename = self.data_filename.format(header20['LINE_ID']+"-"+header20["MEASRMNT"])
                 hdul_list.append([hdul0.copy(),I_filename]) 
                 hdul_list.append([hdul1.copy(),v_filename]) 
                 hdul_list.append([hdul2.copy(),w_filename]) 
@@ -1065,14 +1070,17 @@ class WindowFit():
                 hdu21 = fits.ImageHDU(data = sigma2, header=header21)
                 
                 hdul = HDUList([hdu00,hdu10,hdu20,hdu01,hdu11,hdu21])
-                l_filename = self.data_filename.format(header00['ION_ID'])
+                l_filename = self.data_filename.format(header00['LINE_ID'])
                 hdul_list.append([hdul.copy(),l_filename])
                 
         
         data_save_dir = Path(self.data_save_dir).resolve() if self.data_save_dir is not None else Path("./")
         data_save_dir.mkdir(exist_ok=True)
         for col in  hdul_list:
-            print(f'saving_to {data_save_dir/col[1]}') 
+            print(f'saving_to {data_save_dir/col[1]}')
+            if not (data_save_dir/col[1]).parent.exists():
+                print("parent folder doesn't exists... Proceeding creating it")
+                (data_save_dir/col[1]).parent.mkdir(exist_ok=True,parents=True)
             col[0].writeto(data_save_dir/col[1], overwrite=True)  
     def fit_window(self,progress_follower=None):
         warnings.filterwarnings(("ignore" if self.verbose<=-2 else 'always'))

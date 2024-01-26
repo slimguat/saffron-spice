@@ -1,7 +1,7 @@
-from .compo_reader import SPECLine, CompoRaster, filePath_manager
+from .compo_reader import SPECLine, SPICEL3Raster, filePath_manager
 
 __all__ = [
   "SPECLine",
-  "CompoRaster",
+  "SPICEL3Raster",
   "filePath_manager",
   ]
