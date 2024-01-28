@@ -163,7 +163,6 @@ class SPECLine():
   @property
   def line_id(self):
     return self._all['int'].header["LINE_ID"]
-  
   @property 
   def headers(self):
     return {'int'    :self._all['int'    ].header,
@@ -206,9 +205,10 @@ class SPECLine():
     elif isinstance(hdul_or_path,HDUList):
       hdul = hdul_or_path.copy()
     else:raise TypeError(str(hdul_or_path))
+    
     for hdu in hdul:
       self._all[hdu.header["MEASRMNT"]] = hdu 
-    
+      
   def compute_params(self,):
     if any([self._all[key] is None for key in ["int","wav","wid"]]): raise Exception(f"Call self.charge_data first because there is no {[key for key in ['int','wav','wid'] if self._all[key] is None]}")
     self._all["rad"]     = self['int'] * self['wid'] *np.sqrt(np.pi)
@@ -268,7 +268,7 @@ class SPICEL3Raster():
   def _prepare_data(self,list_paths):
     for paths in list_paths:
       self.lines.append(SPECLine(paths))
-    self.FIP_err = self.lines[0]['int'] * 0
+    self.FIP_err = self.lines[0]['int'] * np.nan
     pass
     
   @property
@@ -296,28 +296,28 @@ class SPICEL3Raster():
       self.ll = copy.deepcopy(ll)
     logdens = 8.3# try  9.5
     idens = np.argmin(abs(self.ll.density_array.value - 10**logdens))
-    density_map = 10**logdens*np.ones(self.lines[0].int.shape, dtype=float)*u.cm**-3
+    density_map = 10**logdens*np.ones(self.lines[0]['int'].shape, dtype=float)*u.cm**-3
     
     wvls = np.empty(shape=(len(self.lines),))
-    for ind,line in enumerate(self.lines):wvls[ind] = line.hdul['int'][0].header["WAVELENGTH"]
+    for ind,line in enumerate(self.lines):wvls[ind] = line.wavelength
     
     data = []
     err  = []
     for ind,ionLF in  enumerate(self.ll.ionsLF):
       diff = np.abs(ionLF.wvl.value-wvls)
       argmin = np.argmin(diff)
-      if diff[argmin]>0.1: raise Exception(f"Haven't found a for: {ionLF} {wvls}")
-      self.ll.ionsLF[ind].int_map = self.lines[argmin].rad*u.W*u.m**-2/10
-      data.append(self.lines[argmin].rad)
-      err.append (self.lines[argmin].rad_err)
+      if diff[argmin]>0.1: raise Exception(f"Haven't found an ion for: {ionLF} {wvls}")
+      self.ll.ionsLF[ind].int_map = self.lines[argmin]['rad']*u.W*u.m**-2/10
+      data.append(self.lines[argmin]['rad'])
+      err.append (self.lines[argmin]['rad_err'])
       # print(f"rad: {self.lines[argmin].hdul['int'][0].header['wavelength']},lc: {ionLF.wvl.value}")
     for ind,ionHF in  enumerate(self.ll.ionsHF):
       diff = np.abs(ionHF.wvl.value-wvls)
       argmin = np.argmin(diff)
       if diff[argmin]>0.1: raise Exception(f"Haven't found a for: {ionHF} {wvls}")
-      self.ll.ionsHF[ind].int_map = self.lines[argmin].rad*u.W*u.m**-2/10
-      data.append(self.lines[argmin].rad)
-      err.append (self.lines[argmin].rad_err)
+      self.ll.ionsHF[ind].int_map = self.lines[argmin]['rad']*u.W*u.m**-2/10
+      data.append(self.lines[argmin]['rad'])
+      err.append (self.lines[argmin]['rad_err'])
       # print(f"rad: {self.lines[argmin].hdul['int'][0].header['wavelength']},lc: {ionHF.wvl.value}")
       
     fip_map(self.ll, density_map)
@@ -332,14 +332,14 @@ class SPICEL3Raster():
       self.FIP_err = self.lines[S_ind].rad_err/self.lines[S_ind].rad
   def find_line(self,wvl):
     wvls = np.empty(shape=(len(self.lines),))
-    for ind,line in enumerate(self.lines):wvls[ind] = line.hdul['int'][0].header["WAVELENGTH"]
+    for ind,line in enumerate(self.lines):wvls[ind] = line.wavelength
     diff = np.abs(wvls-wvl)
     ind = np.argmin(diff)
     if diff[ind]>1: raise Exception(f'big difference {wvl}\n{wvls}',)
     return self.lines[ind]
   def show_all_wvls(self):
     wvls = np.empty(shape=(len(self.lines),))
-    for ind,line in enumerate(self.lines):wvls[ind] = line.hdul['int'][0].header["WAVELENGTH"]
+    for ind,line in enumerate(self.lines):wvls[ind] = line.wavelength
     return(wvls)
   
 
