@@ -25,7 +25,7 @@ class LineCatalog:
         # import os
         # print("current working directory: "+os.getcwd())
         if self.PATH is None:
-            self.PATH = pkg_resources.resource_filename("SlimPy", "line_catalog/SPICE_SpecLines.json")
+            self.PATH = pkg_resources.resource_filename("SAFFRON", "line_catalog/SPICE_SpecLines.json")
         # with open(self.PATH, "r") as f:
         with open(self.PATH , "r") as f:
             if self.verbose >= 1 :print('loading from ',self.PATH )
