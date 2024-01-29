@@ -1,4 +1,5 @@
-# SlimPy
+# SAFFRON
+## Spectral Analysis, Fitting Framework, Reduction Of Noise
 ## (Unpackaged version)
 Data fitting pipeline adapted to SPICE instrument onboard SolaOrbiter. I will apreceate any suggestions to improve the quality of the content
 
