@@ -291,8 +291,8 @@ class ProgressFollower():
         shmm,data = gen_shmm(create=False,**log["is_launched"])
         return True if data[0]==1 else False
     def append(self,name,con,window_size):
-        with self.pickle_lock:
-            log = pickle.load(open(self.file_path,"rb"))
+        with open(self.file_path,"rb") as file:
+            log = pickle.load(file)
         log["name"       ].append(name if name is not None else str(len(log['name'])))
         log["con"        ].append(con         )
         log["window_size"].append(window_size )
@@ -335,11 +335,13 @@ class ProgressFollower():
         console = Console()
         names=[] #just for initiation
         while len(names)==0:
-            with pickle_lock:
-                log = pickle.load(open(filename,"rb"))
-            names = log["name"]
-            cons  = log["con"]
-            window_sizes = log["window_size"]
+            with open(filename,"rb") as file:
+                log = pickle.load(file)
+                names = log["name"]
+                cons  = log["con"]
+                window_sizes = log["window_size"]
+            
+            
             if len(names)==0:
                 print('there was nothing to follow its progress')
                 sleep(1)
@@ -385,8 +387,8 @@ class ProgressFollower():
                 # sleep(0.1)
                 if np.abs((reload_counter-datetime.datetime.now()).total_seconds()) > 1:
                 # if True:
-                    with pickle_lock:
-                        log = pickle.load(open(filename,"rb"))
+                    with open(filename,"rb") as file:
+                        log = pickle.load(file)
                     if len(log['name'])>len(names):
                         for ind in range(len(names),len(log['name'])):
                             names.append(log['name'][ind])
@@ -877,9 +879,9 @@ class WindowFit():
         ws      = self.window_size.copy()
         if ws[0,1] == None: ws[0,1] = self.data_par.shape[2]   
         if ws[1,1] == None: ws[1,1] = self.data_par.shape[3]   
-        # njobs = (ws[0,1]-ws[0,0])*(ws[1,1]-ws[1,0])//300
+        njobs = (ws[0,1]-ws[0,0])*(ws[1,1]-ws[1,0])//500
         # njobs = njobs if njobs>self.Jobs else self.Jobs 
-        njobs   = self.Jobs
+        # njobs   = self.Jobs
         verbose = self.verbose
         
         index_list = np.zeros(((ws[0,1] - ws[0,0]) * 
@@ -1124,24 +1126,25 @@ class WindowFit():
                     "lock"                   : self.lock                           ,
                     'lock_protocols'         : self.lock_protocols                 ,
             } 
-            if True:
+            if False:
                 self.task_fit_pixel(**keywords)
             else:    
                 Processes.append(Process(target=self.task_fit_pixel,kwargs=keywords))
                 Processes[-1].start()
-                if self.verbose>=0: print(f"Starting process job: {i+1:02d}/{len(self.Job_index_list):.4g} on raster fits\nJob list contains: {len(self.Job_index_list[i])} pixels")
+                if self.verbose>=1: 
+                    print('Live Processes: ',np.sum([1 for p in Processes if p.is_alive()]))
+                    print(f"Starting process job: {i+1:02d}/{len(self.Job_index_list):.4g} on raster fits\nJob list contains: {len(self.Job_index_list[i])} pixels")
+                    print("remaining_pixels= ",nan_size,'/',data.size)
                 while True:
                     # print("live processes: ",np.sum([1 for p in Processes if p.is_alive()]))
                     if np.sum([1 for p in Processes if p.is_alive()])>= self.Jobs:
                         if self.verbose>=1:
-                            print('Live Processes: ',np.sum([1 for p in Processes if p.is_alive()]))
                             data = self.data_con[
                                 0,
                                 self.window_size[0,0]:self.window_size[0,1],
                                 self.window_size[1,0]:self.window_size[1,1]
                                 ].copy()
                             nan_size = data[(np.isnan(data))].size
-                            print("remaining_pixels= ",nan_size,'/',data.size)
                         # sleep(0.5)
                     else:
                         for j,p in enumerate(Processes): 
@@ -1150,17 +1153,17 @@ class WindowFit():
                                 Processes.pop(j)
                         break
                     
-            while np.sum([1 for p in Processes if p.is_alive()])!= 0:
-                    if self.verbose>=0:print('Live Processes: ',np.sum([1 for p in Processes if p.is_alive()]))
-                    data = self.data_con[
-                                0,
-                                self.window_size[0,0]:self.window_size[0,1],
-                                self.window_size[1,0]:self.window_size[1,1]
-                                ].copy()
-                    nan_size = data[(np.isnan(data))].size
-                    if self.verbose>=0:print("remaining_pixels= ",nan_size,'/',data.size)
-                    sleep(2)
-            for process in Processes: process.join()
+        while np.sum([1 for p in Processes if p.is_alive()])!= 0:
+                if self.verbose>=0:print('Live Processes: ',np.sum([1 for p in Processes if p.is_alive()]))
+                data = self.data_con[
+                            0,
+                            self.window_size[0,0]:self.window_size[0,1],
+                            self.window_size[1,0]:self.window_size[1,1]
+                            ].copy()
+                nan_size = data[(np.isnan(data))].size
+                if self.verbose>=0:print("remaining_pixels= ",nan_size,'/',data.size)
+                sleep(2)
+        for process in Processes: process.join()
         
     @staticmethod
     def task_fit_pixel(x:np.ndarray                     ,
