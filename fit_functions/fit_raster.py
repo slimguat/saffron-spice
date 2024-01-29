@@ -879,9 +879,9 @@ class WindowFit():
         ws      = self.window_size.copy()
         if ws[0,1] == None: ws[0,1] = self.data_par.shape[2]   
         if ws[1,1] == None: ws[1,1] = self.data_par.shape[3]   
-        njobs = (ws[0,1]-ws[0,0])*(ws[1,1]-ws[1,0])//500
+        # njobs = (ws[0,1]-ws[0,0])*(ws[1,1]-ws[1,0])//500
         # njobs = njobs if njobs>self.Jobs else self.Jobs 
-        # njobs   = self.Jobs
+        njobs   = self.Jobs * 3
         verbose = self.verbose
         
         index_list = np.zeros(((ws[0,1] - ws[0,0]) * 
@@ -1134,7 +1134,7 @@ class WindowFit():
                 if self.verbose>=1: 
                     print('Live Processes: ',np.sum([1 for p in Processes if p.is_alive()]))
                     print(f"Starting process job: {i+1:02d}/{len(self.Job_index_list):.4g} on raster fits\nJob list contains: {len(self.Job_index_list[i])} pixels")
-                    print("remaining_pixels= ",nan_size,'/',data.size)
+                    # print("remaining_pixels= ",nan_size,'/',data.size)
                 while True:
                     # print("live processes: ",np.sum([1 for p in Processes if p.is_alive()]))
                     if np.sum([1 for p in Processes if p.is_alive()])>= self.Jobs:

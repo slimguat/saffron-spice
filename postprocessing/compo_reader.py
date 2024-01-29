@@ -207,6 +207,7 @@ class SPECLine():
     else:raise TypeError(str(hdul_or_path))
     
     for hdu in hdul:
+      if hdu.header["MEASRMNT"]=="bg": raise Exception('The background is not needed in this Object')
       self._all[hdu.header["MEASRMNT"]] = hdu 
       
   def compute_params(self,):
@@ -260,14 +261,24 @@ class SPECLine():
       
       if add_keywords: pass
 class SPICEL3Raster():
-  def __init__(self,list_paths):
+  def __init__(self,list_paths=None, folder_path = None):
+    if (list_paths is None and folder_path is None) or (list_paths is not None and folder_path is not None)  : raise Exception("you need to specify strictly one of these arguments list_paths or folder_path")
+    elif folder_path is not None: 
+      list_paths = [str(file) for file in Path(folder_path).glob('*') ]
+    else: 
+      # nothing to do if the list is given
+      pass
     self.lines   = []
     self.ll      = None
     self.FIP_err = None
     self._prepare_data(list_paths)
   def _prepare_data(self,list_paths):
     for paths in list_paths:
-      self.lines.append(SPECLine(paths))
+      try: 
+        line = SPECLine(paths)
+        self.lines.append(SPECLine(paths))
+      except: 
+        pass 
     self.FIP_err = self.lines[0]['int'] * np.nan
     pass
     
