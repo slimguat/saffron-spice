@@ -53,7 +53,7 @@
     "save_data"          : true,
     "data_save_dir"      : "./data_storage2/Test/",
     "___________COMMENT4": "use ::SAMENAME to replace the placeholder, ::SAMENAMEL2.5 is to change L2 to L2.5 by the name of the fits input file or ::CONV to replace by the convolution level(s) with - as separator or ::TIME to replace it by fitting start time",
-    "data_filename"      : "::SAMENAMEL2.5_::PARAMPLACEHOLDER_con-::CONV_time-::TIME.fits",
+    "data_filename"      : "::SAMENAMEL2.5/con-::CONV/::SAMENAMEL2.5_::PARAMPLACEHOLDER_con-::CONV_time-::TIME.fits",
     
     "____________________COMMENT5": "Additional parameters",
     "window_size"        : [
