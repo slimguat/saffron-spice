@@ -115,24 +115,7 @@ def FIP_error(ll,Errors,Datas):
     return FIP_error
 
 
-def filePath_manager(data_dir):
-  files = os.listdir(data_dir)
-  files.sort()
-  file_cluster = []
-  IDset = list(set([file[42:51] for file in files]))
-  IDset.sort()
-  for ind_ID,ID in enumerate(IDset):
-    file_cluster.append([])
-    filesByID = [file for file in files if file[42:51] in ID]
-    ionIDset = set([file[73:-9] for file in filesByID if 'B' not in file[73:-9]])
-    ionIDset =list(ionIDset)
-    ionIDset.sort()
-    for ionID in ionIDset:
-      filesByIonID = [data_dir/file for file in filesByID if file[73:-9] in ionID]
-    
-      file_cluster[ind_ID].append([])
-      file_cluster[ind_ID][-1] = filesByIonID
-  return(file_cluster)
+
 
 
 class SPECLine():
@@ -258,7 +241,7 @@ class SPECLine():
       map = Map(self['int'],self.headers['int'])
       lon,lat = get_coord_mat(map)
       im = axes[0].pcolormesh(lon,lat,data,norm=norm,zorder=-1,cmap="magma")
-      
+      axes[0].set_title(self.line_id+'\n'+params[0])
       if add_keywords: pass
 class SPICEL3Raster():
   def __init__(self,list_paths=None, folder_path = None):
@@ -354,7 +337,24 @@ class SPICEL3Raster():
     return(wvls)
   
 
-
+def filePath_manager(data_dir):
+  files = os.listdir(data_dir)
+  files.sort()
+  file_cluster = []
+  IDset = list(set([file[42:51] for file in files]))
+  IDset.sort()
+  for ind_ID,ID in enumerate(IDset):
+    file_cluster.append([])
+    filesByID = [file for file in files if file[42:51] in ID]
+    ionIDset = set([file[73:-9] for file in filesByID if 'B' not in file[73:-9]])
+    ionIDset =list(ionIDset)
+    ionIDset.sort()
+    for ionID in ionIDset:
+      filesByIonID = [data_dir/file for file in filesByID if file[73:-9] in ionID]
+    
+      file_cluster[ind_ID].append([])
+      file_cluster[ind_ID][-1] = filesByIonID
+  return(file_cluster)
 class SPECLine_depr():
   def __init__(self,hdul_or_path):
     self.hdul = {'int':None,'wid':None,'wav':None}
