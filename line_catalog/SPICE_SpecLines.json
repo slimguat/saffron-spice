@@ -11,7 +11,7 @@
         {"name":"ne_viii_2" ,"wvl": 780.34},
         {"name":"s_v"       ,"wvl": 786.47},
         {"name":"o_iv"      ,"wvl": 787.72},
-        {"name":"h_i_ga"    ,"wvl": 972.54},
+        {"name":"h_i_ga"    ,"wvl": 972.00},
         {"name":"ghost_1"   ,"wvl": 973.60},
         {"name":"c_iii"     ,"wvl": 977.03},
         {"name":"o_i"       ,"wvl": 988.75},
@@ -35,6 +35,7 @@
         {"lines":["c_iii"]                               ,"max_line":"c_iii"     },
         {"lines":["o_vi"]                                ,"max_line":"o_vi"      },
         {"lines":["h_i_be"]                              ,"max_line":"h_i_be"    },
+        {"lines":["h_i_ga"]                              ,"max_line":"h_i_ga"    },
         {"lines":["c_iii", "ghost_1", "h_i_ga"]          ,"max_line":"c_iii"     }
     ],
     "Deleted":[

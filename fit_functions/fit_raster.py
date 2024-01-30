@@ -22,7 +22,8 @@ from astropy.io import fits
 from astropy.io.fits.hdu.hdulist import HDUList
 from astropy.wcs import WCS 
 from ndcube import NDCollection
-from spice_uncertainties import spice_error
+# from spice_uncertainties import spice_error
+from sospice import spice_error
 # from sunraster.instr.spice import read_spice_l2_fits
 
 from .fit_pixel                     import fit_pixel as fit_pixel_multi
@@ -779,7 +780,8 @@ class WindowFit():
             av_constant_noise_level, sigma = spice_error(self.hdu,verbose=self.verbose)
         else:
             from ..utils.utils import suppress_output
-            with suppress_output():
+            # with suppress_output():
+            if True:
                 av_constant_noise_level, sigma = spice_error(self.hdu,verbose=self.verbose)
                 
         self.sigma = sigma['Total'].value.astype(float)
@@ -879,7 +881,7 @@ class WindowFit():
         ws      = self.window_size.copy()
         if ws[0,1] == None: ws[0,1] = self.data_par.shape[2]   
         if ws[1,1] == None: ws[1,1] = self.data_par.shape[3]   
-        njobs = (ws[0,1]-ws[0,0])*(ws[1,1]-ws[1,0])//300
+        njobs = (ws[0,1]-ws[0,0])*(ws[1,1]-ws[1,0])//100
         # njobs = njobs if njobs>self.Jobs else self.Jobs 
         # njobs   = self.Jobs * 3
         verbose = self.verbose
