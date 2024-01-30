@@ -879,9 +879,9 @@ class WindowFit():
         ws      = self.window_size.copy()
         if ws[0,1] == None: ws[0,1] = self.data_par.shape[2]   
         if ws[1,1] == None: ws[1,1] = self.data_par.shape[3]   
-        # njobs = (ws[0,1]-ws[0,0])*(ws[1,1]-ws[1,0])//500
+        njobs = (ws[0,1]-ws[0,0])*(ws[1,1]-ws[1,0])//500
         # njobs = njobs if njobs>self.Jobs else self.Jobs 
-        njobs   = self.Jobs * 3
+        # njobs   = self.Jobs * 3
         verbose = self.verbose
         
         index_list = np.zeros(((ws[0,1] - ws[0,0]) * 
