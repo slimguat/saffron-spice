@@ -1077,7 +1077,7 @@ class WindowFit():
                 
         
         data_save_dir = Path(self.data_save_dir).resolve() if self.data_save_dir is not None else Path("./")
-        data_save_dir.mkdir(exist_ok=True)
+        data_save_dir.mkdir(exist_ok=True,parents=True)
         for col in  hdul_list:
             print(f'saving_to {data_save_dir/col[1]}')
             if not (data_save_dir/col[1]).parent.exists():
