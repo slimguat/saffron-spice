@@ -520,6 +520,7 @@ def get_celestial(raster,include_time=False,**kwargs):
         print(f"The raster passed doesn't match any known types: {type(raster)} but it has to be one of these types: \n{ndcube.ndcollection.NDCollection}\n{astropy.io.fits.hdu.hdulist.HDUList}")
         raise ValueError("inacceptable type")
     return (lon,lat,time) if include_time else (lon,lat)
+
 def quickview(
     RasterOrPath, 
     fig1 = None, imag_ax = None, 
