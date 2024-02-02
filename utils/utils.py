@@ -665,7 +665,7 @@ def getfiles(
         return(selected_fits)
 
 def get_input_template(where="./input_config_template.json"):
-    PATH = pkg_resources.resource_filename("SlimPy", "manager/input_config_template.json")
+    PATH = pkg_resources.resource_filename("SAFFRON", "manager/input_config_template.json")
     shutil.copy(PATH,where)
 
 
