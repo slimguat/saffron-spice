@@ -531,7 +531,7 @@ class WindowFit():
             self._dir_tmp_functions = Path("./tmp_functions").resolve()
             self._dir_tmp_functions.mkdir(parents=True,exist_ok=True)
             sys.path.append(self._dir_tmp_functions)
-            sys.path.append(Path("./SlimPy").resolve())
+            sys.path.append(Path("./SAFFRON").resolve())
             self.lock_protocols._dir_tmp_functions
         else: self._dir_tmp_functions = dir_tmp_functions
         self.import_function_list = import_function_list
@@ -697,7 +697,7 @@ class WindowFit():
             ind_fused = ind_originaleInFused[-1][1]
         str_func_sharedB_TEMPLATE= ("""
                 \nimport numpy as np
-                \nfrom SlimPy.fit_models import flat_inArg_multiGauss
+                \nfrom SAFFRON.fit_models import flat_inArg_multiGauss
                 \ndef func_{}(x,*array):
                 \n\tseparate_init_params = [{}]
                 \n\tfit_func = [{}]
@@ -715,7 +715,7 @@ class WindowFit():
         """)
         str_func_differentB_TEMPLATE=("""
                 \nimport numpy as np
-                \nfrom SlimPy.fit_models import flat_inArg_multiGauss
+                \nfrom SAFFRON.fit_models import flat_inArg_multiGauss
                 \ndef func_{}(x,*array):
                 \n\tseparate_init_params = [{}]
                 \n\tfit_func = [{}]
