@@ -135,7 +135,7 @@ def gen_lock_fit_func(unlocked_init_params,unlocked_quentities,lock_protocols,in
     time_str = datetime.datetime.now().strftime("%H%M%d%H%M%S")
     str_func = """
     \nimport numpy as np
-    \nfrom SlimPy.fit_models import flat_inArg_multiGauss
+    \nfrom SAFFRON.fit_models import flat_inArg_multiGauss
     \ndef func_{}(x,*array):
     \n    unlocked_params = {}
     \n    y = {}(x,*unlocked_params)
@@ -147,7 +147,7 @@ def gen_lock_fit_func(unlocked_init_params,unlocked_quentities,lock_protocols,in
         lock_protocols._dir_tmp_functions = Path("./tmp_functions").resolve()
         lock_protocols._dir_tmp_functions.mkdir(parents=True,exist_ok=True)
         sys.path.append(lock_protocols._dir_tmp_functions)
-        sys.path.append(Path("./SlimPy").resolve())
+        sys.path.append(Path("./SAFFRON").resolve())
     
     str_import_Template = "from tmp_functions.{0} import {0}"
     str_func = "\n".join([str_import_Template.format(i.__name__) for i in lock_protocols.import_function_list if i!=flat_inArg_multiGauss ])+str_func
