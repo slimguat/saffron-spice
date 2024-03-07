@@ -103,7 +103,9 @@ class Manager():
         else: raise ValueError("selection_mode must be ['intervale','folder','list']")
         for i,file in enumerate(self.selected_fits):
             if not Path(file).exists(): raise Exception(f"{file} dosn't exists")
-    def build_rasters(self):
+    def build_rasters(self,
+                      wvl_intervals:List[Union[None,Dict[str,List[float]]]] = {"low": [7, -7], "high": [5, -5]} 
+                      ):
         """
         Create Run instances for each selected FITS file and configure their parameters.
         """
@@ -111,12 +113,13 @@ class Manager():
             raise ValueError('files resolved yet run self.Build_file_list()')
         self.rasters = []
         for i,file in enumerate(self.selected_fits):
-            # self.RasterFit
             
             fit_args = gen_fit_inits(
                 file ,
                 conv_errors=self.conv_errors,
                 verbose=self.geninits_verbose,
+                
+                wvl_intervals = wvl_intervals
                 )
         
             self.window_name           = fit_args['windows_lines'        ]

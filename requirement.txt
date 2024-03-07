@@ -1,0 +1,17 @@
+astropy
+ipympl
+ipywidgets
+matplotlib
+multiprocess
+ndcube
+numba
+numpy
+opencv-python
+pandas
+rich
+roman
+scipy
+setuptools
+sospice
+sunpy
+git+https://github.com/frederic-auchere/wavelets.git
