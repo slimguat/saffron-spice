@@ -264,11 +264,17 @@ After Fusion the index of each line in the fused window will be:
 
 and now we use 
 ```Manager.set_lock_protocol(window_type,window_index,lock_line1_index,lock_line2_index,loc_distance)``` to specify the locking protocol we want to use.
+
 ```window_type```: "fuse" if the protocol in a fused window, "solo" if the protocol is in a single window. 
+
 ```window_index```: once selected window type. you select the order of the selected window in their respective list.
+
 ```lock_line1_index```: the index of the leading line for locking.
+
 ```lock_line2_index```: the index of the following line for locking into the leading one.
+
 ```loc_distance```: The distance in between the two lines that it will remain the same during fitting. 
+
 ```python 
 session.set_lock_protocol("fuse", 0, 2, 4, (749.54-706.02))
 session.set_lock_protocol("fuse", 0, 3, 5, (750.22-748.40))
