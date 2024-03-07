@@ -252,7 +252,7 @@ def get_extnames(
 def gen_fit_inits(
     hdulOrPath: Union[str, PosixPath, WindowsPath, HDUList],
     conv_errors: Dict[str, float] = {"I": 0.1, "x": 10**-4, "s": 0.1, "B": 100},
-    wvl_interval: Dict[str, List[int]] = {"low": [7, -7], "high": [5, -5]},
+    wvl_intervals: Dict[str, List[int]] = {"low": [7, -7], "high": [5, -5]},
     verbose: int = 0
 ) -> Dict[str, Any]:
     if verbose<=-2: 
@@ -296,6 +296,18 @@ def gen_fit_inits(
         specaxis = get_specaxis(hdul[kw_i])
         # specaxis =np.array(   hdul[kw_i].spectral_axis * 10**10).astype(float)
         specdata = np.nanmean(hdul[kw_i].data,axis=(0,2,3)).astype(float)
+        # self.RasterFit
+        if isinstance(wvl_intervals,dict):
+            wvl_interval  = wvl_intervals
+        elif wvl_intervals is None:
+            wvl_interval = {"low" : [7, -7], 
+                            "high": [5, -5]
+                            }
+        else:
+            wvl_interval = wvl_intervals[kw_i] if wvl_intervals[kw_i] is not None else {"low" : [7, -7], 
+                                                                                    "high": [5, -5]
+                                                                                    }
+            
         if np.nanmean(specaxis)<800:
             specdata[:wvl_interval["low"][0 ] ] = np.nan
             specdata[ wvl_interval["low"][-1]:] = np.nan

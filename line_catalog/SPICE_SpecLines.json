@@ -10,7 +10,8 @@
         {"name":"ne_viii_1" ,"wvl": 770.42},
         {"name":"ne_viii_2" ,"wvl": 780.34},
         {"name":"s_v"       ,"wvl": 786.47},
-        {"name":"o_iv"      ,"wvl": 787.72},
+        {"name":"o_iv_1"    ,"wvl": 787.72},
+        {"name":"o_iv_2"    ,"wvl": 790.11},
         {"name":"h_i_ga"    ,"wvl": 972.00},
         {"name":"ghost_1"   ,"wvl": 973.60},
         {"name":"c_iii"     ,"wvl": 977.03},
@@ -28,7 +29,7 @@
         {"lines":["ne_viii_1"]                           ,"max_line":"ne_viii_1" },
         {"lines":["n_iv", "ne_viii_1"]                   ,"max_line":"ne_viii_1" },
         {"lines":["ne_viii_2"]                           ,"max_line":"ne_viii_2" },
-        {"lines":["o_iv", "s_v"]                         ,"max_line":"o_iv"      },
+        {"lines":["o_iv_1", "s_v"]                       ,"max_line":"o_iv_1"      },
         
         {"lines":["n_iii_1", "n_iii_2", "o_i"]           ,"max_line":"n_iii_2"   },
         {"lines":["mg_ix_1", "o_iii_2"]                  ,"max_line":"o_iii_2"   },
@@ -39,6 +40,7 @@
         {"lines":["c_iii", "ghost_1", "h_i_ga"]          ,"max_line":"c_iii"     }
     ],
     "Deleted":[
+        {"lines":["o_iv_1", "s_v","o_iv_2"]              ,"max_line":"o_iv_2"      },
         {"lines":["mg_viii","o_iv", "s_v"]               ,"max_line":"o_iv"      },
         {"name":"mg_viii"   ,"wvl": 782.37}
     ]
