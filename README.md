@@ -293,21 +293,29 @@ L3_raster.gen_compo_LCR(LFLines =LFLines,HFLines =HFLines)# optimizing the linea
 
 Finally you have FIP maps
 
-```L3_raster.FIP``` 2D numpy array FIP map 
-```L3_raster.FIP_err``` 2D numpy array FIP error map
+```L3_raster.FIP``` 2D numpy array FIP map.
+
+```L3_raster.FIP_err``` 2D numpy array FIP error map.
 
 ```L3_raster.show_all_wvls()``` return all available lines' wavelengths in order.
+
 ```L3_raster.find_line(wvl)``` return the a line as ```SAFFRON.postprocessing.SPECLine``` object with the closest wavelength to wvl.
-```L3_raster.lines``` list of lines of type ```SAFFRON.postprocessing.SPECLine``` in the raster 
 
-```L3_raster.lines[i].wavelength```  Return the wavelength  of the line i 
-```L3_raster.lines[i].observatory``` Return the observatory of the line i 
-```L3_raster.lines[i].instrument```  Return the instrument  of the line i 
-```L3_raster.lines[i].ion```         Return the ion of the line i 
-```L3_raster.lines[i].line_id```     Return the line_id of the line i  
+```L3_raster.lines``` list of lines of type ```SAFFRON.postprocessing.SPECLine``` in the raster.
 
-```L3_raster.lines[i][par]``` 2D Return array parameter of line i with par in `['int' and/or 'wav' and/or 'wid' and/or 'rad' and/or 'int_err' and/or 'wav_err' and/or 'wid_err' and/or 'rad_err' ]`
-```L3_raster.lines[i].header[par]``` Return astropy header object of line i with par in `['int' and/or 'wav' and/or 'wid' and/or 'int_err' and/or 'wav_err' and/or 'wid_err' ]` (no "rad" neither "rad_err")
+```L3_raster.lines[i].wavelength```  Return the wavelength  of the line i.
+
+```L3_raster.lines[i].observatory``` Return the observatory of the line i.
+
+```L3_raster.lines[i].instrument```  Return the instrument  of the line i.
+
+```L3_raster.lines[i].ion```         Return the ion of the line i.
+
+```L3_raster.lines[i].line_id```     Return the line_id of the line i.  
+
+```L3_raster.lines[i][par]``` 2D Return array parameter of line i with par in `['int' and/or 'wav' and/or 'wid' and/or 'rad' and/or 'int_err' and/or 'wav_err' and/or 'wid_err' and/or 'rad_err' ]`.
+
+```L3_raster.lines[i].header[par]``` Return astropy header object of line i with par in `['int' and/or 'wav' and/or 'wid' and/or 'int_err' and/or 'wav_err' and/or 'wid_err' ]` (no "rad" neither "rad_err").
 
 ```L3_raster.lines[i].plot(params='all',axes =None,add_keywords = False)``` Plot a parameter or a set of parameters `['int' and/or 'wav' and/or 'wid' and/or 'rad' and/or 'int_err' and/or 'wav_err' and/or 'wid_err' and/or 'rad_err' ]`. If axes is not None than it should be a 1D Iterable with size equal to the number of parameters to plot. 
 
