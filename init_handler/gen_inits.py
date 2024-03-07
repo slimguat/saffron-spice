@@ -164,7 +164,8 @@ def find_by_default_window(
     specdata: np.ndarray, 
     init_params: np.ndarray, 
     window_lines: List[Dict[str, Union[str, float]]], 
-    verbose: int = 0
+    verbose: int = 0,
+    catalog_location: str = None
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Find the closest line to the default position and adjust init_params accordingly.
@@ -184,7 +185,7 @@ def find_by_default_window(
     lines_names=[i["name"] for i in window_lines]
     lines_names_sorted = sorted((lines_names.copy()))
     if True:
-        catalog = LineCatalog(verbose=verbose)
+        catalog = LineCatalog(verbose=verbose,file_location=catalog_location)
         default_lines = catalog.get_catalog_lines()
         def_win = catalog.get_catalog_windows()
         default_windows = def_win["lines"]
@@ -253,7 +254,8 @@ def gen_fit_inits(
     hdulOrPath: Union[str, PosixPath, WindowsPath, HDUList],
     conv_errors: Dict[str, float] = {"I": 0.1, "x": 10**-4, "s": 0.1, "B": 100},
     wvl_intervals: Dict[str, List[int]] = {"low": [7, -7], "high": [5, -5]},
-    verbose: int = 0
+    catalog_location=None,
+    verbose: int = 0,
 ) -> Dict[str, Any]:
     if verbose<=-2: 
         warnings.filterwarnings('ignore')
@@ -284,7 +286,7 @@ def gen_fit_inits(
     else: hdul = hdulOrPath
     unq = get_extnames(hdul)
     lon,lat = get_celestial(hdul)
-    catalog = LineCatalog(verbose=verbose)
+    catalog = LineCatalog(verbose=verbose,file_location=catalog_location)
     default_lines = catalog.get_catalog_lines()
     #these are the parameters to passe
     init_params           = []

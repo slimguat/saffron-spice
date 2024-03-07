@@ -104,7 +104,8 @@ class Manager():
         for i,file in enumerate(self.selected_fits):
             if not Path(file).exists(): raise Exception(f"{file} dosn't exists")
     def build_rasters(self,
-                      wvl_intervals:List[Union[None,Dict[str,List[float]]]] = {"low": [7, -7], "high": [5, -5]} 
+                      wvl_intervals:List[Union[None,Dict[str,List[float]]]] = {"low": [7, -7], "high": [5, -5]} ,
+                      catalog_location=None
                       ):
         """
         Create Run instances for each selected FITS file and configure their parameters.
@@ -119,7 +120,8 @@ class Manager():
                 conv_errors=self.conv_errors,
                 verbose=self.geninits_verbose,
                 
-                wvl_intervals = wvl_intervals
+                wvl_intervals = wvl_intervals,
+                catalog_location = catalog_location,
                 )
         
             self.window_name           = fit_args['windows_lines'        ]
