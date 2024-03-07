@@ -131,7 +131,7 @@ session.fit_manager()
 you can also run fitting for only one raster or even one window
 ```python
 session.rasters[i].fit_raster() #i index of the raster you want to fit
-session.rasters[i].windows[j].fit_raster() #j index of the window inside raster of index i you want to fit
+session.rasters[i].windows[j].fit_window() #j index of the window inside raster of index i you want to fit
 ```
 
 
