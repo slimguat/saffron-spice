@@ -2,6 +2,7 @@
 ## Spectral Analysis, Fitting Framework, Reduction Of Noise
 ## (Unpackaged version)
 Data fitting pipeline adapted to SPICE instrument onboard SolaOrbiter. I will apreceate any suggestions to improve the quality of the content
+If you have any question you can contact the author: **[Mzerguat Slimane](Mzerguat.sl@gmail.com)**
 
 ## Requirements
 1. Python<=3.9.15 (I suggest to use pyenv to change versions easily )
