@@ -1093,6 +1093,7 @@ class WindowFit():
         if self.verbose >= -1: print('con',self._con)
         Processes =[]
         fit_func2,_ = gen_lock_fit_func(self.init_params,self.quentities,self.lock_protocols,self.fit_func)
+        _now = datetime.datetime.now()
         for i in range(len(self.Job_index_list)): #preparing processes:
             keywords = {
                     "x"                      : self.specaxis                       ,
@@ -1137,20 +1138,26 @@ class WindowFit():
                         for j,p in enumerate(Processes): 
                             if not p.is_alive():
                                 print("exitcode", p.exitcode != 0)
-                                # p.close()
-                                # Processes.pop(j)
+                                p.close()
+                                Processes.pop(j)
                                 pass
                         break
                     
         while np.sum([1 for p in Processes if p.is_alive()])!= 0:
-                if self.verbose>=0:print('Live Processes: ',np.sum([1 for p in Processes if p.is_alive()]))
+                if self.verbose>=0 and np.abs((_now-datetime.datetime.now()).total_seconds())>=5:
+                    print('Live Processes: ',np.sum([1 for p in Processes if p.is_alive()]))
+                    _now = datetime.datetime.now()
+                    
                 data = self.data_con[
                             0,
                             self.window_size[0,0]:self.window_size[0,1],
                             self.window_size[1,0]:self.window_size[1,1]
                             ].copy()
                 nan_size = data[(np.isnan(data))].size
-                if self.verbose>=0:print("remaining_pixels= ",nan_size,'/',data.size)
+                if self.verbose>=0 and np.abs((_now-datetime.datetime.now()).total_seconds())>=5:
+                    print("remaining_pixels= ",nan_size,'/',data.size)
+                    _now = datetime.datetime.now()
+                    
                 # sleep(2)
         for process in Processes: process.join()
         

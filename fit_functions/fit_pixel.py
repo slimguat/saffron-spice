@@ -86,7 +86,7 @@ def fit_pixel_multi(x:np.ndarray,
                 np.ones((_s,_s))*np.nan)
         
     except:
-        if verbose>=0: print( "this value is not feasable")
+        if verbose>=1: print( "this value is not feasable")
         if verbose>=2: print(f"x     : {_x}\ny     : {_y}\nIniPar: {ini_params}\nsigma : {w}\nbounds:\n{bounds}")
         
         res =  (np.ones((_s  ))*np.nan,
