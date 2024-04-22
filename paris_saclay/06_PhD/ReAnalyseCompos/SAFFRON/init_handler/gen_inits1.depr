@@ -1,0 +1,453 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import datetime
+
+from astropy.io import fits as fits_reader
+from astropy.io.fits import HDUList
+from astropy.io.fits.hdu.image import PrimaryHDU, ImageHDU
+from astropy.wcs import WCS
+
+from ..line_catalog.catalog import LineCatalog
+from ..fit_functions import fit_pixel_multi
+from ..fit_models import flat_inArg_multiGauss
+from ..utils import get_celestial, quickview, get_specaxis
+
+
+from pathlib import PosixPath, WindowsPath, Path
+from typing import Union, List, Dict, Any, Callable, Tuple
+import warnings
+
+
+def gen_lock_params(
+    init_params: List[float],
+    lock_state: List[List[Union[str, float]]],
+    verbose: int = 0
+) -> Tuple[np.ndarray, List[str]]:
+    """
+    Generate locked parameters and corresponding quantities based on lock state.
+
+    Args:
+        init_params (List[float]): List of initial parameters for the fit.
+        lock_state (List[List[Union[str, float]]]): Lock state for each parameter.
+            Format: ["lockall", *list_of_distances] or [["free"], ["block", wvl], ["lock", with_line, distance]]
+        verbose (int, optional): Verbosity level for printing. Defaults to 0.
+
+    Returns:
+        Tuple[np.ndarray, List[str]]: Tuple containing locked parameters and corresponding quantities.
+    """
+    lock_params = []
+    lock_quentities = []
+    if lock_state[0] == "lockall":
+        # if lock_state[1:]!=(len(init_params)//3)-1: raise ValueError("the lockall parameters doesn't match the number of lines")
+        lock_state2 = ["free"]
+        for i in range(1, len(init_params)//3):
+            lock_state2.append("lock")
+        lock_state = lock_state2
+        if verbose >= 2:
+            print("new lock_state:\n\t", lock_state)
+    if type(lock_state[0]) == list:
+        lock_state2 = []
+        for state in lock_state:
+            lock_state2.append(state[0])
+        lock_state = lock_state2
+
+    for i, state in enumerate(lock_state):
+        if state == "free":
+            lock_params.extend(init_params[i*3:(i+1)*3])
+            lock_quentities.extend(["I", "x", "s"])
+        elif state in ["lock", "block"]:
+            lock_quentities.extend(["I", "s"])
+            lock_params.extend(init_params[i*3:(i+1)*3:2])
+        else:
+            raise ValueError(
+                f"the value of the state ({state}) is not recognized")
+    lock_params.append(init_params[-1])
+    lock_quentities.append("B")
+    return np.array(lock_params), lock_quentities
+
+
+def gen_lock_func(
+    params: List[float],
+    lock_state: List[List[Union[str, float]]],
+    verbose: int = 0
+) -> Callable:
+    """
+    Generate a locked function based on lock state.
+
+    Args:
+        params (List[float]): List of parameters for the fit.
+        lock_state (List[List[Union[str, float]]]): Lock state for each parameter.
+            Format: [["free"], ["block", wvl], ["lock", with_line, distance]]
+        verbose (int, optional): Verbosity level for printing. Defaults to 0.
+
+    Returns:
+        Callable: Generated locked function.
+    """
+    actual_params = "\n"
+    params_i = 0
+    for i_line, state in enumerate(lock_state):
+        if state[0] == "free":
+            str_prm = f"params[{int(params_i)}],params[{int(params_i+1)}],params[{int(params_i+2)}],\n"
+            params_i += 3
+
+        elif state[0] == "block":
+            str_prm = f"params[{int(params_i)}],{state[1]},params[{int(params_i+1)}],\n"
+            params_i += 2
+
+        elif state[0] == "lock":
+            if lock_state[state[1]][0] in ["block", "lock"]:
+                raise ValueError(
+                    "the state is linked to locked or a blocked value")
+            i_ref_line = state[1]
+            i_ref = 0
+            for i in range(i_ref_line+0):
+                # print(i,i_ref)
+                if lock_state[i][0] == "free":
+                    i_ref += 3
+                if lock_state[i][0] in ["lock", "block"]:
+                    i_ref += 2
+            i_ref += 1
+            str_prm = f"params[{int(params_i)}],params[{i_ref}]+{state[2]},params[{int(params_i+1)}],"
+            params_i += 2
+
+        else:
+            raise ValueError(f"lock_state {state[0]} unknown")
+        actual_params += str_prm
+
+    actual_params += f"params[{int(len(params)-1)}]"
+    func_ext_name = ""
+    for state in lock_state:
+        func_ext_name += f"_{state[0]}"
+
+    str_function = f"def flat_inArg_multiGauss{func_ext_name}(x,*params):return(flat_inArg_multiGauss(x,{actual_params}))"
+
+    if verbose >= 2:
+        print("string function\n", str_function)
+    loc = {}
+    exec(str_function, globals(), loc)
+    return loc
+
+
+def get_unlock_params(
+    lock_params: List[float],
+    lock_state: List[List[Union[str, float]]],
+    verbose: int = 0
+) -> np.ndarray:
+    """
+    Generate unlocked parameters based on lock state.
+
+    Args:
+        lock_params (List[float]): List of locked parameters.
+        lock_state (List[List[Union[str, float]]]): Lock state for each parameter.
+            Format: [["free"], ["block", wvl], ["lock", with_line, distance]]
+        verbose (int, optional): Verbosity level for printing. Defaults to 0.
+
+    Returns:
+        np.ndarray: Array of unlocked parameters.
+    """
+    unlock_param = []
+    params_i = 0
+    for state in lock_state:
+        if state[0] == "free":
+            unlock_param.extend(lock_params[params_i:params_i+3])
+            params_i += 3
+        elif state[0] == "lock":
+            i_ref_line = state[1]
+            i_ref = 0
+            for i in range(i_ref_line+0):
+                # print(i,i_ref)
+                if lock_state[i][0] == "free":
+                    i_ref += 3
+                if lock_state[i][0] in ["lock", "block"]:
+                    i_ref += 2
+            i_ref += 1
+
+            unlock_param.append(lock_params[params_i])
+            unlock_param.append(lock_params[i_ref]+state[2])
+            unlock_param.append(lock_params[params_i+1])
+            params_i += 2
+        elif state[0] == "block":
+            unlock_param.append(lock_params[params_i])
+            unlock_param.append(state[2])
+            unlock_param.append(lock_params[params_i+1])
+            params_i += 2
+        else:
+            raise ValueError(
+                f"the value of the state ({state}) is not recognized")
+    unlock_param.append(lock_params[-1])
+    return np.array(unlock_param)
+
+
+def find_by_default_window(
+    specaxis: np.ndarray,
+    specdata: np.ndarray,
+    init_params: np.ndarray,
+    window_lines: List[Dict[str, Union[str, float]]],
+    verbose: int = 0
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Find the closest line to the default position and adjust init_params accordingly.
+
+    Args:
+        specaxis (np.ndarray): Spectral axis.
+        specdata (np.ndarray): Spectral data.
+        init_params (np.ndarray): Initial parameters for the Gaussian fit.
+        window_lines (List[Dict[str, Union[str, float]]]): List of lines within the window.
+        verbose (int, optional): Verbosity level for printing. Defaults to 0.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray, np.ndarray]: Adjusted init_params, specaxis, and specdata.
+    """
+    # finding max positions
+    # defining line names with their default windows
+    lines_names = [i["name"] for i in window_lines]
+    lines_names_sorted = sorted((lines_names.copy()))
+    if True:
+        catalog = LineCatalog(verbose=verbose)
+        default_lines = catalog.get_catalog_lines()
+        def_win = catalog.get_catalog_windows()
+        default_windows = def_win["lines"]
+        max_I_names = def_win['max_line']
+
+    for i in range(len(default_windows)):
+        if lines_names_sorted == default_windows[i]:
+            mod_specdata = specdata
+            line_index = np.nanargmax(mod_specdata)
+            # if "ne_viii_1" in lines_names_sorted:
+            #     ne_viii_wvl = 770.42
+            #     line_num = np.nanargmin(np.abs(init_params[1::3]-ne_viii_wvl))
+            #     line_index = np.nanargmin(
+            #         np.abs(init_params[line_num*3+1]-specaxis))
+            #     pass
+            x_max_I = specaxis[line_index]
+            init_params2 = init_params.copy()
+            I_max_line_name = max_I_names[i]
+            I_max_line_index = lines_names.index(I_max_line_name)
+            target_wvl = x_max_I
+            current_wvl = init_params[3*I_max_line_index+1]
+            if abs(target_wvl-current_wvl) > 1.5 and verbose >= -1:
+                print(
+                    f" --Warning--\nThe current line is far from the target line\n\ttarget ={target_wvl}{I_max_line_name}\n\tcurrent:{current_wvl}\n\t\lines{window_lines}")
+
+            # Yoopy found the exact position of the line
+            init_params2[1::3] += (target_wvl-current_wvl)
+            for j in range(0, len(init_params)//3):
+                I_max_line_index2 = np.nanargmin(
+                    np.abs(specaxis-init_params2[j*3+1]))
+                new_I_max = np.nanmax(specdata[max(0, I_max_line_index2-2):
+                                               min(len(mod_specdata), I_max_line_index2+2)])
+                init_params2[j*3] = new_I_max-init_params2[-1]
+            init_params2[np.isnan(init_params2)] = 0
+            if True:
+                hist, bin_ax = np.histogram(specdata, bins=np.linspace(
+                    np.nanmin(specdata), np.nanmax(specdata), num=10))
+                maxB = bin_ax[np.nanargmax(hist)]
+                init_params2[-1] = maxB
+                init_params2[0::3] = np.nanmax(specdata) - init_params2[-1]
+                if verbose >= 4:
+                    plt.plot(specaxis, specdata, ls="--",
+                             label='sharp spectrum')
+            init_params2[0::3][init_params2[0::3] < 0] = 0
+            return init_params2, specaxis, specdata
+
+    if verbose > -1:
+        print(
+            f"The window you have chosen is not in the catalog\n\tLOG!\n\t\t:\n\t\tspecaxis    {specaxis    }\n\t\tspecdata    {specdata    }\n\t\tinit_params {init_params }\n\t\twindow_lines{window_lines}")
+    return (init_params*np.nan, specaxis, specdata)
+
+    if False:
+        raise SystemError(
+            f"The window you have chosen is not in the catalog\n\tLOG!\n\t\t:\n\t\tspecaxis    {specaxis    }\n\t\tspecdata    {specdata    }\n\t\tinit_params {init_params }\n\t\twindow_lines{window_lines}")
+
+
+def get_extnames(
+    hdul: HDUList
+) -> List[str]:
+    """
+    Get a list of unique extension names from an HDUList, excluding specific extension names.
+
+    Args:
+        hdul (HDUList): An astropy HDUList object.
+
+    Returns:
+        List[str]: A list of unique extension names.
+    """
+    unq = [
+        hdu.header['EXTNAME']
+        for hdu in hdul
+        if hdu.header['EXTNAME'] not in ['VARIABLE_KEYWORDS', 'WCSDVARR', 'WCSDVARR']
+    ]
+    return unq
+
+def gen_fit_inits(
+    hdulOrPath: Union[str, PosixPath, WindowsPath, HDUList],
+    conv_errors: Dict[str, float] = {
+        "I": 0.1, "x": 10**-4, "s": 0.1, "B": 100},
+    wvl_interval: Dict[str, List[int]] = {"low": [7, -7], "high": [5, -5]},
+    verbose: int = 0
+) -> Dict[str, Any]:
+    if verbose <= -2:
+        warnings.filterwarnings('ignore')
+    else:
+        warnings.filterwarnings('always')
+    """
+        Generate initial parameters for fitting spectral data using Gaussian functions.
+
+        Args:
+            hdulOrPath (Union[str, PosixPath, WindowsPath, HDUList]): Fits HDUList object or path to FITS file.
+            conv_errors (dict, optional): Dictionary of convolution errors for different parameters.
+                Defaults: {"I": 0.1, "x": 10**-4, "s": 0.1, "B": 100}
+            wvl_interval (dict, optional): Wavelength intervals for data processing.
+                Defaults: {"low": [7, -7], "high": [5, -5]}
+            verbose (int, optional): Verbosity level for printing and plotting. Defaults to 0.
+
+        Returns:
+            dict: Dictionary containing initial parameters and related information.
+                "windows_lines": Dictionary of available lines for each spectrum window.
+                "init_params": List of initial parameters for fitting.
+                "quentities": List of quantities corresponding to each parameter.
+                "convolution_threshold": List of convolution errors for each parameter.
+    """
+    from pathlib import PosixPath, WindowsPath, Path
+    if verbose > 2 or verbose < -1:
+        Path('./tmp').mkdir(exist_ok=True)
+    if type(hdulOrPath) in (str, PosixPath, WindowsPath):
+        hdul = fits_reader.open(hdulOrPath)
+    else:
+        hdul = hdulOrPath
+    unq = get_extnames(hdul)
+    lon, lat = get_celestial(hdul)
+    catalog = LineCatalog(verbose=verbose)
+    default_lines = catalog.get_catalog_lines()
+    # these are the parameters to passe
+    init_params = []
+    quentities = []
+    convolution_threshold = []
+    windows_lines = {}
+    # starting the search for available lines
+    for kw_i, kw in enumerate(unq):
+        specaxis = get_specaxis(hdul[kw_i])
+        # specaxis =np.array(   hdul[kw_i].spectral_axis * 10**10).astype(float)
+        specdata = np.nanmean(hdul[kw_i].data, axis=(0, 2, 3)).astype(float)
+        if np.nanmean(specaxis) < 800:
+            specdata[:wvl_interval["low"][0]] = np.nan
+            specdata[wvl_interval["low"][-1]:] = np.nan
+        else:
+            specdata[:wvl_interval["high"][0]] = np.nan
+            specdata[wvl_interval["high"][-1]:] = np.nan
+        window_lines = []
+        init_param = []
+        quentity = []
+        cov_th = []
+        for ind in range(len(default_lines)):
+            line = default_lines.iloc[ind]
+            min_wvl = specaxis[np.where(specdata == (
+                specdata[np.logical_not(np.isnan(specdata))])[0])]
+            max_wvl = specaxis[np.where(specdata == (
+                specdata[np.logical_not(np.isnan(specdata))])[-1])]
+            if min_wvl <= line["wvl"] <= max_wvl:
+                window_lines.append(line)
+                line_index = np.nanargmin(np.abs(specaxis-line['wvl']))
+                window_lines[-1]["index"] = line_index
+        windows_lines[kw] = window_lines
+        for line in window_lines:
+            init_param.extend([
+                0.05,
+                line['wvl'], 0.35
+            ])
+            quentity.extend(["I", "x", "s"])
+            cov_th.extend([
+                conv_errors["I"],
+                conv_errors["x"],
+                conv_errors["s"]
+            ])
+        if window_lines == []:
+            window_lines.append({"name": "no_line", "wvl": 0})
+            init_param = [np.nan, np.nan, np.nan]
+            cov_th.extend([
+                conv_errors["I"],
+                conv_errors["x"],
+                conv_errors["s"]
+            ])
+            quentity.extend(["I", "x", "s"])
+        init_param.append(max(0.00, np.nanmean(specdata)))
+        init_param = np.array(init_param)
+        cov_th.append(conv_errors["B"])
+        cov_th = np.array(cov_th)
+        quentity.append("B")
+        if verbose >= 4 or verbose < -2:
+            plt.figure()
+            plt.step(specaxis, specdata, label="original spectrum")
+            plt.step(specaxis, flat_inArg_multiGauss(specaxis, *init_param),
+                     label="predefined params{}".format(" NANs" if np.isnan(init_param).any()else ""))
+        if verbose >= 2:
+            print("______________window_lines", window_lines)
+        init_param, specaxis, specdata = find_by_default_window(
+            specaxis, specdata, init_param, window_lines)
+        if verbose >= 4 or verbose < -2:
+            plt.step(specaxis, flat_inArg_multiGauss(specaxis, *init_param),
+                     label="default windows adjustement{}".format(" NANs" if np.isnan(init_param).any()else ""))
+        if len(init_param) > 4:  # fitting with one position of the fit
+            # Generating an all in all locked init_param
+            lock_state = [["free"]]
+            line_ref = window_lines[0]
+            for i in range(1, len(window_lines)):
+                lock_state.append(
+                    ["lock", 0, window_lines[i]["wvl"]-line_ref["wvl"]])
+            if verbose >= 2:
+                print(f'{kw}:{lock_state}')
+            init_param_1lbd, lock_quentities = gen_lock_params(
+                init_param, lock_state, verbose=verbose)
+            func = gen_lock_func(init_param_1lbd, lock_state)
+            lock_func = func[list(func.keys())[0]]
+            init_param2, var = fit_pixel_multi(
+                specaxis,
+                specdata,
+                init_param_1lbd,
+                quentities=lock_quentities,
+                fit_func=lock_func,
+                plot_title_prefix="preadjust"
+            )
+            if verbose >= 4 or verbose < -2:
+                plt.step(specaxis, lock_func(specaxis, *init_param2),
+                         label="Locked fit{}".format(" NANs" if np.isnan(init_param2).any()else ""))
+            if not np.isnan(init_param2).any():
+                init_param = get_unlock_params(init_param2, lock_state)
+            else:
+                if verbose >= 0:
+                    print("haven't found the right params after locking")
+        init_param2, var = fit_pixel_multi(specaxis,
+                                           specdata,
+                                           np.array(init_param),
+                                           quentities=quentity,
+                                           fit_func=flat_inArg_multiGauss,
+                                           plot_title_prefix="preadjust")
+        dtime = str(datetime.datetime.now())[:19].replace(":", "-")
+        if verbose >= 4 or verbose < -2:
+            array_quentity = np.array(quentity)
+            for i, l in enumerate(init_param2[array_quentity == "x"]):
+                plt.axvline(l, label=str(l), ls=":")
+            plt.step(specaxis, flat_inArg_multiGauss(specaxis, *init_param2),
+                     label="Unlocked fit{}".format(" NANs" if np.isnan(init_param2).any() else ""))
+            plt.legend()
+
+            plt.savefig(f"./tmp/{dtime}_window{kw_i}.jpg")
+        if np.isnan(init_param2).any() == True:
+            init_params.append(np.array(init_param))
+        else:
+            init_params.append(init_param2)
+        quentities.append(quentity)
+        convolution_threshold.append(cov_th)
+    if verbose >= 3 or verbose < -2:
+        ((fig1, ax1), (fig2, ax2)) = quickview(hdulOrPath)
+        for i, params in enumerate(init_params):
+            specaxis = get_specaxis(hdul[unq[i]])
+            ax2[i].step(specaxis, flat_inArg_multiGauss(specaxis, *params))
+        fig1.savefig(f"./tmp/{dtime}_window_all.jpg")
+        fig2.savefig(f"./tmp/{dtime}_spectrum_all.jpg")
+    return {
+        "windows_lines": windows_lines,
+        "init_params": init_params,
+        "quentities": quentities,
+        "convolution_threshold": convolution_threshold,
+    }
