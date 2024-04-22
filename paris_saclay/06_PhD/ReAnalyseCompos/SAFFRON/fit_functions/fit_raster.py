@@ -877,6 +877,7 @@ class WindowFit():
                     
         self.has_treated['denoise']=True
     def _index_list(self):
+        
         ws      = self.window_size.copy()
         if ws[0,1] == None: ws[0,1] = self.data_par.shape[2]   
         if ws[1,1] == None: ws[1,1] = self.data_par.shape[3]   

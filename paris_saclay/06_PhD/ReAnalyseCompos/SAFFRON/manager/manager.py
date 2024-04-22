@@ -104,14 +104,7 @@ class Manager():
         else: raise ValueError("selection_mode must be ['intervale','folder','list']")
         for i,file in enumerate(self.selected_fits):
             if not Path(file).exists(): raise Exception(f"{file} dosn't exists")
-<<<<<<< HEAD
     def build_rasters(self,wvl_interval = {"SW": slice(3,-3), "LW": slice(3,-3)},line_catalogue = None):
-=======
-    def build_rasters(self,
-                      wvl_intervals:List[Union[None,Dict[str,List[float]]]] = {"low": [7, -7], "high": [5, -5]} ,
-                      catalog_location=None
-                      ):
->>>>>>> cd6bba9e6f7c889b5241562f9686fa8ae8dbc25b
         """
         Create Run instances for each selected FITS file and configure their parameters.
         """
@@ -120,7 +113,6 @@ class Manager():
         self.rasters = []
         for i,file in enumerate(self.selected_fits):
             
-<<<<<<< HEAD
             # fit_args = gen_fit_inits(
             #     file ,
             #     conv_errors=self.conv_errors,
@@ -134,22 +126,6 @@ class Manager():
             self.quentities            = inits.quentities
             self.convolution_threshold = inits.convolution_threshold
             
-=======
-            fit_args = gen_fit_inits(
-                file ,
-                conv_errors=self.conv_errors,
-                verbose=self.geninits_verbose,
-                
-                wvl_intervals = wvl_intervals,
-                catalog_location = catalog_location,
-                )
-        
-            self.window_name           = fit_args['windows_lines'        ]
-            self.init_params           = fit_args['init_params'          ]
-            self.quentities            = fit_args['quentities'           ]
-            self.convolution_threshold = fit_args['convolution_threshold']
-
->>>>>>> cd6bba9e6f7c889b5241562f9686fa8ae8dbc25b
             self.rasters.append(RasterFit(
                 path_or_hdul             = file                          ,
                 init_params              = self.init_params              ,                                         

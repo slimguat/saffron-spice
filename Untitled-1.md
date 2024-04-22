@@ -2,7 +2,6 @@
 ## Spectral Analysis, Fitting Framework, Reduction Of Noise
 ## (Unpackaged version)
 Data fitting pipeline adapted to SPICE instrument onboard SolaOrbiter. I will apreceate any suggestions to improve the quality of the content
-If you have any question you can contact the author: **[Mzerguat Slimane](Mzerguat.sl@gmail.com)**
 
 ## Requirements
 1. Python<=3.9.15 (I suggest to use pyenv to change versions easily )
@@ -218,20 +217,14 @@ The locking technique can be an essential part of the spectral line fitting in s
 if the lines to lock are in two different windows we should first **fuse those windows** 
 Example: (Approximate wavelengths)
 - session.raster[i],window[0] have
- 
-  0 . O <span style="font-variant: small-caps;">iii</span> ~702.7 &Aring;.  
-
-  1 . O <span style="font-variant: small-caps;">iii</span> ~703.2 &Aring;.
-
-  2 . Mg <span style="font-variant: small-caps;">ix</span> ~706 &Aring;.
+  0 . O <span style="font-variant: small-caps;">iii</span> ~702.7 &Aring;  
+  1 . O <span style="font-variant: small-caps;">iii</span> ~703.2 &Aring;
+  2 . Mg <span style="font-variant: small-caps;">ix</span> ~706 &Aring;
 
 - session.raster[i],window[1] have
-
-  0 . S <span style="font-variant: small-caps;">iv</span> ~748 &Aring;.
-
-  1 . Mg <span style="font-variant: small-caps;">ix</span> ~749.5 &Aring;.
-
-  2 . S <span style="font-variant: small-caps;">iv</span> ~750 &Aring;. 
+  0 . S <span style="font-variant: small-caps;">iv</span> ~748 &Aring;
+  1 . Mg <span style="font-variant: small-caps;">ix</span> ~749.5 &Aring;
+  2 . S <span style="font-variant: small-caps;">iv</span> ~750 &Aring; 
 
 If we want to lock the two sulfur lines or oxygen lines we don't need to fuse the windows but locking mg_ix lines need to fuse window[0] with window[1] 
 
@@ -251,31 +244,19 @@ Now that you have fused the windows you can access this fused window by calling 
 ##### Window locking 
 After Fusion the index of each line in the fused window will be: 
 - session.raster[i],window[0] have
-  0 . O <span style="font-variant: small-caps;">iii</span> ~702.7 &Aring;.
-   
-  1 . O <span style="font-variant: small-caps;">iii</span> ~703.2 &Aring;.
-
-  2 . Mg <span style="font-variant: small-caps;">ix</span> ~706 &Aring;.
-
-  3 . S <span style="font-variant: small-caps;">iv</span> ~748 &Aring;.
-
-  4 . Mg <span style="font-variant: small-caps;">ix</span> ~749.5 &Aring;.
-
-  5 . S <span style="font-variant: small-caps;">iv</span> ~750 &Aring;. 
-
+  0 . O <span style="font-variant: small-caps;">iii</span> ~702.7 &Aring;  
+  1 . O <span style="font-variant: small-caps;">iii</span> ~703.2 &Aring;
+  2 . Mg <span style="font-variant: small-caps;">ix</span> ~706 &Aring;
+  3 . S <span style="font-variant: small-caps;">iv</span> ~748 &Aring;
+  4 . Mg <span style="font-variant: small-caps;">ix</span> ~749.5 &Aring;
+  5 . S <span style="font-variant: small-caps;">iv</span> ~750 &Aring; 
 and now we use 
 ```Manager.set_lock_protocol(window_type,window_index,lock_line1_index,lock_line2_index,loc_distance)``` to specify the locking protocol we want to use.
-
 ```window_type```: "fuse" if the protocol in a fused window, "solo" if the protocol is in a single window. 
-
 ```window_index```: once selected window type. you select the order of the selected window in their respective list.
-
 ```lock_line1_index```: the index of the leading line for locking.
-
 ```lock_line2_index```: the index of the following line for locking into the leading one.
-
 ```loc_distance```: The distance in between the two lines that it will remain the same during fitting. 
-
 ```python 
 session.set_lock_protocol("fuse", 0, 2, 4, (749.54-706.02))
 session.set_lock_protocol("fuse", 0, 3, 5, (750.22-748.40))

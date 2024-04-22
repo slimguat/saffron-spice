@@ -10,13 +10,6 @@ import astropy
 import os
 import sys
 
-pid = os.getpid()
-with open(f'pid_{pid}.txt',mode='w') as f:
-    f.write(f"python version {sys.version},astropy version  {astropy.__version__}, astropy location{astropy.__file__}")
-    try:
-        from astropy.io import fits as fits_reader
-    except Exception as e:
-        f.write(f"error \n{e}")
         
 from astropy.io import fits as fits_reader
 from astropy.io.fits.hdu.image import PrimaryHDU,ImageHDU
@@ -530,9 +523,6 @@ def get_celestial(raster,include_time=False,**kwargs):
         lat  = lat.reshape(shape[0],shape[1])*3600
     else:
         print(f"The raster passed doesn't match any known types: {type(raster)} but it has to be one of these types: \n{ndcube.ndcollection.NDCollection}\n{astropy.io.fits.hdu.hdulist.HDUList}")
-        print(raster)
-        print('--------------------------------')
-        print(type(raster),isinstance(raster,Iterable))
         raise ValueError("inacceptable type")
     return (lon,lat,time) if include_time else (lon,lat)
 
