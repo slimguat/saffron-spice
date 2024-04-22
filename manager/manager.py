@@ -7,7 +7,8 @@ from pathlib import Path
 
 from ..fit_models import flat_inArg_multiGauss
 from ..utils import getfiles
-from ..init_handler import gen_fit_inits
+# from ..init_handler import gen_fit_inits
+from ..init_handler import GenInits
 from ..fit_functions.fit_raster import RasterFit
 from typing import Union, List, Dict, Any, Callable, Tuple, Optional,Iterable
 
@@ -27,32 +28,32 @@ class Manager():
             
             #In the future you need to add a reference JSON whene there is 
             self.SELECTION_MODE          = self.config      ["SELECTION_MODE"      ]
-            raster_args_confg            = self.config      ["fit_raster_args"     ]
-            self.preclean                = raster_args_confg['preclean'            ]            
-            self.weights                 = raster_args_confg['weights'             ]             
-            self.denoise                 = raster_args_confg['denoise'             ] 
-            self.despike                 = raster_args_confg['despike'             ]
-            self.convolute               = raster_args_confg['convolute'           ]
+            raster_args_config           = self.config      ["fit_raster_args"     ]
+            self.preclean                = raster_args_config['preclean'            ]            
+            self.weights                 = raster_args_config['weights'             ]             
+            self.denoise                 = raster_args_config['denoise'             ] 
+            self.despike                 = raster_args_config['despike'             ]
+            self.convolute               = raster_args_config['convolute'           ]
             self.denoise_intervals       = [6, 2, 1, 0, 0]
             self.clipping_sigma          = 2.5      
             self.clipping_med_size       = [6, 3, 3]   
             self.clipping_iterations     = 3
             self.mode                    = "box"
-            self.conv_errors             = raster_args_confg["conv_errors"         ]
-            self.convolution_extent_list = np.array(raster_args_confg["convolution_extent_list"])
-            self.save_data               = raster_args_confg["save_data"           ]
-            self.data_filename           = raster_args_confg["data_filename"       ]
-            self.data_save_dir           = raster_args_confg["data_save_dir"       ]
-            self.window_size             = np.array(raster_args_confg["window_size"  ])
-            self.Jobs                    = raster_args_confg["Jobs"                  ]     
+            self.conv_errors             = raster_args_config["conv_errors"         ]
+            self.convolution_extent_list = np.array(raster_args_config["convolution_extent_list"])
+            self.save_data               = raster_args_config["save_data"           ]
+            self.data_filename           = raster_args_config["data_filename"       ]
+            self.data_save_dir           = raster_args_config["data_save_dir"       ]
+            self.window_size             = np.array(raster_args_config["window_size"  ])
+            self.Jobs                    = raster_args_config["Jobs"                  ]     
             self.geninits_verbose        = self.config["geninits_verbose"            ]
             self.fit_verbose             = self.config["fit_verbose"                 ]
             self.selected_fits = []
             self.rasters = []
             #TODO DELET
-            # self.plot_filename           = raster_args_confg["plot_filename"       ]
-            # self.save_plot               = raster_args_confg["save_plot"           ]
-            # self.plot_save_dir           = raster_args_confg["plot_save_dir"       ]
+            # self.plot_filename           = raster_args_config["plot_filename"       ]
+            # self.save_plot               = raster_args_config["save_plot"           ]
+            # self.plot_save_dir           = raster_args_config["plot_save_dir"       ]
             # for directory in [self.plot_save_dir,self.data_save_dir]:
                 # if not Path(directory).exists():
                 #     print(f"the directory:{directory} doesn't exist creating it now")
@@ -103,7 +104,7 @@ class Manager():
         else: raise ValueError("selection_mode must be ['intervale','folder','list']")
         for i,file in enumerate(self.selected_fits):
             if not Path(file).exists(): raise Exception(f"{file} dosn't exists")
-    def build_rasters(self):
+    def build_rasters(self,wvl_interval = {"SW": slice(3,-3), "LW": slice(3,-3)},line_catalogue = None):
         """
         Create Run instances for each selected FITS file and configure their parameters.
         """
@@ -111,19 +112,20 @@ class Manager():
             raise ValueError('files resolved yet run self.Build_file_list()')
         self.rasters = []
         for i,file in enumerate(self.selected_fits):
-            # self.RasterFit
             
-            fit_args = gen_fit_inits(
-                file ,
-                conv_errors=self.conv_errors,
-                verbose=self.geninits_verbose,
-                )
-        
-            self.window_name           = fit_args['windows_lines'        ]
-            self.init_params           = fit_args['init_params'          ]
-            self.quentities            = fit_args['quentities'           ]
-            self.convolution_threshold = fit_args['convolution_threshold']
-
+            # fit_args = gen_fit_inits(
+            #     file ,
+            #     conv_errors=self.conv_errors,
+            #     verbose=self.geninits_verbose,
+            #     )
+            inits = GenInits(file, conv_errors=self.conv_errors, verbose=self.geninits_verbose,line_catalogue=line_catalogue,wvl_interval=wvl_interval)
+            inits.gen_inits()
+            
+            self.window_name           = inits.windows_lines
+            self.init_params           = inits.init_params
+            self.quentities            = inits.quentities
+            self.convolution_threshold = inits.convolution_threshold
+            
             self.rasters.append(RasterFit(
                 path_or_hdul             = file                          ,
                 init_params              = self.init_params              ,                                         

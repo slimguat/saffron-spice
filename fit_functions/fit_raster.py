@@ -932,16 +932,6 @@ class WindowFit():
             self._shmm_sgm, self.conv_sigma = gen_shmm(create = True, ndarray=self.conv_sigma)
             self._sgm = {"name":self._shmm_sgm.name,"dtype":self.conv_sigma.dtype,"shape":self.conv_sigma.shape}
         
-        self._shmm_par_backup,self.data_par_backup  = gen_shmm(create= True , ndarray=self.data_par ) 
-        self._shmm_cov_backup,self.data_cov_backup  = gen_shmm(create= True , ndarray=self.data_cov ) 
-        self._shmm_con_backup,self.data_con_backup  = gen_shmm(create= True , ndarray=self.data_con ) 
-        self._shmm_war_backup,self.conv_data_backup = gen_shmm(create = True, ndarray=self.conv_data)
-        
-        self._par_backup = {"name":self._shmm_par_backup.name ,"dtype":self.data_par_backup.dtype  ,"shape":self.data_par_backup .shape}
-        self._cov_backup = {"name":self._shmm_cov_backup.name ,"dtype":self.data_cov_backup.dtype  ,"shape":self.data_cov_backup .shape}
-        self._con_backup = {"name":self._shmm_con_backup.name ,"dtype":self.data_con_backup.dtype  ,"shape":self.data_con_backup .shape}
-        self._war_backup = {"name":self._shmm_war_backup.name ,"dtype":self.conv_data_backup.dtype ,"shape":self.conv_data_backup.shape}
-        
         if self.weights is not None:
             self._shmm_sgm_backup, self.conv_sigma_backup = gen_shmm(create = True, ndarray=self.conv_sigma)
             self._sgm_backup = {"name":self._shmm_sgm_backup.name,"dtype":self.conv_sigma_backup.dtype,"shape":self.conv_sigma_backup.shape}
@@ -1099,9 +1089,9 @@ class WindowFit():
         try: 
             if not progress_follower.is_launched: progress_follower.launch() 
         except: pass  
-        print('par',self._par)
-        print('cov',self._cov)
-        print('con',self._con)
+        if self.verbose >= -1: print('par',self._par)
+        if self.verbose >= -1: print('cov',self._cov)
+        if self.verbose >= -1: print('con',self._con)
         Processes =[]
         fit_func2,_ = gen_lock_fit_func(self.init_params,self.quentities,self.lock_protocols,self.fit_func)
         for i in range(len(self.Job_index_list)): #preparing processes:
@@ -1113,11 +1103,6 @@ class WindowFit():
                     "cov"                    : self._cov                           ,
                     "con"                    : self._con                           ,
                     "wgt"                    : self._sgm                           ,
-                    "war_backup"             : self._war_backup                    ,
-                    "par_backup"             : self._par_backup                    ,
-                    "cov_backup"             : self._cov_backup                    ,
-                    "con_backup"             : self._con_backup                    ,
-                    "wgt_backup"             : self._sgm_backup                    ,
                     "ini_params"             : self.init_params                    ,
                     "quentities"             : self.quentities                     ,
                     "fit_func"               : fit_func2                       ,
@@ -1129,6 +1114,7 @@ class WindowFit():
                     'lock_protocols'         : self.lock_protocols                 ,
             } 
             if False:
+                if i==0 and self.verbose>=-1: print("Multiprocessing deactivated for debugging purposes")
                 self.task_fit_pixel(**keywords)
             else:    
                 Processes.append(Process(target=self.task_fit_pixel,kwargs=keywords))
@@ -1151,8 +1137,10 @@ class WindowFit():
                     else:
                         for j,p in enumerate(Processes): 
                             if not p.is_alive():
-                                p.close()
-                                Processes.pop(j)
+                                print("exitcode", p.exitcode != 0)
+                                # p.close()
+                                # Processes.pop(j)
+                                pass
                         break
                     
         while np.sum([1 for p in Processes if p.is_alive()])!= 0:
@@ -1164,7 +1152,7 @@ class WindowFit():
                             ].copy()
                 nan_size = data[(np.isnan(data))].size
                 if self.verbose>=0:print("remaining_pixels= ",nan_size,'/',data.size)
-                sleep(2)
+                # sleep(2)
         for process in Processes: process.join()
         
     @staticmethod
@@ -1174,10 +1162,6 @@ class WindowFit():
                     par: dict                           ,
                     cov: dict                           ,
                     con: dict                           ,
-                    war_backup: dict                    ,
-                    par_backup: dict                    ,
-                    cov_backup: dict                    ,
-                    con_backup: dict                    ,
                     ini_params:np.ndarray               ,
                     quentities: list[str]               ,
                     fit_func:callable                   ,
@@ -1192,93 +1176,12 @@ class WindowFit():
                     **kwargs                            ,
         ):        
         
-        is_war_backup_generated = False
-        is_par_backup_generated = False
-        is_cov_backup_generated = False
-        is_con_backup_generated = False
-        is_wgt_backup_generated = False
-        try:
-            shmm_war,data_war = gen_shmm(create=False,**war)
-        except Exception as e: 
-            print('memory reading issue with war \n---------------\n',e,'\n--------------\n')
-            shmm_war_backup,data_war_backup = gen_shmm(create=False,**war_backup)
-            shmm_war,data_war = gen_shmm(create=True,ndarray=data_war_backup.copy(),name=shmm_war.name) 
-            is_war_backup_generated = True
-        if not is_war_backup_generated:
-            try:
-                shmm_war_backup,data_war_backup = gen_shmm(create=False,**war_backup)
-            except Exception as e: 
-                print('memory reading issue with war \n---------------\n',e,'\n--------------\n')
-                shmm_war,data_war = gen_shmm(create=False,**war)
-                shmm_war_backup,data_war_backup = gen_shmm(create=True,ndarray=data_war.copy(),name=shmm_war_backup.name) 
-            
-        try:
-            shmm_par,data_par = gen_shmm(create=False,**par)
-        except Exception as e: 
-            print('memory reading issue with par \n---------------\n',e,'\n--------------\n')
-            shmm_par_backup,data_par_backup = gen_shmm(create=False,**par_backup)
-            shmm_par,data_par = gen_shmm(create=True,ndarray=data_par_backup.copy(),name=shmm_par.name) 
-            is_par_backup_generated = True
-        if not is_par_backup_generated:
-            try:
-                shmm_par_backup,data_par_backup = gen_shmm(create=False,**par_backup)
-            except Exception as e: 
-                print('memory reading issue with par \n---------------\n',e,'\n--------------\n')
-                shmm_par,data_par = gen_shmm(create=False,**par)
-                shmm_par_backup,data_par_backup = gen_shmm(create=True,ndarray=data_par.copy(),name=shmm_par_backup.name) 
-            
-        try:
-            shmm_cov,data_cov = gen_shmm(create=False,**cov)
-        except Exception as e: 
-            print('memory reading issue with cov \n---------------\n',e,'\n--------------\n')
-            shmm_cov_backup,data_cov_backup = gen_shmm(create=False,**cov_backup)
-            shmm_cov,data_cov = gen_shmm(create=True,ndarray=data_cov_backup.copy(),name=shmm_cov.name) 
-            is_cov_backup_generated = True
-        if not is_cov_backup_generated:
-            try:
-                shmm_cov_backup,data_cov_backup = gen_shmm(create=False,**cov_backup)
-            except Exception as e: 
-                print('memory reading issue with cov \n---------------\n',e,'\n--------------\n')
-                shmm_cov,data_cov = gen_shmm(create=False,**cov)
-                shmm_cov_backup,data_cov_backup = gen_shmm(create=True,ndarray=data_cov.copy(),name=shmm_cov_backup.name) 
-
-        try:
-            shmm_con,data_con = gen_shmm(create=False,**con)
-        except Exception as e: 
-            print('memory reading issue with con \n---------------\n',e,'\n--------------\n')
-            shmm_con_backup,data_con_backup = gen_shmm(create=False,**con_backup)
-            shmm_con,data_con = gen_shmm(create=True,ndarray=data_con_backup.copy(),name=shmm_con.name) 
-            is_con_backup_generated = True
-        if not is_con_backup_generated:
-            try:
-                shmm_con_backup,data_con_backup = gen_shmm(create=False,**con_backup)
-            except Exception as e: 
-                print('memory reading issue with con\n---------------\n',e,'\n--------------\n')
-                shmm_con,data_con = gen_shmm(create=False,**con)
-                shmm_con_backup,data_con_backup = gen_shmm(create=True,ndarray=data_con.copy(),name=shmm_con_backup.name) 
-
+        shmm_war,data_war = gen_shmm(create=False,**war) 
+        shmm_par,data_par = gen_shmm(create=False,**par) 
+        shmm_cov,data_cov = gen_shmm(create=False,**cov) 
+        shmm_con,data_con = gen_shmm(create=False,**con) 
         if type(wgt)!=type(None):
-            try:
-                shmm_wgt,data_wgt = gen_shmm(create=False,**wgt)
-            except Exception as e: 
-                print('memory reading issue with wgt\n---------------\n',e,'\n--------------\n')
-                shmm_wgt_backup,data_wgt_backup = gen_shmm(create=False,**wgt_backup)
-                shmm_wgt,data_wgt = gen_shmm(create=True,ndarray=data_wgt_backup.copy(),name=shmm_wgt.name) 
-                is_wgt_backup_generated = True
-            if not is_wgt_backup_generated:
-                try:
-                    shmm_wgt_backup,data_wgt_backup = gen_shmm(create=False,**wgt_backup)
-                except Exception as e: 
-                    print('memory reading issue with wgt\n---------------\n',e,'\n--------------\n')
-                    shmm_wgt,data_wgt = gen_shmm(create=False,**wgt)
-                    shmm_wgt_backup,data_wgt_backup = gen_shmm(create=True,ndarray=data_wgt.copy(),name=shmm_wgt_backup.name) 
-
-        # shmm_war,data_war = gen_shmm(create=False,**war) 
-        # shmm_par,data_par = gen_shmm(create=False,**par) 
-        # shmm_cov,data_cov = gen_shmm(create=False,**cov) 
-        # shmm_con,data_con = gen_shmm(create=False,**con) 
-        # if type(wgt)!=type(None):
-        #     shmm_wgt,data_wgt = gen_shmm(create=False,**wgt) 
+            shmm_wgt,data_wgt = gen_shmm(create=False,**wgt) 
         
         if len(convolution_threshold)==data_par.shape[0]:conv_thresh = convolution_threshold 
         else:
@@ -1319,7 +1222,7 @@ class WindowFit():
                                                     lock_protocols=lock_protocols
                                                     )
                     last_par,unlocked_quentities,last_cov = gen_unlocked_params(locked_last_par,locked_quentities,lock_protocols,np.diag(locked_last_cov))
-                    1
+                    
                 else:
                     _s = ini_params.shape[0]
                     last_par,last_cov= (np.ones((_s   ))*np.nan,
@@ -1350,8 +1253,7 @@ class WindowFit():
                                 elif np.nansum(
                                         ((np.sqrt((last_cov)))/last_par/conv_thresh)[i*3:(i+1)*3]
                                     )<np.nansum(
-                                        ((np.sqrt((best_cov)))/best_par/conv_thresh)[i*3:(i+1)*3]
-                                                                                                                    ):
+                                        ((np.sqrt((best_cov)))/best_par/conv_thresh)[i*3:(i+1)*3]):
                                     best_cov[i*3:(i+1)*3] = last_cov[i*3:(i+1)*3]
                                     best_par[i*3:(i+1)*3] = last_par[i*3:(i+1)*3]
                                     
@@ -1370,11 +1272,8 @@ class WindowFit():
             data_par[:,0,i_y,i_x] = best_par #the result UUUUUUgh finally it's here every pixel will be here
             data_cov[:,0,i_y,i_x] = best_cov #the result UUUUUUgh finally it's here every pixel will be here
             data_con[  0,i_y,i_x] = best_con #the result UUUUUUgh finally it's here every pixel will be here
-            
-            data_par_backup[:,0,i_y,i_x] = best_par #the result UUUUUUgh finally it's here every pixel will be here
-            data_cov_backup[:,0,i_y,i_x] = best_cov #the result UUUUUUgh finally it's here every pixel will be here
-            data_con_backup[  0,i_y,i_x] = best_con #the result UUUUUUgh finally it's here every pixel will be here
             lock.release()
+            
     @staticmethod
     def get_CHIANTI_lineNames(names):
         cat = LineCatalog()

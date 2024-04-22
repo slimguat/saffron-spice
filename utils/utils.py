@@ -7,6 +7,17 @@ from datetime import datetime
 from typing import Union, List, Dict, Any, Callable, Tuple, Optional,Iterable
 
 import astropy
+import os
+import sys
+
+pid = os.getpid()
+with open(f'pid_{pid}.txt',mode='w') as f:
+    f.write(f"python version {sys.version},astropy version  {astropy.__version__}, astropy location{astropy.__file__}")
+    try:
+        from astropy.io import fits as fits_reader
+    except Exception as e:
+        f.write(f"error \n{e}")
+        
 from astropy.io import fits as fits_reader
 from astropy.io.fits.hdu.image import PrimaryHDU,ImageHDU
 from astropy.visualization import SqrtStretch,PowerStretch,LogStretch, AsymmetricPercentileInterval, ImageNormalize, MinMaxInterval, interval,stretch
@@ -26,6 +37,7 @@ import shutil
 import pkg_resources
 from  pathlib import Path, PosixPath, WindowsPath
     
+
 
 
 def function_to_string(func):
@@ -542,17 +554,20 @@ def quickview(
     fig2.suptitle(raster[0].header['DATE_EAR'])
     for i in range(len(raster)):
         data = raster[i].data
-        image = np.nanmean(data, axis =(0,1))
+        if data.shape[3] != 1:
+            image = np.nanmean(data, axis =(0,1))
+        else: 
+            image = np.nanmean(data, axis =(0,3))
+        
         spect = np.nanmean(data, axis =(0,2,3))
         spec_ax = get_specaxis(raster[i])
         kw = raster[i].header["EXTNAME"]
         
-        norm = ImageNormalize(data,
-                              interval=AsymmetricPercentileInterval(1, 99),
-                              stretch=SqrtStretch()
-                              )
+        norm = normit(data)
         
-        ax1[i].pcolormesh(lon,lat,image,norm=norm)
+        if data.shape[3] != 1:
+            ax1[i].pcolormesh(lon,lat,image,norm=norm)
+        else: ax1[i].pcolormesh(image,norm=norm)
         ax2[i].step(spec_ax,spect)
         ax1[i].set_title(kw)
         ax2[i].set_title(kw)
