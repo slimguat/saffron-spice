@@ -413,12 +413,12 @@ class ProgressFollower():
 class WindowFit():
     def __repr__(self):
         if not isinstance(self.hdu,Iterable):
-            extnames = self.hdu.header['EXTNAME']
+            extname = self.hdu.header['EXTNAME']
         else:
-            extnames = ' '.join([h.header["EXTNAME"] for h in self.hdu])
+            extname = ' '.join([h.header["EXTNAME"] for h in self.hdu])
         
         val = (
-            "Extnames                "+ extnames                         +"\n"+
+            "Extname                "+ extname                           +"\n"+
             "weights                 "+str(self.weights )                +"\n"+                                                
             "denoise                 "+str(self.denoise )                +"\n"+                                                
             "despike                 "+str(self.despike )                +"\n"+                                                
