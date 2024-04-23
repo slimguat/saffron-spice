@@ -1137,7 +1137,7 @@ class WindowFit():
                     else:
                         for j,p in enumerate(Processes): 
                             if not p.is_alive():
-                                print("exitcode", p.exitcode != 0)
+                                # print("exitcode", p.exitcode != 0)
                                 p.close()
                                 Processes.pop(j)
                                 pass

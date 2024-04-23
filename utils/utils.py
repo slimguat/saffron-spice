@@ -10,14 +10,6 @@ import astropy
 import os
 import sys
 
-pid = os.getpid()
-with open(f'pid_{pid}.txt',mode='w') as f:
-    f.write(f"python version {sys.version},astropy version  {astropy.__version__}, astropy location{astropy.__file__}")
-    try:
-        from astropy.io import fits as fits_reader
-    except Exception as e:
-        f.write(f"error \n{e}")
-        
 from astropy.io import fits as fits_reader
 from astropy.io.fits.hdu.image import PrimaryHDU,ImageHDU
 from astropy.visualization import SqrtStretch,PowerStretch,LogStretch, AsymmetricPercentileInterval, ImageNormalize, MinMaxInterval, interval,stretch
