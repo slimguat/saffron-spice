@@ -261,13 +261,13 @@ class SPICEL3Raster():
     except:
       return self.FIP_err.copy()+1
     
-  def gen_compo_LCR(self,HFLines=None,LFLines=None,ll=None,suppressOutput=True):
+  def gen_compo_LCR(self,HFLines=None,LFLines=None,ll=None,suppressOutput=True,using_S_as_LF=True):
     All_lines= list(HFLines)
     All_lines.extend(LFLines)
     if ll is None:
       self.ll = lc([
         Line(ionid, wvl) for ionid, wvl in All_lines
-        ],using_S_as_LF=True)
+        ],using_S_as_LF=using_S_as_LF)
 
       if suppressOutput:
         with suppress_output():
