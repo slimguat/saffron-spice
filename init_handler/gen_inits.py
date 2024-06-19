@@ -76,6 +76,7 @@ class GenInits:
         # these are the parameters to passe
         unq = self.get_extnames(self.hdul)
         self.init_params = [None for i in range(len(unq))]
+
         self.quentities = [None for i in range(len(unq))]
         self.convolution_threshold = [None for i in range(len(unq))]
         self.windows_lines = {}
@@ -171,6 +172,7 @@ class GenInits:
         
             init_param_theory.append(max(0.00, np.nanmean(specdata)))
             init_param_theory = np.array(init_param_theory)
+            
             cov_th.append(self.conv_errors["B"])
             cov_th = np.array(cov_th)
             quentity.append("B")
@@ -196,6 +198,7 @@ class GenInits:
             # return
         
         # fitting with one position of the fit and generating an all in all locked init_param_maxAdjusted
+        
         if True:
             if len(init_param_maxAdjusted) > 4:  # fitting with one position of the fit
                 # Generating an all in all locked init_param_maxAdjusted
@@ -551,6 +554,11 @@ class GenInits:
                     init_params2[0:l:3] = init_params2[0:l:3] - init_params2[-1]
                     # print(init_params2[0:l:3])
                 init_params2[0:l:3][init_params2[0:l:3] <= 0] = 0.05 - init_params2[-1]
+                for i in range(len(init_params2[::3])):
+                    if init_params2[i*3] <= 0:
+                        init_params2[i*3] = 0
+                if np.any((init_params2<0)):
+                    raise ValueError("The initial parameters are not correct\n{init_params2}")
                 return init_params2, specaxis, specdata
 
         if verbose > -1:

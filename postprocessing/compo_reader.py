@@ -234,7 +234,7 @@ class SPICEL3Raster():
   def __init__(self,list_paths=None, folder_path = None):
     if (list_paths is None and folder_path is None) or (list_paths is not None and folder_path is not None)  : raise Exception("you need to specify strictly one of these arguments list_paths or folder_path")
     elif folder_path is not None: 
-      list_paths = [str(file) for file in Path(folder_path).glob('*') ]
+      list_paths = [str(file) for file in Path(folder_path).glob('*.fits') ]
     else: 
       # nothing to do if the list is given
       pass
@@ -325,18 +325,22 @@ class SPICEL3Raster():
   def plot(self,params='all',axes =None):
     if params == 'all': params = ['int','wav','wid','rad']
     if isinstance(params, str): params = [params]
+    data = self.lines[0]["int"]
+    header = self.lines[0].headers['int']
+    lon,lat = get_coord_mat(Map(data,header))
     if axes is None:
       axes=[]
       for ind in range(len(params)):
         c = 5
         r = len(self.lines)//c +(1 if len(self.lines)%c!=0 else 0)
         inch_size= 2
-        _axes = gen_axes_side2side(r,c,figsize=(c*inch_size,r*inch_size),wspace=0,hspace=0,top_pad = 1/(c*2*inch_size),bottom_pad=0,left_pad=0,right_pad=0)[::-1].flatten()
+        aspect = (np.max(lon)-np.min(lon))/(np.max(lat)-np.min(lat))
+        print(aspect)
+        _axes = gen_axes_side2side(r,c,
+                                  figsize=(c*inch_size,r*(inch_size*aspect)),
+                                  wspace=0,hspace=0,top_pad = 1/(c*2*inch_size),bottom_pad=0,left_pad=0,right_pad=0)[::-1].flatten()
         axes.append(_axes)
       axes = np.array(axes)
-    data = self.lines[0]["int"]
-    header = self.lines[0].headers['int']
-    lon,lat = get_coord_mat(Map(data,header))
     
     for ind,param in enumerate(params):
       for ind2,line in enumerate(self.lines):
@@ -348,7 +352,6 @@ class SPICEL3Raster():
     va='top', ha='center'
     )
 
-    axes[0][0].figure.tight_layout(rect=[0,0,1,0.95])
 def get_celestial_L3(raster,**kwargs):
     if type(raster)==HDUList:
         
