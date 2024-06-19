@@ -9,7 +9,7 @@ from astropy.io import fits
 from pathlib import Path,WindowsPath,PosixPath
 import matplotlib.pyplot as plt
 import os
-from ..utils import normit,suppress_output
+from ..utils import normit,suppress_output,gen_axes_side2side,get_coord_mat
 from collections.abc import Iterable
 from astropy.visualization import SqrtStretch,PowerStretch,LogStretch, AsymmetricPercentileInterval, ImageNormalize, MinMaxInterval, interval,stretch
 from sunpy.map import Map
@@ -162,7 +162,7 @@ class SPECLine():
         return self._all["rad"    ]
       elif val == "rad_err":
         return self._all["rad_err"]
-      else: raise(f'{val} is not a valid keyword \nValid keywords: int,wav,wid,rad,int_err,wav_err,wid_err,rad_err')
+      else: raise Exception(f'{val} is not a valid keyword \nValid keywords: int,wav,wid,rad,int_err,wav_err,wid_err,rad_err')
   
   def _prepare_data(self,hdul_or_path):
     self.charge_data(hdul_or_path)
@@ -185,7 +185,7 @@ class SPECLine():
     self._all["rad"]     = self['int'] * self['wid'] *np.sqrt(np.pi)
     self._all["rad_err"] = (self["int_err"]/self['int'] + self['wid_err']/self['wid']) * self['rad']
   
-  def plot(self,params='all',axes =None,add_keywords = False):
+  def plot(self,params='rad',axes =None,add_keywords = False):
     """_summary_
 
       Args:
@@ -260,7 +260,6 @@ class SPICEL3Raster():
       return res 
     except:
       return self.FIP_err.copy()+1
-    
   def gen_compo_LCR(self,HFLines=None,LFLines=None,ll=None,suppressOutput=True,using_S_as_LF=True):
     All_lines= list(HFLines)
     All_lines.extend(LFLines)
@@ -323,6 +322,33 @@ class SPICEL3Raster():
     for ind,line in enumerate(self.lines):wvls[ind] = line.wavelength
     return(wvls)
 
+  def plot(self,params='all',axes =None):
+    if params == 'all': params = ['int','wav','wid','rad']
+    if isinstance(params, str): params = [params]
+    if axes is None:
+      axes=[]
+      for ind in range(len(params)):
+        c = 5
+        r = len(self.lines)//c +(1 if len(self.lines)%c!=0 else 0)
+        inch_size= 2
+        _axes = gen_axes_side2side(r,c,figsize=(c*inch_size,r*inch_size),wspace=0,hspace=0,top_pad = 1/(c*2*inch_size),bottom_pad=0,left_pad=0,right_pad=0)[::-1].flatten()
+        axes.append(_axes)
+      axes = np.array(axes)
+    data = self.lines[0]["int"]
+    header = self.lines[0].headers['int']
+    lon,lat = get_coord_mat(Map(data,header))
+    
+    for ind,param in enumerate(params):
+      for ind2,line in enumerate(self.lines):
+        data = line[param]
+        axes[ind,ind2].pcolormesh(lon,lat,data,norm=normit(data),cmap="magma")
+        axes[ind,ind2].text(0.5,0.95,self.lines[ind2].line_id+' '+param,transform=axes[ind,ind2].transAxes,ha='center',va='top',bbox=dict(facecolor='white', alpha=0.5))
+    axes[0][0].figure.suptitle(
+    self.lines[0].observatory + ' ' + self.lines[0].instrument + ' ' + self.lines[0].headers['int']['DATE-OBS'],
+    va='top', ha='center'
+    )
+
+    axes[0][0].figure.tight_layout(rect=[0,0,1,0.95])
 def get_celestial_L3(raster,**kwargs):
     if type(raster)==HDUList:
         

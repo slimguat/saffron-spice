@@ -15,6 +15,7 @@ from astropy.io.fits.hdu.image import PrimaryHDU,ImageHDU
 from astropy.visualization import SqrtStretch,PowerStretch,LogStretch, AsymmetricPercentileInterval, ImageNormalize, MinMaxInterval, interval,stretch
 from astropy.wcs import WCS
 
+import sunpy
 
 import ndcube
 
@@ -31,6 +32,85 @@ from  pathlib import Path, PosixPath, WindowsPath
     
 
 
+def gen_axes_side2side(
+  row = 1,col=1,
+  figsize = None,
+  wspace = 0, hspace=0,
+  top_pad = 0, bottom_pad = 0, 
+  right_pad = 0, left_pad = 0,
+  sharex=True,sharey=True,aspect=1,ax_size=5
+  ):
+  if not isinstance(wspace,Iterable):
+    wspaces = []
+    for i in range(col-1):
+      wspaces.append(wspace)
+  else:
+    wspaces = wspace
+  
+  if not isinstance(hspace,Iterable):
+    hspaces = []
+    for i in range(row-1):
+      hspaces.append(hspace)
+  else:
+    hspaces = hspace
+  assert len(hspaces) == row-1
+  assert len(wspaces) == col-1
+  effective_size= (1-right_pad-left_pad ,1-top_pad-bottom_pad)
+  ax_w = (effective_size[0] - np.sum(wspaces))/col
+  ax_h = (effective_size[1] - np.sum(hspaces))/row
+  
+  if figsize is None: 
+    h = ax_size * row
+    ratio = ax_h/ax_w
+    w = h*ratio*aspect
+  else: 
+    w,h = figsize
+  fig = plt.figure(figsize=(w,h))
+  
+  axes = np.array(np.zeros(shape=(row,col)) , dtype='O')
+  for i in range(row):
+    for j in range(col):
+        if i == 0 : 
+            y0 = bottom_pad
+        else: 
+            y0 = axes[i-1][j].get_position().y0 + hspaces[i-1] + ax_h
+        if j == 0:
+            x0 = left_pad
+        else: 
+            x0 = axes[i][j-1].get_position().x0 + wspaces[j-1] + ax_w
+        
+        rect = ([
+            x0,
+            y0,
+            ax_w,
+            ax_h,
+        ])
+        
+        axes[i][j] = (
+            fig.add_axes(
+            rect,
+            )
+        )   
+  axes = axes[::-1]
+  if sharex or sharey:
+    for i,row_ax in enumerate(axes):
+      for j,ax in enumerate(row_ax):
+        if sharex and i!= len(axes)-1:
+          ax.set_xticklabels([])
+        if sharey and j!= 0          :
+          ax.set_yticklabels([])
+  return axes
+
+def get_coord_mat(map,as_skycoord = False):
+    res = sunpy.map.maputils.all_coordinates_from_map(map)
+    if as_skycoord: return res
+    try:
+        lon = res.spherical.lon.arcsec
+        lat = res.spherical.lat.arcsec
+    except AttributeError:    
+        lon = res.lon.value
+        lat = res.lat.value 
+    return lon,lat
 
 def function_to_string(func):
     source_lines, _ = inspect.getsourcelines(func)
