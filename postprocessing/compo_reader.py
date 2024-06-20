@@ -17,6 +17,7 @@ from fiplcr import Line
 from fiplcr import LinearComb as lc
 from fiplcr import fip_map
 import astropy.units as u
+import math
 import sunpy
 
 #TODO MOVE somewhere else
@@ -142,6 +143,9 @@ class SPECLine():
             'wav_err':self._all['wav_err'].header,
             'wid_err':self._all['wid_err'].header,
             }
+  @property
+  def obs_date(self):
+    return (self._all['int'].header["DATE-OBS"])
   def __getitem__(self,val: ["int","wav","wid","rad","int_err","wav_err","wid_err",'rad_err']):
     if isinstance(val,Iterable) and not isinstance(val,str):
       return [self.__getitem__(key) for key in val]
@@ -230,6 +234,20 @@ class SPECLine():
       im = axes[0].pcolormesh(lon,lat,data,norm=norm,zorder=-1,cmap="magma")
       axes[0].set_title(self.line_id+'\n'+params[0])
       if add_keywords: pass
+  def __repr__(self):
+    # ANSI escape codes for bright green
+    bright_green = "\033[92m"
+    bright_yellow = "\033[93m"
+    
+    reset = "\033[0m"
+    
+    return (f"SPECLine object: ---------------------------\n"
+            f"observatory,instrument={self.observatory},{self.instrument}\n"
+            f"obs_date={bright_yellow}{self.obs_date}{reset},\n"
+            f"ion,wavelength={bright_green}{self.ion}{reset},{bright_green}{self.wavelength}{reset},\n"
+            "---------------------------------------------\n"
+            ""
+            )
 class SPICEL3Raster():
   def __init__(self,list_paths=None, folder_path = None):
     if (list_paths is None and folder_path is None) or (list_paths is not None and folder_path is not None)  : raise Exception("you need to specify strictly one of these arguments list_paths or folder_path")
@@ -321,9 +339,70 @@ class SPICEL3Raster():
     wvls = np.empty(shape=(len(self.lines),))
     for ind,line in enumerate(self.lines):wvls[ind] = line.wavelength
     return(wvls)
-
-  def plot(self,params='all',axes =None):
+  @staticmethod
+  @staticmethod
+  def _check_valide_ion_name(ion):
+    try:
+        assert isinstance(ion,str)
+        #check if ion name is of the form element_number
+        assert '_' in ion
+        #separate ion by where there is _ character and generate a list of the form [element,number]
+        ion = ion.split('_')
+        assert len(ion)==2
+        #assert ion[0] is in the periodic table of elements
+        assert ion[0] in ['h','he','li','be','b','c','n','o','f','ne','na','mg','al','si','p','s','cl','ar','k','ca','sc','ti','v','cr','mn','fe','co','ni','cu','zn','ga','ge','as','se','br','kr','rb','sr','y','zr','nb','mo','tc','ru','rh','pd','ag','cd','in','sn','sb','te','i','xe','cs','ba','la','ce','pr','nd','pm','sm','eu','gd','tb','dy','ho','er','tm','yb','lu','hf','ta','w','re','os','ir','pt','au','hg','tl','pb','bi','po','at','rn','fr','ra','ac','th','pa','u','np','pu','am','cm','bk','cf','es','fm','md','no','lr']
+        # BITCH!!!! did copilot autocomplete just suggested the entire periodic table in the previous assertion, well that's dope????
+        assert ion[1].isdigit()
+        return True
+    except:
+      return False
+  def search_lines(self,ion=None,wavelength= None,closest_wavelength=None):
+    if  (ion is None and wavelength is None): raise Exception("You need to specify one of these arguments ion or wavelength or both)")
+    if (wavelength is not None  and closest_wavelength is not None): raise Exception("Either specify wavelength or closest_wavelength not both")
+    line_selection = self.lines
+    
+    if ion is not None:
+      ion = ion.lower()
+      if not (self._check_valide_ion_name(ion)): raise Exception('The ion name should be a string of Chianti structure ion naming "element_wvl" ex: "fe_18", "o_6"')
+      lines_selected_by_ions = []
+      for line in line_selection:
+        if line.ion == ion:
+          lines_selected_by_ions.append(line)
+      line_selection = lines_selected_by_ions
+    
+    if wavelength is not None: 
+      lines_selected_by_wavelength = []
+      for line in line_selection:
+        if line.wavelength == wavelength:
+          lines_selected_by_wavelength.append(line)
+      line_selection = lines_selected_by_wavelength
+    elif closest_wavelength is not None:
+      lines_selected_by_wavelength = []
+      diff = np.abs(np.array([line.wavelength for line in line_selection])-closest_wavelength)
+      min_diff = np.min(diff)
+      index_diff = np.argmin(diff)
+      line_selection = [line_selection[index_diff]]
+    
+    return line_selection
+        
+  def plot(self,params='all',axes =None,lines = None ):
+    if lines is None:
+      selected_lines = self.lines
+    elif isinstance(lines,Iterable):
+      selected_lines =  []
+      for element in lines:
+        if isinstance(element,str):
+          sub_selected_lines = self.search_lines(ion=element)
+        elif isinstance(element,float):
+          sub_selected_lines = self.search_lines(wavelength=element)
+        elif isinstance(element,dict):
+          sub_selected_lines = self.search_lines(**element)
+        else:
+          sub_selected_lines = self.search_lines(ion=element[0],closest_wavelength=element[1])
+        selected_lines.extend(sub_selected_lines)
+    else:raise Exception("lines should be a list of strings or floats or dictionaries")
     if params == 'all': params = ['int','wav','wid','rad']
+    
     if isinstance(params, str): params = [params]
     data = self.lines[0]["int"]
     header = self.lines[0].headers['int']
@@ -331,24 +410,25 @@ class SPICEL3Raster():
     if axes is None:
       axes=[]
       for ind in range(len(params)):
-        c = 5
-        r = len(self.lines)//c +(1 if len(self.lines)%c!=0 else 0)
+        c = int(min(5,math.ceil(np.sqrt(len(selected_lines)))))
+        r = len(selected_lines)//c +(1 if len(selected_lines)%c!=0 else 0)
         inch_size= 2
         aspect = (np.max(lon)-np.min(lon))/(np.max(lat)-np.min(lat))
-        print(aspect)
         _axes = gen_axes_side2side(r,c,
                                   figsize=(c*inch_size,r*(inch_size*aspect)),
-                                  wspace=0,hspace=0,top_pad = 1/(c*2*inch_size),bottom_pad=0,left_pad=0,right_pad=0)[::-1].flatten()
+                                  wspace=0,hspace=0,top_pad = 1/(c*2*inch_size),bottom_pad=0,left_pad=0,right_pad=0).flatten()
         axes.append(_axes)
       axes = np.array(axes)
     
     for ind,param in enumerate(params):
-      for ind2,line in enumerate(self.lines):
+      for ind2,line in enumerate(selected_lines):
         data = line[param]
         axes[ind,ind2].pcolormesh(lon,lat,data,norm=normit(data),cmap="magma")
-        axes[ind,ind2].text(0.5,0.95,self.lines[ind2].line_id+' '+param,transform=axes[ind,ind2].transAxes,ha='center',va='top',bbox=dict(facecolor='white', alpha=0.5))
+        axes[ind,ind2].text(0.5,0.95,selected_lines[ind2].line_id+' '+param,transform=axes[ind,ind2].transAxes,ha='center',va='top',bbox=dict(facecolor='white', alpha=0.5))
+      for ind3 in range(ind2+1,len(selected_lines)):
+        axes[ind,ind3].remove()
     axes[0][0].figure.suptitle(
-    self.lines[0].observatory + ' ' + self.lines[0].instrument + ' ' + self.lines[0].headers['int']['DATE-OBS'],
+    selected_lines[0].observatory + ' ' + selected_lines[0].instrument + ' ' + selected_lines[0].obs_date,
     va='top', ha='center'
     )
 
