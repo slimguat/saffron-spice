@@ -339,9 +339,9 @@ class SPICEL3Raster():
     wvls = np.empty(shape=(len(self.lines),))
     for ind,line in enumerate(self.lines):wvls[ind] = line.wavelength
     return(wvls)
+  
   @staticmethod
-  @staticmethod
-  def _check_valide_ion_name(ion):
+  def _check_valide_ion_name(self,ion):
     try:
         assert isinstance(ion,str)
         #check if ion name is of the form element_number
@@ -385,7 +385,7 @@ class SPICEL3Raster():
     
     return line_selection
         
-  def plot(self,params='all',axes =None,lines = None ):
+  def plot(self,params='all',axes =None,lines = None,no_dumbells=False,col_row = [None,None]):
     if lines is None:
       selected_lines = self.lines
     elif isinstance(lines,Iterable):
@@ -404,33 +404,62 @@ class SPICEL3Raster():
     if params == 'all': params = ['int','wav','wid','rad']
     
     if isinstance(params, str): params = [params]
+    if no_dumbells: 
+      slc = slice(200,700)
+    else:
+      slc = slice(None,None)
     data = self.lines[0]["int"]
     header = self.lines[0].headers['int']
     lon,lat = get_coord_mat(Map(data,header))
+    data= data[slc]
+    lon = lon[slc]
+    lat = lat[slc]
     if axes is None:
       axes=[]
       for ind in range(len(params)):
-        c = int(min(5,math.ceil(np.sqrt(len(selected_lines)))))
-        r = len(selected_lines)//c +(1 if len(selected_lines)%c!=0 else 0)
+        if col_row[0] is None:
+          c = int(min(5,math.ceil(np.sqrt(len(selected_lines)))))
+        else: c = col_row[0]
+        if col_row[1] is None:
+          r = len(selected_lines)//c +(1 if len(selected_lines)%c!=0 else 0)
+        else:
+          r = col_row[1]
+          
         inch_size= 2
         aspect = (np.max(lon)-np.min(lon))/(np.max(lat)-np.min(lat))
         _axes = gen_axes_side2side(r,c,
-                                  figsize=(c*inch_size,r*(inch_size*aspect)),
-                                  wspace=0,hspace=0,top_pad = 1/(c*2*inch_size),bottom_pad=0,left_pad=0,right_pad=0).flatten()
+                                  figsize=(c*(inch_size*aspect),
+                                           r*(inch_size)
+                                          #  r*(inch_size)
+                                           ),
+                                  wspace=0,hspace=0,top_pad = 1/(c*2*inch_size),bottom_pad=1/(c*2*inch_size),left_pad=1/(c*2*inch_size),right_pad=1/(c*2*inch_size),aspect=aspect).flatten()
+        for ax in _axes:
+          ax.tick_params(axis='both', which='major', labelsize=10)
+          ax.tick_params(axis='both', which='minor', labelsize=10)
+        _axes[0].text(0,0.5,'HLP longitude',rotation=90,va='center',ha='left',transform=_axes[0].figure.transFigure)
+        _axes[0].text(0.5,0,'HLP latitude',va='bottom',ha='center',transform=_axes[0].figure.transFigure)
+        for ax in _axes[::c]:
+          for tick in ax.get_yticklabels():
+            tick.set_rotation(90)
+            tick.set_ha('right')
+            tick.set_va('center')
         axes.append(_axes)
+        
       axes = np.array(axes)
     
     for ind,param in enumerate(params):
       for ind2,line in enumerate(selected_lines):
-        data = line[param]
+        data = line[param][slc]
         axes[ind,ind2].pcolormesh(lon,lat,data,norm=normit(data),cmap="magma")
         axes[ind,ind2].text(0.5,0.95,selected_lines[ind2].line_id+' '+param,transform=axes[ind,ind2].transAxes,ha='center',va='top',bbox=dict(facecolor='white', alpha=0.5))
-      for ind3 in range(ind2+1,len(selected_lines)):
+      for ind3 in range(ind2+1,len(axes[ind])):
         axes[ind,ind3].remove()
     axes[0][0].figure.suptitle(
     selected_lines[0].observatory + ' ' + selected_lines[0].instrument + ' ' + selected_lines[0].obs_date,
     va='top', ha='center'
     )
+    
+    return axes
 
 def get_celestial_L3(raster,**kwargs):
     if type(raster)==HDUList:
