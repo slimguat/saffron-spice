@@ -19,6 +19,7 @@ from fiplcr import fip_map
 import astropy.units as u
 import math
 import sunpy
+from scipy.optimize import curve_fit
 
 #TODO MOVE somewhere else
 def FIP_error(ll,Errors,Datas):
@@ -118,7 +119,8 @@ class SPECLine():
                 "rad_err":None,
                 }
     self._prepare_data(hdul_or_path)
-  
+    self.uncorrected_wavelength = None
+    
   @property
   def wavelength(self):
     return self._all['int'].header["WAVELENGTH"]
@@ -146,6 +148,103 @@ class SPECLine():
   @property
   def obs_date(self):
     return (self._all['int'].header["DATE-OBS"])
+  
+  def get_map(self, param='rad'):
+    data = self[param]
+    _map = Map(data,self.headers[param if 'rad' not in param else 'int'])
+    if param in ['int','rad','wid'] or 'err' in param:
+      _map.plot_settings['cmap'] = 'magma' if 'err' not in param else 'gray'
+      _map.plot_settings['norm'] = normit(self[param][200:700])
+    else:
+      _map.plot_settings['cmap'] = 'twilight_shifted'
+      mean_val = np.nanmean(self[param][200:700])
+      _100_kms_equivalent_doppler = 100e3/3e8*mean_val
+      _map.plot_settings['norm'] = normit(self[param],vmin = mean_val-_100_kms_equivalent_doppler,vmax = mean_val+_100_kms_equivalent_doppler,stretch=None)
+    _map.plot_settings['aspect'] = 'auto'
+    return _map
+  
+  def correct_doppler_gradient(self,direction='x',verbose=0,coeff=None):
+    def linear_func(x, a, b):
+      return a * x + b
+    if direction not in ['x','y','xy']: raise ValueError("direction should be one of these values: 'x','y','xy'")
+    if self.uncorrected_wavelength is None:
+      self.uncorrected_wavelength = self['wav'].copy()
+    corrected_wavelength = self['wav'].copy()*np.nan
+    data = self['wav'].copy()
+    #print warning in red 
+    if data.shape[-1] <=10 and "x" in direction and verbose>-2: print("\033[93mWarning: Data is too small in x direction the doppler gradient estimation could be wrong\033[0m")
+    if data.shape[0 ] <=10 and "y" in direction and verbose>-2: print("\033[93mWarning: Data is too small in y direction the doppler gradient estimation could be wrong\033[0m")
+    coeffs = np.empty((len(direction),))
+    errors = np.empty((len(direction),))
+    if verbose>2: 
+      fig,axis = plt.subplots(1,1+2*len(direction),figsize=(2*(1+2*len(direction)),2))
+      _map = self.get_map('wav')
+      norm = _map.plot_settings['norm']
+      cmap = _map.plot_settings['cmap']
+      axis[0].pcolormesh(self.uncorrected_wavelength,norm=norm,cmap=cmap)
+    for ind,d in enumerate(direction):
+      if d == 'x':
+        new_data = data.copy()
+        new_data[:200] = np.nan 
+        new_data[700:] = np.nan 
+        xpix = np.arange(len(np.nanmean(new_data,axis=0)))
+        mean_val = np.nanmean(new_data, axis=0)
+        curve_fit_x = xpix    [~np.isnan(mean_val)]
+        curve_fit_y = mean_val[~np.isnan(mean_val)]
+        if coeff is None:
+          coeff , var  = curve_fit(linear_func, curve_fit_x,curve_fit_y)#,p0 = [curve_fit_y[0],2] )
+          data  = data - np.repeat(coeff[0]*xpix.reshape(-1, 1) ,data.shape[0],axis=1).T
+          if verbose>0: print(f"corrected {d} directoin\n doppler gradient is {coeff[0]}pixels/Angstrom")
+          coeffs[ind]=coeff[0]
+          errors[ind] =(var.diagonal()**0.5)[0]
+          if verbose>2:
+            axis[ind+1].pcolormesh(data,norm=norm,cmap=cmap)
+            axis[(ind+len(direction))+1].plot(curve_fit_x,curve_fit_y)
+            axis[(ind+len(direction))+1].plot(curve_fit_x,linear_func(curve_fit_x,*coeff))
+        else:
+          data  = data - np.repeat(coeff*xpix.reshape(-1, 1) ,data.shape[0],axis=1).T
+          var = np.nan
+          coeffs[ind] = coeff
+          errors[ind] = np.nan
+        
+      elif d == 'y':
+        new_data = data.copy()
+        new_data[:200] = np.nan 
+        new_data[700:] = np.nan 
+        ypix = np.arange(len(np.nanmean(new_data,axis=1)))
+        mean_val1= np.nanmean(new_data, axis=1)
+        curve_fit_x1 = ypix    [~np.isnan(mean_val1)]
+        curve_fit_y1 = mean_val1[~np.isnan(mean_val1)]
+        if coeff is None:
+        
+          coeff1, var1 = curve_fit(linear_func, curve_fit_x1,curve_fit_y1)#,p0 = [curve_fit_y[0],2] )
+          data = data - np.repeat(coeff1[0]*ypix.reshape(1, -1) ,data.shape[1],axis=0).T
+          if verbose>0: print(f"corrected {d} directoin\n doppler gradient is {coeff1[0]}pixels/Angstrom")
+          coeffs[ind]=coeff1[0]
+          errors[ind] =(var1.diagonal()**0.5)[0]
+          
+          if verbose>2:
+            axis[ind+1].pcolormesh(data,norm=norm,cmap=cmap)
+            axis[(ind+len(direction))+1].plot(curve_fit_x1,curve_fit_y1)
+            axis[(ind+len(direction))+1].plot(curve_fit_x1,linear_func(curve_fit_x1,*coeff1))
+        else:
+          data = data - np.repeat(coeff*ypix.reshape(1, -1) ,data.shape[1],axis=0).T
+          var = np.nan
+          coeffs[ind] = coeff
+          errors[ind] = np.nan
+    self._all['wav'].data = data
+    return coeffs,errors
+  def reset_doppler(self):
+    try:
+      self._all['wav'].data = self.uncorrected_wavelength.copy()
+    except:
+      pass
+    
+  def get_coord_mat(self,as_skycoord=False):
+    data = self['int']
+    header = self.headers['int']
+    coord_matrix = get_coord_mat(Map(data,header),as_skycoord=as_skycoord)
+    return coord_matrix
   def __getitem__(self,val: ["int","wav","wid","rad","int_err","wav_err","wid_err",'rad_err']):
     if isinstance(val,Iterable) and not isinstance(val,str):
       return [self.__getitem__(key) for key in val]
@@ -238,7 +337,6 @@ class SPECLine():
     # ANSI escape codes for bright green
     bright_green = "\033[92m"
     bright_yellow = "\033[93m"
-    
     reset = "\033[0m"
     
     return (f"SPECLine object: ---------------------------\n"
@@ -339,8 +437,9 @@ class SPICEL3Raster():
     wvls = np.empty(shape=(len(self.lines),))
     for ind,line in enumerate(self.lines):wvls[ind] = line.wavelength
     return(wvls)
+  def get_coord_mat(self,as_skycoord=False):
+    return self.lines[0].get_coord_mat(as_skycoord=as_skycoord)
   
-  @staticmethod
   def _check_valide_ion_name(self,ion):
     try:
         assert isinstance(ion,str)
@@ -384,7 +483,20 @@ class SPICEL3Raster():
       line_selection = [line_selection[index_diff]]
     
     return line_selection
-        
+  def correct_doppler_gradient(self,direction='x',reference = {"ion":'ne_8', "closest_wavelength": 770},verbose=0):
+    # yellow colored warning
+    if verbose >-1: print(f"\033[93mWarning: The correction of the doppler gradient for a raster is based on the line reference parameter ('the reference here is {reference}') it doesn't mean the correction is surely right\nIf you want to run gradiant correction for each line independetly call this method for the lines of your choice \033[0m")
+    ref_line = self.search_lines(**reference)
+    if len(ref_line) == 0: raise Exception(f"Couldn't find the reference line {reference}")
+    elif len(ref_line) > 1: raise Exception(f"Found more than one reference line {reference}\n{ref_line}" )
+    else: ref_line = ref_line[0]
+    
+    coeff = ref_line.correct_doppler_gradient(direction=direction,verbose=verbose)
+    for i in range(len(self.lines)):
+      self.lines[i].correct_doppler_gradient(direction=direction,verbose=verbose,coeff=coeff[0])
+  def reset_doppler(self):
+    for ind in range(len(self.lines)):
+      self.lines[ind].reset_doppler()
   def plot(self,params='all',axes =None,lines = None,no_dumbells=False,col_row = [None,None]):
     if lines is None:
       selected_lines = self.lines
@@ -450,7 +562,10 @@ class SPICEL3Raster():
     for ind,param in enumerate(params):
       for ind2,line in enumerate(selected_lines):
         data = line[param][slc]
-        axes[ind,ind2].pcolormesh(lon,lat,data,norm=normit(data),cmap="magma")
+        map_ = line.get_map(param)
+        norm = map_.plot_settings['norm']
+        cmap = map_.plot_settings['cmap']
+        axes[ind,ind2].pcolormesh(lon,lat,data,norm=norm,cmap=cmap)
         axes[ind,ind2].text(0.5,0.95,selected_lines[ind2].line_id+' '+param,transform=axes[ind,ind2].transAxes,ha='center',va='top',bbox=dict(facecolor='white', alpha=0.5))
       for ind3 in range(ind2+1,len(axes[ind])):
         axes[ind,ind3].remove()

@@ -638,11 +638,11 @@ def quickview(
         spec_ax = get_specaxis(raster[i])
         kw = raster[i].header["EXTNAME"]
         
-        norm = normit(data)
+        norm = normit(image[200:700])
         
         if data.shape[3] != 1:
-            ax1[i].pcolormesh(lon,lat,image,norm=norm)
-        else: ax1[i].pcolormesh(image,norm=norm)
+            ax1[i].pcolormesh(lon,lat,image,norm=norm,cmap='magma')
+        else: ax1[i].pcolormesh(image,norm=norm,cmap='magma')
         ax2[i].step(spec_ax,spect)
         ax1[i].set_title(kw)
         ax2[i].set_title(kw)
