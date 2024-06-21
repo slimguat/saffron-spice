@@ -338,5 +338,7 @@ Finally you have FIP maps
 
 ```L3_raster.lines[i].plot(params='all',axes =None,add_keywords = False)``` Plot a parameter or a set of parameters `['int' and/or 'wav' and/or 'wid' and/or 'rad' and/or 'int_err' and/or 'wav_err' and/or 'wid_err' and/or 'rad_err' ]`. If axes is not None than it should be a 1D Iterable with size equal to the number of parameters to plot. 
 
+## Citation
+If you use SAFFRON in your research, please cite the following:
 
-
+Slimane MZERGUAT. SAFFRON: Spectral Analysis Fitting Framework, Reduction Of Noise, Version 1.0.0, 2024. Available at: https://github.com/slimguat/SAFFRON.
