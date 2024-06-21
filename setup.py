@@ -1,11 +1,14 @@
 from setuptools import setup, find_packages
+import os
 
-# Read the requirements from requirements.txt
+# Read the requirements from requirement.txt
 with open('requirement.txt') as f:
     requirements = f.read().splitlines()
+
 # Read the contents of your README file
 with open('README.md') as f:
     long_description = f.read()
+
 # Filter out URL dependencies and handle them separately
 url_dependencies = [req for req in requirements if '://' in req]
 standard_dependencies = [req for req in requirements if '://' not in req]
@@ -37,7 +40,7 @@ setup(
     python_requires='>=3.8',
     entry_points={
         'console_scripts': [
-            'saffron=SAFFRON.__main__:main',  # Replace 'SAFFRON:main' with your actual entry point
+            'saffron=SAFFRON.__main__:main',
         ],
     },
     include_package_data=True,
@@ -49,3 +52,7 @@ setup(
         ],
     },
 )
+
+# Install URL dependencies if they exist
+if url_dependencies:
+    os.system('pip install ' + ' '.join(url_dependencies))
