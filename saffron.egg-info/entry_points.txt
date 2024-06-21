@@ -1,2 +1,0 @@
-[console_scripts]
-saffron = saffron.__main__:main
