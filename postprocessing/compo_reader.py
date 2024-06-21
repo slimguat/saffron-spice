@@ -274,7 +274,8 @@ class SPECLine():
   def charge_data(self,hdul_or_path):
     # if isinstance(hdul_or_path,(str, PosixPath, WindowsPath, pathlib.WindowsPath,HDUList)):raise ValueError('The hdul_or_path sould be a list of 3')
     if isinstance(hdul_or_path, (str, PosixPath, WindowsPath, pathlib.WindowsPath)):
-      hdul = fits.open(hdul_or_path)
+      hdul = fits.open(hdul_or_path) 
+      self.data_path = hdul_or_path
     elif isinstance(hdul_or_path,HDUList):
       hdul = hdul_or_path.copy()
     else:raise TypeError(str(hdul_or_path))
