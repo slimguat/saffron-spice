@@ -1,4 +1,37 @@
-*.pyc
-.\__pycache__\
-.DS_store
-*.egg-info
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Distribution / packaging
+*.egg-info/
+build/
+dist/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Environments
+env/
+venv/
+.SPICE_env/
+
+# Installer logs
+pip-log.txt
+
+# Unit test / coverage reports
+coverage/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+*.sql
+*.sqlite
+
+# System files
+.DS_Store
+Thumbs.db
