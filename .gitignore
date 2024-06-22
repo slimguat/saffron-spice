@@ -1,37 +1,69 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
-*.pyo
+*$py.class
+
+# C extensions
+*.so
 
 # Distribution / packaging
-*.egg-info/
+.Python
 build/
+develop-eggs/
 dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environment
+venv/
+ENV/
+env/
+.venv/
+env.bak/
+env/
+
+# Pyre type checker
+.pyre/
 
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# pyenv
-.python-version
+# pytest
+.cache/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# poetry specific
+poetry.lock   # <--- DO NOT INCLUDE THIS LINE IN YOUR .gitignore
 
 # Environments
+.env
+.venv
 env/
 venv/
-.SPICE_env/
+ENV/
+env.bak/
+venv.bak/
 
-# Installer logs
-pip-log.txt
+# VS Code
+.vscode/
 
-# Unit test / coverage reports
-coverage/
-.tox/
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-*.sql
-*.sqlite
+# PyCharm
+.idea/
 
-# System files
-.DS_Store
-Thumbs.db
+# Other
+*.DS_Store
