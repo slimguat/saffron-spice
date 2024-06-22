@@ -1086,13 +1086,13 @@ tests = ["asttokens (>=2.1.0)", "coverage", "coverage-enable-subprocess", "ipyth
 
 [[package]]
 name = "filelock"
-version = "3.15.3"
+version = "3.15.4"
 description = "A platform independent file lock."
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "filelock-3.15.3-py3-none-any.whl", hash = "sha256:0151273e5b5d6cf753a61ec83b3a9b7d8821c39ae9af9d7ecf2f9e2f17404103"},
-    {file = "filelock-3.15.3.tar.gz", hash = "sha256:e1199bf5194a2277273dacd50269f0d87d0682088a3c561c15674ea9005d8635"},
+    {file = "filelock-3.15.4-py3-none-any.whl", hash = "sha256:6ca1fffae96225dab4c6eaf1c4f4f28cd2568d3ec2a44e15a08520504de468e7"},
+    {file = "filelock-3.15.4.tar.gz", hash = "sha256:2207938cbc1844345cb01a5a95524dae30f0ce089eba5b00378295a17e3e90cb"},
 ]
 
 [package.extras]
@@ -2545,10 +2545,10 @@ files = [
 
 [package.dependencies]
 numpy = [
-    {version = ">=1.21.2", markers = "platform_system != \"Darwin\" and python_version >= \"3.10\" and python_version < \"3.11\""},
-    {version = ">=1.19.3", markers = "platform_system == \"Linux\" and platform_machine == \"aarch64\" and python_version >= \"3.8\" and python_version < \"3.10\" or python_version > \"3.9\" and python_version < \"3.10\" or python_version >= \"3.9\" and platform_system != \"Darwin\" and python_version < \"3.10\" or python_version >= \"3.9\" and platform_machine != \"arm64\" and python_version < \"3.10\""},
     {version = ">=1.21.0", markers = "python_version == \"3.9\" and platform_system == \"Darwin\" and platform_machine == \"arm64\""},
     {version = ">=1.21.4", markers = "python_version >= \"3.10\" and platform_system == \"Darwin\" and python_version < \"3.11\""},
+    {version = ">=1.21.2", markers = "platform_system != \"Darwin\" and python_version >= \"3.10\" and python_version < \"3.11\""},
+    {version = ">=1.19.3", markers = "platform_system == \"Linux\" and platform_machine == \"aarch64\" and python_version >= \"3.8\" and python_version < \"3.10\" or python_version > \"3.9\" and python_version < \"3.10\" or python_version >= \"3.9\" and platform_system != \"Darwin\" and python_version < \"3.10\" or python_version >= \"3.9\" and platform_machine != \"arm64\" and python_version < \"3.10\""},
     {version = ">=1.23.5", markers = "python_version >= \"3.11\" and python_version < \"3.12\""},
     {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
 ]
@@ -3016,13 +3016,13 @@ files = [
 
 [[package]]
 name = "pytest"
-version = "8.1.2"
+version = "8.2.2"
 description = "pytest: simple powerful testing with Python"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "pytest-8.1.2-py3-none-any.whl", hash = "sha256:6c06dc309ff46a05721e6fd48e492a775ed8165d2ecdf57f156a80c7e95bb142"},
-    {file = "pytest-8.1.2.tar.gz", hash = "sha256:f3c45d1d5eed96b01a2aea70dee6a4a366d51d38f9957768083e4fecfc77f3ef"},
+    {file = "pytest-8.2.2-py3-none-any.whl", hash = "sha256:c434598117762e2bd304e526244f67bf66bbd7b5d6cf22138be51ff661980343"},
+    {file = "pytest-8.2.2.tar.gz", hash = "sha256:de4bb8104e201939ccdc688b27a89a7be2079b22e2bd2b07f806b6ba71117977"},
 ]
 
 [package.dependencies]
@@ -3030,11 +3030,11 @@ colorama = {version = "*", markers = "sys_platform == \"win32\""}
 exceptiongroup = {version = ">=1.0.0rc8", markers = "python_version < \"3.11\""}
 iniconfig = "*"
 packaging = "*"
-pluggy = ">=1.4,<2.0"
+pluggy = ">=1.5,<2.0"
 tomli = {version = ">=1", markers = "python_version < \"3.11\""}
 
 [package.extras]
-testing = ["argcomplete", "attrs (>=19.2)", "hypothesis (>=3.56)", "mock", "pygments (>=2.7.2)", "requests", "setuptools", "xmlschema"]
+dev = ["argcomplete", "attrs (>=19.2)", "hypothesis (>=3.56)", "mock", "pygments (>=2.7.2)", "requests", "setuptools", "xmlschema"]
 
 [[package]]
 name = "pytest-cov"
@@ -3863,13 +3863,13 @@ zstd = ["zstandard (>=0.18.0)"]
 
 [[package]]
 name = "virtualenv"
-version = "20.26.2"
+version = "20.26.3"
 description = "Virtual Python Environment builder"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "virtualenv-20.26.2-py3-none-any.whl", hash = "sha256:a624db5e94f01ad993d476b9ee5346fdf7b9de43ccaee0e0197012dc838a0e9b"},
-    {file = "virtualenv-20.26.2.tar.gz", hash = "sha256:82bf0f4eebbb78d36ddaee0283d43fe5736b53880b8a8cdcd37390a07ac3741c"},
+    {file = "virtualenv-20.26.3-py3-none-any.whl", hash = "sha256:8cc4a31139e796e9a7de2cd5cf2489de1217193116a8fd42328f1bd65f434589"},
+    {file = "virtualenv-20.26.3.tar.gz", hash = "sha256:4c43a2a236279d9ea36a0d76f98d84bd6ca94ac4e0f4a3b9d46d05e10fea542a"},
 ]
 
 [package.dependencies]
@@ -3887,22 +3887,17 @@ version = "0.0.4"
 description = "A trous wavelet transform and utilities"
 optional = false
 python-versions = ">=3.8"
-files = []
-develop = false
+files = [
+    {file = "watroo-0.0.4-py3-none-any.whl", hash = "sha256:80469293bcb81ecbe270a34dd22098aff7acd11b895f8dc25df58c00d34e2ce7"},
+    {file = "watroo-0.0.4.tar.gz", hash = "sha256:8348e6952cb0a6dd3d6cb6cf2ecb75f2ebacfb7abd3431e89cb1af124aba1a91"},
+]
 
 [package.dependencies]
 numexpr = ">=2.8.1"
 numpy = ">=1.20.3"
 opencv-python = ">=4.5.1"
-pytest = ">=8.1.1,<8.2.0"
 scipy = ">=1.7.2"
 tqdm = ">=4.64"
-
-[package.source]
-type = "git"
-url = "https://github.com/frederic-auchere/wavelets.git"
-reference = "HEAD"
-resolved_reference = "a4afce18ceeee8dcb0ec081439e32ad6b884cd79"
 
 [[package]]
 name = "wcwidth"
@@ -4047,4 +4042,4 @@ test = ["big-O", "importlib-resources", "jaraco.functools", "jaraco.itertools", 
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9.15,<4.0"
-content-hash = "f664c3c851111422da6f2dd951581b4ddf7293a0bc9471450abadb175dc2a77e"
+content-hash = "d888bd825efc5de03434a4db2dbe8b4ee8911d8e7f53144ad2f30251d423f425"

@@ -29,7 +29,7 @@ roman = "*"
 setuptools = "*"
 sospice = "*"
 colorama = "*"
-watroo = { git = "https://github.com/frederic-auchere/wavelets.git" }
+watroo = "*"
 fiplcr = "*"
 docutils = ">=0.14,<0.21"
 requests = "*"
