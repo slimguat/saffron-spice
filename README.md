@@ -1,6 +1,5 @@
 # SAFFRON
 ## Spectral Analysis, Fitting Framework, Reduction Of Noise
-## (Unpackaged version)
 Data fitting pipeline adapted to SPICE instrument onboard SolaOrbiter. I will apreceate any suggestions to improve the quality of the content
 If you have any question you can contact the author: **[Mzerguat Slimane](Mzerguat.sl@gmail.com)**
 
@@ -13,6 +12,7 @@ Linux :
 ```export XUVTOP=/home/../pathTo/Chianti_Database```<br>
 Windows :
 ```
+It is also possible to setup all of chianti py by running setup-chianti in the terminal
 search Environment Variables in start panel
 In the Environment Variables window, under the "System variables" section, scroll down to find the "Path" variable.
 Click on "New..." to add a new system variable.
