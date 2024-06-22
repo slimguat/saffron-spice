@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "saffron"
+name = "saffron-spice"
 version = "0.1.0"
 description = "SAFFRON: Spectral Analysis Fitting Framework, Reduction Of Noise."
 authors = [
@@ -9,6 +9,10 @@ authors = [
 license = "MIT"
 readme = "README.md"
 homepage = "https://github.com/slimguat/SAFFRON"
+
+packages = [
+    { include = "saffron" }
+]
 
 [tool.poetry.dependencies]
 python = ">=3.9.15,<4.0"
