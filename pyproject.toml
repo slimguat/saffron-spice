@@ -38,7 +38,7 @@ fiplcr = "*"
 docutils = ">=0.14,<0.21"
 requests = "*"
 tqdm = "*"
-
+ipyparallel = "*" #Chiantipy needs it but it is not in the dependencies
 
 [tool.poetry.dev-dependencies]
 pytest = "*"
@@ -46,7 +46,6 @@ black = "*"
 flake8 = "*"
 mypy = "*"
 setuptools_scm = "*"
-ipyparallel = "*" #Chiantipy needs it but it is not in the dependencies
 
 [tool.poetry.scripts]
 setup-chianti = "saffron.__main__:setup_chianti_database"
