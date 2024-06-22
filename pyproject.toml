@@ -1,0 +1,57 @@
+[tool.poetry]
+name = "saffron"
+version = "0.1.0"
+description = "SAFFRON: Spectral Analysis Fitting Framework, Reduction Of Noise."
+authors = [
+    "Slimane MZERGUAT <slimane.mzerguat@universite-paris-saclay.fr>",
+    "Slimane MZERGUAT <mzerguat.sl@gmail.com>"
+]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/slimguat/SAFFRON"
+
+[tool.poetry.dependencies]
+python = ">=3.9.15,<4.0"
+numpy = "*"
+scipy = "*"
+matplotlib = "*"
+numba = "*"
+astropy = "*"
+sunpy = "*"
+ndcube = "*"
+opencv-python = "*"
+multiprocess = "*"
+ipympl = "*"
+ipywidgets = "*"
+pandas = "*"
+rich = "*"
+roman = "*"
+setuptools = "*"
+sospice = "*"
+colorama = "*"
+watroo = { git = "https://github.com/frederic-auchere/wavelets.git" }
+fiplcr = "*"
+docutils = ">=0.14,<0.21"
+requests = "*"
+tqdm = "*"
+
+
+[tool.poetry.dev-dependencies]
+pytest = "*"
+black = "*"
+flake8 = "*"
+mypy = "*"
+setuptools_scm = "*"
+ipyparallel = "*" #Chiantipy needs it but it is not in the dependencies
+
+[tool.poetry.scripts]
+setup-chianti = "saffron.__main__:setup_chianti_database"
+saffron-gui = "saffron.__main__:GUI_init"
+
+[build-system]
+requires = ["poetry-core>=1.0.0", "setuptools_scm"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.setuptools_scm]
+version_scheme = "guess-next-dev"
+local_scheme = "dirty-tag"
