@@ -214,7 +214,7 @@ def gen_lock_fit_func(
     time_str = datetime.datetime.now().strftime("%H%M%d%H%M%S")
     str_func = """
     \nimport numpy as np
-    \nfrom SAFFRON.fit_models import flat_inArg_multiGauss
+    \nfrom saffron.fit_models import flat_inArg_multiGauss
     \ndef func_{}(x,*array):
     \n    unlocked_params = {}
     \n    y = {}(x,*unlocked_params)
@@ -231,7 +231,7 @@ def gen_lock_fit_func(
         lock_protocols._dir_tmp_functions = Path("./tmp_functions").resolve()
         lock_protocols._dir_tmp_functions.mkdir(parents=True, exist_ok=True)
         sys.path.append(lock_protocols._dir_tmp_functions)
-        sys.path.append(Path("./SAFFRON").resolve())
+        sys.path.append(Path("./saffron").resolve())
 
     str_import_Template = "from tmp_functions.{0} import {0}"
     str_func = (

@@ -376,14 +376,20 @@ class GenInits:
         if vb >= 4 or vb <= -4:
             os.makedirs("./tmp", exist_ok=True)
             dtime = str(datetime.datetime.now())[:19].replace(":", "-")
-            axis[0].get_figure().savefig(f"./tmp/{dtime}.jpg")
+            try: axis[0].get_figure().savefig(f"./tmp/{dtime}.jpg")
+            except: 
+                print('problem saving figure')
+            
 
             ((fig1, ax1), (fig2, ax2)) = quickview(self.hdul)
             for i, params in enumerate(self.init_params):
                 specaxis = get_specaxis(self.hdul[unq[i]])
                 ax2[i].step(specaxis, flat_inArg_multiGauss(specaxis, *params))
-            fig1.savefig(f"./tmp/{dtime}_window_all.jpg")
-            fig2.savefig(f"./tmp/{dtime}_spectrum_all.jpg")
+            try: 
+                fig1.savefig(f"./tmp/{dtime}_window_all.jpg")
+                fig2.savefig(f"./tmp/{dtime}_spectrum_all.jpg")
+            except: 
+                print('problem saving figure')
 
     @staticmethod
     def gen_lock_params(
