@@ -396,4 +396,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Citation
 If you use SAFFRON in your research, please cite the following:
 
-Slimane MZERGUAT. SAFFRON: Spectral Analysis Fitting Framework, Reduction Of Noise, Version 1.1.0, 2024. Available at: https://github.com/slimguat/saffron-spice.
+Slimane MZERGUAT. SAFFRON: Spectral Analysis Fitting Framework, Reduction Of Noise, Version [Used_version](https://github.com/slimguat/saffron-spice/tags), 2024. Available at: https://github.com/slimguat/saffron-spice.
+
+But hey, if that sounds like too much work, feel free to skip it and just enjoy the magic of SAFFRON! 😉
