@@ -1,59 +1,74 @@
+
 # SAFFRON
-## Spectral Analysis, Fitting Framework, Reduction Of Noise
-Data fitting pipeline adapted to SPICE instrument onboard SolaOrbiter. I will apreceate any suggestions to improve the quality of the content
-If you have any question you can contact the author: **[Mzerguat Slimane](Mzerguat.sl@gmail.com)**
+<a href="https://pypi.org/project/saffron-spice"><img alt="Latest version" src="https://badge.fury.io/py/saffron-spice.svg"></a>
+
+## Overview
+
+`SAFFRON` is a Python module designed for fitting spectral data using various models and functions. It provides tools for fitting individual pixels, spectral windows, and entire rasters, handling initial parameters, and managing data post-processing. This module is particularly useful for applications in solar physics and spectral analysis, composition analysis using data from [SPICE instrument](https://spice.ias.u-psud.fr/) onboard [Solar Orbiter](https://sci.esa.int/web/solar-orbiter).
 
 ## Requirements
-1. Python<=3.9.15 (I suggest to use pyenv to change versions easily )
-2. Chianti database ([Download]([https://link-url-here.org](https://www.chiantidatabase.org/chianti_download.html)https://www.chiantidatabase.org/chianti_download.html))
-3. Add the variable `XUVTOP` to the path of the database (After extraction)<br>
 
-Linux :
-```export XUVTOP=/home/../pathTo/Chianti_Database```<br>
-Windows :
+1. python = ">=3.9.15,<4.0"
+
+2. The module requires the following dependencies:
+```text
+astropy
+colorama
+docutils = ">=0.14,<0.21"
+fiplcr
+ipympl
+ipyparallel #Chiantipy needs it but it is not in the dependencies
+ipywidgets
+matplotlib
+multiprocess
+ndcube
+numba
+numpy
+opencv-python
+pandas
+requests
+rich
+roman
+scipy
+setuptools
+sospice
+sunpy
+tqdm
+watroo
 ```
-It is also possible to setup all of chianti py by running setup-chianti in the terminal
-search Environment Variables in start panel
-In the Environment Variables window, under the "System variables" section, scroll down to find the "Path" variable.
-Click on "New..." to add a new system variable.
-Set Variable Name and Value:
+3. Chiati database [Optional if using elemental composition analysis] 
 
-In the "New System Variable" dialog, set the variable name as XUVTOP.
-In the "Variable value" field, enter the path or database value you want to assign to XUVTOP.
-Save the Variable:
+## Installation
 
-Click "OK" to save the new system variable.
-```
+A. **Installing the module**
 
-python :
-```python
-import os
-
-# Set the XUVTOP environment variable, will be gone by the end of the script
-os.environ['XUVTOP'] = 'path/to/your/database'
-```
-## Install
-1. Install the right version of python 
+To install the module, follow these steps:
 
 ```bash
-pyenv install 3.9.15
+pip install git+https://github.com/yourusername/spice-saffron.git
 ```
-2. Create and activate your environment
+Or, you can install directly from the GitHub repository:
 
-```bash
-pyenv virtualenv 3.9.15 SPICE_SlimPy
-pyenv activate SPICE_SlimPy
-```
-MAC: MAC is upset with me using shared memory. The package is not working on MAC machines :(. Oh,the quirks of using MAC machines for multi-processing tasks within this package! It's like expecting a cat to enjoy water. But seriously, who embarks on scientific adventures with a MAC anyway? 😄
+1. Clone the repository:
+    ```bash
+    git clone https://github.com/yourusername/spice-saffron.git
+    ```
 
-3. install requirement
+2. Navigate to the project directory:
+    ```bash
+    cd spice-saffron
+    ```
 
-The library hasn't bee packaged yet so it's better to put in the parent folder to be able to use it. This is going to be changed eventually.
+3. Install the dependencies:
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-Inside SlimPy folder do:
-```
-pip install -r requirements.txt 
-```
+B. **Chianti database setup**
+
+Inside the terminal run the command `setup-chianti` than follow instructions to download extract and set the variable parameter (XUVTOP) 
+
+
 ## Tutorial
 ### Basic Fitting 
 ```python
@@ -120,10 +135,10 @@ session.run_preparations()
 this is also possible by calling the same method inside one of the rasters or even one of the windows 
 ```python
 session.run_preparations() #Loop over all rasters of the session that will loop all over the windows
-session.rasters[i].run_preparations() #loop over all the windows of the raster
-session.rasters[i].windows[j].run_preparations() #Apply on the windows only
+session.rasters[i].run_preparations() #loop over all the windows of the raster i
+session.rasters[i].windows[j].run_preparations() #Apply only on the window j of the raster i 
 ```
-Data preparation is a little time consuming so it will not run if it's called twice in the second time. unless if you set redo=True as an argument for .run_preparations()
+Data preparation is a little time consuming depend on the convolution selection and whether denoise and despike were activated so it will not run if it's called twice in the second time. unless if you set redo=True as an argument for .run_preparations()
 
 **Fitting data**
 ```python
@@ -148,7 +163,7 @@ SAFFRON employs a dynamic approach to identify line parameters essential for ini
 The `LineCatalog` class is your gateway to interacting with the line catalog. Here's how you can get started:
 
 ```python
-from SAFFRON.catalog import LineCatalog
+from saffron.catalog import LineCatalog
 # Initialize the catalog; you can specify a custom file location for your catalog
 catalog = LineCatalog(file_location="path/to/your/catalog.json") #if not specified it will upload the default catalog
 ```
@@ -166,7 +181,7 @@ windows = catalog.get_catalog_windows()
 #### Modifying the Catalog
 
 SAFFRON's `LineCatalog` facilitates various operations to tailor the catalog to your needs, including adding or removing lines and spectral windows.
-You can change the catalogue manually by going to `SAFFRON.catalog.SPICE_SpecLines.json` or with code
+You can change the catalogue manually by going to `saffron.catalog.SPICE_SpecLines.json` or with code
 
 - **Adding a New Line**
 
@@ -305,7 +320,7 @@ LFLines = ('s_4',750),('s_5',786),      #Low  Fip lines (needed to compute the F
 HFLines = ('n_4',765.15),('n_3',991.59) #High Fip lines (needed to compute the FIP maps using LCR the choice is conditioned read the paper for more infos) 
 
 
-from SAFFRON.postprocessing import SPICEL3Raster
+from saffron.postprocessing import SPICEL3Raster
 L3_raster = SPICEL3Raster(folder_path = _con_L3_data_dir) #Generating L3 raster: loading outputs and computing the radiance maps and the error.
 L3_raster.gen_compo_LCR(LFLines =LFLines,HFLines =HFLines)# optimizing the linear combination and computing FIP maps and the error values. Add "suppressOutput=True" if you want no graphs 
 ```
@@ -318,9 +333,25 @@ Finally you have FIP maps
 
 ```L3_raster.show_all_wvls()``` return all available lines' wavelengths in order.
 
-```L3_raster.find_line(wvl)``` return the a line as ```SAFFRON.postprocessing.SPECLine``` object with the closest wavelength to wvl.
+```L3_raster.find_line(wvl)``` return the a line as ```saffron.postprocessing.SPECLine``` object with the closest wavelength to wvl.
 
-```L3_raster.lines``` list of lines of type ```SAFFRON.postprocessing.SPECLine``` in the raster.
+```L3_raster.search_lines(ion=None, wavelength=None, closest_wavelength=None) -> line_selection```
+
+This method searches for spectral lines based on specified criteria such as ion, wavelength, or the closest wavelength.
+- **ion**: The ion to search for, specified in the Chianti structure naming convention (e.g., "fe_18", "o_6").
+- **wavelength**: The exact wavelength to search for.
+- **closest_wavelength**: The wavelength to find the closest match for. Only one of `wavelength` or `closest_wavelength` can be specified.
+- **Output**: Returns a list of lines that match the search criteria.
+
+```L3_raster.correct_doppler_gradient(direction="x", reference={"ion": "ne_8", "closest_wavelength": 770}, verbose=0)```
+
+This method performs a primitive Doppler gradient correction for the entire raster based on a reference line's gradient. To revert to the original Doppler values, use:
+```L3_raster.lines[i].reset_doppler()```
+- **direction**: The direction of the gradient correction. Can be `'x'`, `'y'`, or `'xy'`. Default is `'x'`.
+- **reference**: A dictionary specifying the reference line for the Doppler correction. Default is `{"ion": "ne_8", "closest_wavelength": 770}`.
+- **verbose**: Controls the verbosity of the output. Default is `0`.
+
+```L3_raster.lines``` list of lines of type ```saffron.postprocessing.SPECLine``` in the raster.
 
 ```L3_raster.lines[i].wavelength```  Return the wavelength  of the line i.
 
@@ -332,13 +363,37 @@ Finally you have FIP maps
 
 ```L3_raster.lines[i].line_id```     Return the line_id of the line i.  
 
+```L3_raster.lines[i].obs_date```     Return the observation dat of the line i.  
+
 ```L3_raster.lines[i][par]``` 2D Return array parameter of line i with par in `['int' and/or 'wav' and/or 'wid' and/or 'rad' and/or 'int_err' and/or 'wav_err' and/or 'wid_err' and/or 'rad_err' ]`.
 
-```L3_raster.lines[i].header[par]``` Return astropy header object of line i with par in `['int' and/or 'wav' and/or 'wid' and/or 'int_err' and/or 'wav_err' and/or 'wid_err' ]` (no "rad" neither "rad_err").
+```L3_raster.lines[i].header[par]``` Return astropy fits header object of line i with par in `['int' and/or 'wav' and/or 'wid' and/or 'int_err' and/or 'wav_err' and/or 'wid_err' ]` (no "rad" neither "rad_err").
 
-```L3_raster.lines[i].plot(params='all',axes =None,add_keywords = False)``` Plot a parameter or a set of parameters `['int' and/or 'wav' and/or 'wid' and/or 'rad' and/or 'int_err' and/or 'wav_err' and/or 'wid_err' and/or 'rad_err' ]`. If axes is not None than it should be a 1D Iterable with size equal to the number of parameters to plot. 
+```L3_raster.lines[i].plot(params='all',axes =None,add_keywords = False)``` Plot a parameter or a set of parameters `['int' and/or 'wav' and/or 'wid' and/or 'rad' and/or 'int_err' and/or 'wav_err' and/or 'wid_err' and/or 'rad_err' ]`. If axes is not None than it should be a 1D Iterable with size equal to the number of parameters to plot.
+
+```L3_raster.lines[i].get_map(param)``` get generic map object of the selected parameter 
+
+```L3_raster.lines[i].correct_doppler_gradient(self, direction="x", verbose=0, coeff=None) -> coeffs, errors```
+
+This method performs a primitive Doppler gradient correction on line `i`. The corrected Doppler values are automatically applied to the line. To revert to the original Doppler values, use:
+```L3_raster.lines[i].reset_doppler()```
+- **Direction**: Can be `'x'`, `'y'`, or `'xy'`. Specifies the direction(s) for the gradient correction.
+- **coeff Argument**: If the coefficients are already known, provide them using this argument to apply the gradient correction without recomputing the coefficients.
+- **Output**: Returns a list of coefficients for each direction and the computed errors on the Doppler fit.
+
+```L3_raster.get_coord_mat(as_skycoord=False) -> coord_matrix``` or ```L3_raster.lines[i].get_coord_mat(as_skycoord=False) -> coord_matrix```
+
+This method retrieves the coordinate matrix from the raster data.
+
+- **as_skycoord**: If set to `True`, the coordinates will be returned as SkyCoord objects. Default is `False`.
+- **Output**: Returns the coordinate matrix (longitude,latitude).
+
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Citation
 If you use SAFFRON in your research, please cite the following:
 
-Slimane MZERGUAT. SAFFRON: Spectral Analysis Fitting Framework, Reduction Of Noise, Version 1.0.0, 2024. Available at: https://github.com/slimguat/SAFFRON.
+Slimane MZERGUAT. SAFFRON: Spectral Analysis Fitting Framework, Reduction Of Noise, Version 1.1.0, 2024. Available at: https://github.com/slimguat/saffron-spice.
