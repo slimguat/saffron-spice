@@ -1,6 +1,6 @@
 
 # SAFFRON
-<a href="https://pypi.org/project/saffron-spice"><img alt="Latest version" src="https://badge.fury.io/py/saffron-spice.svg"></a>
+<a href="https://pypi.org/project/saffron-spice"><img alt="Latest version" src="https://badge.fury.io/py/saffron-spice.svg?version=latest"></a>
 
 ## Overview
 
