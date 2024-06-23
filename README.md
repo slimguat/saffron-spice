@@ -391,7 +391,7 @@ This method retrieves the coordinate matrix from the raster data.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/slimguat/saffron-spice/blob/main/LICENSE) file for details.
 
 ## Citation
 If you use SAFFRON in your research, please cite the following:
