@@ -344,8 +344,10 @@ class GenInits:
 
                 if np.abs(vb) >= 4:
                     os.makedirs("./tmp", exist_ok=True)
-                    ax.get_figure().savefig(f"./tmp/{dtime}_window{hdul_index}.jpg")
-
+                    try:
+                        ax.get_figure().savefig(f"./tmp/{dtime}_window{hdul_index}.jpg")
+                    except:
+                        print("problem saving figure")
         # saving the parameters
         if True:
             # offset = init_param_maxAdjusted[1::3] - init_param_theory[1::3]

@@ -17,8 +17,8 @@ import pickle
 from rich.progress import Progress
 from rich.console import Console
 from colorama import init, Fore, Style
+init(autoreset=True)
 
-init()
 
 from typing import Union, List, Dict, Any, Callable, Tuple, Optional, Iterable
 from astropy.visualization import (
@@ -1417,7 +1417,7 @@ class WindowFit:
                 print("parent folder doesn't exists... Proceeding creating it")
                 (data_save_dir / col[1]).parent.mkdir(exist_ok=True, parents=True)
             if np.all(np.isnan(col[0][0].data)):
-                print(Fore.red + "Data is full of NaNs not saving it")
+                print(Fore.RED + "Data is full of NaNs not saving it")
                 print(Style.RESET_ALL)
             else:
                 col[0].writeto(data_save_dir / col[1], overwrite=True)
