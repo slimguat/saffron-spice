@@ -10,13 +10,7 @@ from .utils import find_nth_occurrence
 class LockProtocols:
     def __init__(self):
         self.lock = {}
-        # self.block = []
-        # self.line_nmaes = None
         self.fit_func = None
-        # self.unlocked_init_params = []
-        # self.unlocked_quentities = []
-        # self.locked_init_params = []
-        # self.locked_quentities = []
         self.import_function_list = []
         self._dir_tmp_functions = None
 
