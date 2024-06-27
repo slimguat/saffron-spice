@@ -13,6 +13,7 @@
         {"name":"o_v_1"     ,"wvl": 759.00},
         {"name":"o_v_2"     ,"wvl": 760.43},
         {"name":"o_v_3"     ,"wvl": 761.99},  
+        {"name":"x_i"       ,"wvl": 763.00},  
         {"name":"n_iv"      ,"wvl": 765.15},
         {"name":"ne_viii_1" ,"wvl": 770.42},
         {"name":"o_v"       ,"wvl": 774.51},
@@ -43,6 +44,7 @@
         {"lines":["ne_viii_2"]                           ,"max_line":"ne_viii_2" },
         {"lines":["o_iv_1", "s_v"]                       ,"max_line":"o_iv_1"    },
         {"lines":["o_iv_1","o_iv_2", "s_v"]              ,"max_line":"o_iv_1"    },
+        {"lines":["o_iii_1", "o_iii_2"]                  ,"max_line":"o_iii_2"   },
         
         {"lines":["n_iii_1", "n_iii_2", "o_i"]           ,"max_line":"n_iii_2"   },
         {"lines":["mg_ix_1", "o_iii_2"]                  ,"max_line":"o_iii_2"   },
@@ -51,6 +53,10 @@
         {"lines":["h_i_be"]                              ,"max_line":"h_i_be"    },
         {"lines":["h_i_ga"]                              ,"max_line":"h_i_ga"    },
         {"lines":["c_iii", "h_i_ga"]                     ,"max_line":"c_iii"     },
+        {"lines":["o_v_1","o_v_2","o_v_3"]               ,"max_line":"o_v_2"     },
+        {"lines":["o_v_1","o_v_2","o_v_3","x_i"]         ,"max_line":"x_i"       },
+        {"lines":["o_ii"]                                ,"max_line":"o_ii"      },
+
         {"lines":[
                 "h_i_ga" ,
                 "c_iii"  ,

@@ -121,33 +121,39 @@ class GenInits:
                 specdata = np.nanmean(hdu.data, axis=(0, 2, 3)).astype(float)
             WV = "SW" if np.nanmean(specaxis) < 800 else "LW"
             s = self.wvl_interval[WV]
-            specdata = np.array(
-                [
-                    (
-                        specdata[i]
-                        if (
-                            (s.start if s.start > 0 else len(specdata) - s.start)
-                            if s.start is not None
-                            else 0
-                        )
-                        <= i
-                        < (
-                            (s.stop if s.stop > 0 else len(specdata) - s.stop)
-                            if s.stop is not None
-                            else len(specdata)
-                        )
-                        else np.nan
-                    )
-                    for i in range(len(specdata))
-                ]
-            )
-
+            # print("Before reduction",len(specdata))
+            # specdata = np.array(
+            #     [
+            #         (
+            #             specdata[i]
+            #             if (
+            #                 (s.start if s.start > 0 else len(specdata) - s.start)
+            #                 if s.start is not None
+            #                 else 0
+            #             )
+            #             <= i
+            #             < (
+            #                 (s.stop if s.stop > 0 else len(specdata) - s.stop)
+            #                 if s.stop is not None
+            #                 else len(specdata)
+            #             )
+            #             else np.nan
+            #         )
+            #         for i in range(len(specdata))
+            #     ]
+            # )
+            specdata2 = np.empty(len(specdata)) *np.nan
+            specdata2[s] = specdata[s]
+            specdata = specdata2.copy() 
             if len(specdata[(~np.isnan(specdata))]) <= 2:
                 raise (
                     ValueError(
                         "The spectrum is nearly or fully empty wvl_interval is not correct"
                     )
                 )
+        # print("After reduction",len(specdata[(~np.isnan(specdata))]))
+        # print(len(specdata[(np.isnan(specdata))] ))
+        # plt.figure();plt.plot(specaxis,specdata);
         # starting the search for existing lines in the default windows in the wavelength range provided by the hdu
         if True:
             expension_factor = 0.1
