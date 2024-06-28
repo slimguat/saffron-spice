@@ -509,6 +509,7 @@ class SPICEL3Raster:
             )
         elif folder_path is not None:
             list_paths = [str(file) for file in Path(folder_path).glob("*.fits")]
+            list_paths.sort()
         else:
             # nothing to do if the list is given
             pass

@@ -64,7 +64,7 @@ class GenInits:
             self._path = None
 
         self.hdulOrPath = hdulOrPath
-        self.raster = fits_reader.open(hdulOrPath)
+        self.hdul = fits_reader.open(hdulOrPath)
 
         self.lon, self.lat = get_celestial(self.hdul)
         if line_catalogue is None:
@@ -122,26 +122,26 @@ class GenInits:
             WV = "SW" if np.nanmean(specaxis) < 800 else "LW"
             s = self.wvl_interval[WV]
             # print("Before reduction",len(specdata))
-            # specdata = np.array(
-            #     [
-            #         (
-            #             specdata[i]
-            #             if (
-            #                 (s.start if s.start > 0 else len(specdata) - s.start)
-            #                 if s.start is not None
-            #                 else 0
-            #             )
-            #             <= i
-            #             < (
-            #                 (s.stop if s.stop > 0 else len(specdata) - s.stop)
-            #                 if s.stop is not None
-            #                 else len(specdata)
-            #             )
-            #             else np.nan
-            #         )
-            #         for i in range(len(specdata))
-            #     ]
-            # )
+                # specdata = np.array(
+                #     [
+                #         (
+                #             specdata[i]
+                #             if (
+                #                 (s.start if s.start > 0 else len(specdata) - s.start)
+                #                 if s.start is not None
+                #                 else 0
+                #             )
+                #             <= i
+                #             < (
+                #                 (s.stop if s.stop > 0 else len(specdata) - s.stop)
+                #                 if s.stop is not None
+                #                 else len(specdata)
+                #             )
+                #             else np.nan
+                #         )
+                #         for i in range(len(specdata))
+                #     ]
+                # )
             specdata2 = np.empty(len(specdata)) *np.nan
             specdata2[s] = specdata[s]
             specdata = specdata2.copy() 
@@ -151,10 +151,7 @@ class GenInits:
                         "The spectrum is nearly or fully empty wvl_interval is not correct"
                     )
                 )
-        # print("After reduction",len(specdata[(~np.isnan(specdata))]))
-        # print(len(specdata[(np.isnan(specdata))] ))
-        # plt.figure();plt.plot(specaxis,specdata);
-        # starting the search for existing lines in the default windows in the wavelength range provided by the hdu
+        
         if True:
             expension_factor = 0.1
             n_expensions = 20
@@ -264,7 +261,6 @@ class GenInits:
             # return
 
         # fitting with one position of the fit and generating an all in all locked init_param_maxAdjusted
-
         if True:
             if len(init_param_maxAdjusted) > 4:  # fitting with one position of the fit
                 # Generating an all in all locked init_param_maxAdjusted
@@ -385,20 +381,33 @@ class GenInits:
             os.makedirs("./tmp", exist_ok=True)
             dtime = str(datetime.datetime.now())[:19].replace(":", "-")
             try: axis[0].get_figure().savefig(f"./tmp/{dtime}.jpg")
-            except: 
+            except Exception as e: 
+                print(e)
                 print('problem saving figure')
+            self.plot_overview(verbose=vb)
+        
+    def plot_overview(self,verbose: int = None):
+        if verbose is None:
+            vb = self.verbose
+        else:
+            vb = verbose
+        unq = self.get_extnames(self.hdul)
             
+        os.makedirs("./tmp", exist_ok=True)
+        dtime = str(datetime.datetime.now())[:19].replace(":", "-")
 
-            ((fig1, ax1), (fig2, ax2)) = quickview(self.hdul)
-            for i, params in enumerate(self.init_params):
-                specaxis = get_specaxis(self.hdul[unq[i]])
-                ax2[i].step(specaxis, flat_inArg_multiGauss(specaxis, *params))
-            try: 
+        ((fig1, ax1), (fig2, ax2)) = quickview(self.hdul)
+        for i, params in enumerate(self.init_params):
+            specaxis = get_specaxis(self.hdul[unq[i]])
+            ax2[i].step(specaxis, flat_inArg_multiGauss(specaxis, *params))
+        try: 
+            if vb >= 4 or vb <= -4:
                 fig1.savefig(f"./tmp/{dtime}_window_all.jpg")
                 fig2.savefig(f"./tmp/{dtime}_spectrum_all.jpg")
-            except: 
-                print('problem saving figure')
-
+        except Exception as e:
+            print(e) 
+            print('problem saving figure')
+            
     @staticmethod
     def gen_lock_params(
         init_params: List[float],

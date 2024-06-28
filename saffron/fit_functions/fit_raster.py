@@ -1037,8 +1037,11 @@ class WindowFit:
                 av_constant_noise_level, sigma = spice_error(
                     self.hdu, verbose=self.verbose
                 )
-
+                
         self.sigma = sigma["Total"].value.astype(float)
+        if np.all(np.isnan(self.sigma)):
+            print("\033[91mAll sigma values are nan, going back to sigma = 1 everywhere\033[0m")
+            self.sigma[:] = 1
         self.has_treated["sigma"] = True
 
     def _preclean(self, redo=False):
