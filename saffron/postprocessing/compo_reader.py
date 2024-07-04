@@ -213,9 +213,11 @@ class SPECLine:
             "int": self._all["int"][1],
             "wav": self._all["wav"][1],
             "wid": self._all["wid"][1],
+            "rad": self._all["rad"][1],
             "int_err": self._all["int_err"][1],
             "wav_err": self._all["wav_err"][1],
             "wid_err": self._all["wid_err"][1],
+            "rad_err": self._all["rad_err"][1],
         }
 
     @property
@@ -518,7 +520,22 @@ class SPECLine:
             ""
         )
 
-
+    def write_data(self,file_name =None,overwrite=False):
+        #create HDUList
+        if file_name is None:
+            if self.data_path is None:
+                raise Exception("self.data_path is None and self.data_path is None")
+            else:
+                file_name = self.data_path
+        
+        hdu_list = [
+            fits.PrimaryHDU(data=self['int'], header=self.headers['int'])
+            ]
+        for key in ["wav","wid","rad","int_err","wav_err","wid_err","rad_err"]:
+            hdu_list.append(fits.ImageHDU(data=self[key], header=self.headers[key])) 
+        hdul = fits.HDUList(hdu_list)
+        hdul.writeto(file_name, overwrite=overwrite)
+    
 class SPICEL3Raster:
     def __init__(self, list_paths=None, folder_path=None, verbose=0):
         if (list_paths is None and folder_path is None) or (
@@ -539,8 +556,8 @@ class SPICEL3Raster:
         self.FIP_header     = None    
         self.FIP_err_header = None
         self.density_header = None
-        self._prepare_data(list_paths)
         self.verbose = verbose
+        self._prepare_data(list_paths)
         
         self.HFLines = None
         self.LFLines = None
@@ -549,6 +566,7 @@ class SPICEL3Raster:
     def _prepare_data(self, list_paths):
         for paths in list_paths:
             try:
+            # if True:
                 line = SPECLine(paths,verbose=self.verbose)
                 self.lines.append(SPECLine(paths))
             except Exception as e:
@@ -615,7 +633,7 @@ class SPICEL3Raster:
         self.FIP_header     = FIP_header    
         self.FIP_err_header = FIP_err_header
         self.density_header = density_header
-        
+
         
     def gen_compo_LCR(
         self,
@@ -652,7 +670,7 @@ class SPICEL3Raster:
             density_map = (
                 density * np.ones(self.lines[0]["int"].shape, dtype=float) * u.cm**-3
             )
-        self.density = density
+        self.density = density_map
         wvls = np.empty(shape=(len(self.lines),))
         for ind, line in enumerate(self.lines):
             wvls[ind] = line.wavelength
@@ -1033,14 +1051,22 @@ class SPICEL3Raster:
             + " "
             + selected_lines[0].instrument
             + " "
-            + selected_lines[0].obs_date,
+            + str(selected_lines[0].obs_date),
             va="top",
             ha="center",
         )
 
         return axes
 
-
+    def write_data(self,file_name ,overwrite=False):
+        hdu = fits.PrimaryHDU(data=self.FIP    , header=self.FIP_header)
+        hdu2 = fits.ImageHDU  (data=self.FIP_err, header=self.FIP_err_header)
+        hdu3 = fits.ImageHDU  (data=self.density, header=self.density_header)
+        if self.FIP_header is None:
+            raise Exception("FIP is not yet computed run gen_compo_LCR")
+        hdul = fits.HDUList([hdu,hdu2,hdu3])
+        hdul.writeto(file_name, overwrite=overwrite)
+        
 def get_celestial_L3(raster, **kwargs):
     if type(raster) == HDUList:
 
