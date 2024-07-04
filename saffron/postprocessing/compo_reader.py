@@ -173,7 +173,7 @@ def FIP_error(ll, Errors, Datas):
 
 
 class SPECLine:
-    def __init__(self, hdul_or_path):
+    def __init__(self, hdul_or_path,verbose=0):
         self._all = {
             "int": None,
             "wav": None,
@@ -186,41 +186,41 @@ class SPECLine:
         }
         self._prepare_data(hdul_or_path)
         self.uncorrected_wavelength = None
-
+        self.verbose= verbose
     @property
     def wavelength(self):
-        return self._all["int"].header["WAVELENGTH"]
+        return self.headers["int"]["WAVELENGTH"]
 
     @property
     def observatory(self):
-        return self._all["int"].header["OBSERVATORY"]
+        return self.headers["int"]["OBSERVATORY"]
 
     @property
     def instrument(self):
-        return self._all["int"].header["INSTRUMENT"]
+        return self.headers["int"]["INSTRUMENT"]
 
     @property
     def ion(self):
-        return self._all["int"].header["ION"]
+        return self.headers["int"]["ION"]
 
     @property
     def line_id(self):
-        return self._all["int"].header["LINE_ID"]
+        return self.headers['int']["LINE_ID"]
 
     @property
     def headers(self):
         return {
-            "int": self._all["int"].header,
-            "wav": self._all["wav"].header,
-            "wid": self._all["wid"].header,
-            "int_err": self._all["int_err"].header,
-            "wav_err": self._all["wav_err"].header,
-            "wid_err": self._all["wid_err"].header,
+            "int": self._all["int"][1],
+            "wav": self._all["wav"][1],
+            "wid": self._all["wid"][1],
+            "int_err": self._all["int_err"][1],
+            "wav_err": self._all["wav_err"][1],
+            "wid_err": self._all["wid_err"][1],
         }
 
     @property
     def obs_date(self):
-        return self._all["int"].header["DATE-OBS"]
+        return np.datetime64(self.headers['int']["DATE-OBS"])
 
     def get_map(self, param="rad"):
         data = self[param]
@@ -356,12 +356,12 @@ class SPECLine:
                     var = np.nan
                     coeffs[ind] = coeff
                     errors[ind] = np.nan
-        self._all["wav"].data = data
+        self._all["wav"][0] = data
         return coeffs, errors
 
     def reset_doppler(self):
         try:
-            self._all["wav"].data = self.uncorrected_wavelength.copy()
+            self._all["wav"][0] = self.uncorrected_wavelength.copy()
         except:
             pass
 
@@ -379,21 +379,21 @@ class SPECLine:
             return [self.__getitem__(key) for key in val]
         else:
             if val == "int":
-                return self._all["int"].data
+                return self._all["int"][0]
             elif val == "wav":
-                return self._all["wav"].data
+                return self._all["wav"][0]
             elif val == "wid":
-                return self._all["wid"].data
+                return self._all["wid"][0]
             elif val == "int_err":
-                return self._all["int_err"].data
+                return self._all["int_err"][0]
             elif val == "wav_err":
-                return self._all["wav_err"].data
+                return self._all["wav_err"][0]
             elif val == "wid_err":
-                return self._all["wid_err"].data
+                return self._all["wid_err"][0]
             elif val == "rad":
-                return self._all["rad"]
+                return self._all["rad"][0]
             elif val == "rad_err":
-                return self._all["rad_err"]
+                return self._all["rad_err"][0]
             else:
                 raise Exception(
                     f"{val} is not a valid keyword \nValid keywords: int,wav,wid,rad,int_err,wav_err,wid_err,rad_err"
@@ -416,8 +416,10 @@ class SPECLine:
         for hdu in hdul:
             if hdu.header["MEASRMNT"] == "bg":
                 raise Exception("The background is not needed in this Object")
-            self._all[hdu.header["MEASRMNT"]] = hdu
-
+            self._all[hdu.header["MEASRMNT"]] = [hdu.data.copy(), hdu.header]
+        if isinstance(hdul_or_path, (str, PosixPath, WindowsPath, pathlib.WindowsPath)):
+            hdul.close()
+        
     def compute_params(
         self,
     ):
@@ -425,11 +427,29 @@ class SPECLine:
             raise Exception(
                 f"Call self.charge_data first because there is no {[key for key in ['int','wav','wid'] if self._all[key] is None]}"
             )
-        self._all["rad"] = self["int"] * self["wid"] * np.sqrt(np.pi)
-        self._all["rad_err"] = (
-            self["int_err"] / self["int"] + self["wid_err"] / self["wid"]
-        ) * self["rad"]
-
+        if (self._all["rad"] is None) or (self._all["rad_err"] is None):
+            self._all["rad"] = [None,None]
+            self._all["rad_err"] = [None,None]
+            
+            self._all["rad"][0] = self["int"] * self["wid"] * np.sqrt(np.pi)
+            self._all["rad_err"][0] = (
+                self["int_err"] / self["int"] + self["wid_err"] / self["wid"]
+            ) * self["rad"]
+            
+            self._all["rad"]    [1] = self.headers["int"].copy()
+            self._all["rad_err"][1] = self.headers["int_err"].copy()
+            
+            self._all["rad"]    [1]["MEASRMNT"] = "rad"
+            self._all["rad"]    [1]["BTYPE"]    = 'Radiance'
+            self._all["rad"]    [1]["BUNIT"]    = 'W/m2/sr' 
+            self._all["rad_err"][1]["MEASRMNT"] = "rad_err"
+            self._all["rad_err"][1]["BTYPE"]    = 'Radiance'
+            self._all["rad_err"][1]["BUNIT"]    = 'W/m2/sr' 
+        else:
+            if self.verbose > 0:
+                print("The rad and rad_err are already computed")                                            
+            pass
+            
     def plot(self, params="rad", axes=None, add_keywords=False):
         """_summary_
 
@@ -500,7 +520,7 @@ class SPECLine:
 
 
 class SPICEL3Raster:
-    def __init__(self, list_paths=None, folder_path=None):
+    def __init__(self, list_paths=None, folder_path=None, verbose=0):
         if (list_paths is None and folder_path is None) or (
             list_paths is not None and folder_path is not None
         ):
@@ -514,16 +534,25 @@ class SPICEL3Raster:
             # nothing to do if the list is given
             pass
         self.lines = []
-        self.ll = None
-        self.FIP_err = None
+        self.ll             = None
+        self.FIP_err        = None
+        self.FIP_header     = None    
+        self.FIP_err_header = None
+        self.density_header = None
         self._prepare_data(list_paths)
+        self.verbose = verbose
+        
+        self.HFLines = None
+        self.LFLines = None
+        
 
     def _prepare_data(self, list_paths):
         for paths in list_paths:
             try:
-                line = SPECLine(paths)
+                line = SPECLine(paths,verbose=self.verbose)
                 self.lines.append(SPECLine(paths))
-            except:
+            except Exception as e:
+                # print(f"Couldn't load {paths} because of {e}")
                 pass
         self.FIP_err = self.lines[0]["int"] * np.nan
         pass
@@ -537,7 +566,57 @@ class SPICEL3Raster:
             return res
         except:
             return self.FIP_err.copy() + 1
-
+    
+    def _gen_FIP_header(self,HFLines,LFLines):    
+        "_______________________________________________________"
+        #FIP header
+        FIP_header = self.lines[0].headers["int"].copy()
+        FIP_header["MEASRMNT"] = "fip"
+        FIP_header["BTYPE"] = "FIP Bias"
+        FIP_header["BUNIT"] = "" #it's a ratio so no unit
+        del FIP_header['ION'] 
+        del FIP_header['LINE_ID']  
+        del FIP_header['WAVELENGTH'] 
+        for i in range(len(HFLines)):
+            FIP_header[f'HF_WAVE{i}'] = HFLines[i][1]
+            FIP_header[f'HF_ION{i}' ] = HFLines[i][0]
+            
+        for i in range(len(LFLines)):
+            FIP_header[f'LF_WAVE{i}'] = LFLines[i][1]
+            FIP_header[f'LF_ION{i}' ] = LFLines[i][0]
+        
+        "_______________________________________________________"
+        #FIP error header
+        FIP_err_header = self.lines[0].headers["int"].copy()
+        FIP_err_header["MEASRMNT"] = "fip_err"
+        FIP_err_header["BTYPE"] = "FIP Bias error"
+        FIP_err_header["BUNIT"] = "" #it's a ratio so no unit
+        del FIP_err_header['ION'] 
+        del FIP_err_header['LINE_ID']  
+        del FIP_err_header['WAVELENGTH'] 
+        for i in range(len(HFLines)):
+            FIP_err_header[f'HF_WAVE{i}'] = HFLines[i][1]
+            FIP_err_header[f'HF_ION{i}' ] = HFLines[i][0]
+        
+        for i in range(len(LFLines)):
+            FIP_err_header[f'LF_WAVE{i}'] = LFLines[i][1]
+            FIP_err_header[f'LF_ION{i}' ] = LFLines[i][0]
+        
+        "_______________________________________________________"
+        #density header
+        density_header = self.lines[0].headers["int"].copy()
+        density_header["MEASRMNT"] = "den"
+        density_header["BTYPE"]    = "Density"
+        density_header["BUNIT"]    = "cm^-3"
+        del density_header['ION']
+        del density_header['LINE_ID']
+        del density_header['WAVELENGTH']
+        
+        self.FIP_header     = FIP_header    
+        self.FIP_err_header = FIP_err_header
+        self.density_header = density_header
+        
+        
     def gen_compo_LCR(
         self,
         HFLines=None,
@@ -545,13 +624,17 @@ class SPICEL3Raster:
         ll=None,
         suppressOutput=True,
         using_S_as_LF=True,
+        density = 8.3e10,
     ):
+        self.HFLines = HFLines
+        self.LFLines = LFLines
         All_lines = list(HFLines)
         All_lines.extend(LFLines)
         if ll is None:
             self.ll = lc(
                 [Line(ionid, wvl) for ionid, wvl in All_lines],
                 using_S_as_LF=using_S_as_LF,
+                
             )
 
             if suppressOutput:
@@ -561,12 +644,15 @@ class SPICEL3Raster:
                 self.ll.compute_linear_combinations()
         else:
             self.ll = copy.deepcopy(ll)
-        logdens = 8.3  # try  9.5
-        idens = np.argmin(abs(self.ll.density_array.value - 10**logdens))
-        density_map = (
-            10**logdens * np.ones(self.lines[0]["int"].shape, dtype=float) * u.cm**-3
-        )
-
+        # logdens = 8.3  # try  9.5
+        # idens = np.argmin(abs(self.ll.density_array.value - 10**logdens))
+        if isinstance(density,Iterable):
+            density_map = density
+        else:
+            density_map = (
+                density * np.ones(self.lines[0]["int"].shape, dtype=float) * u.cm**-3
+            )
+        self.density = density
         wvls = np.empty(shape=(len(self.lines),))
         for ind, line in enumerate(self.lines):
             wvls[ind] = line.wavelength
@@ -605,7 +691,9 @@ class SPICEL3Raster:
         else:
             S_ind = np.argmin(np.abs(wvls - 750.22))
             self.FIP_err = self.lines[S_ind].rad_err / self.lines[S_ind].rad
-
+        
+        self._gen_FIP_header(HFLines=HFLines,LFLines=LFLines)
+        
     def find_line(self, wvl):
         wvls = np.empty(shape=(len(self.lines),))
         for ind, line in enumerate(self.lines):
@@ -775,14 +863,15 @@ class SPICEL3Raster:
                     lines_selected_by_wavelength.append(line)
             line_selection = lines_selected_by_wavelength
         elif closest_wavelength is not None:
-            lines_selected_by_wavelength = []
-            diff = np.abs(
-                np.array([line.wavelength for line in line_selection])
-                - closest_wavelength
-            )
-            min_diff = np.min(diff)
-            index_diff = np.argmin(diff)
-            line_selection = [line_selection[index_diff]]
+            if len(line_selection) != 0:
+                lines_selected_by_wavelength = []
+                diff = np.abs(
+                    np.array([line.wavelength for line in line_selection])
+                    - closest_wavelength
+                )
+                min_diff = np.min(diff)
+                index_diff = np.argmin(diff)
+                line_selection = [line_selection[index_diff]]
 
         return line_selection
 
