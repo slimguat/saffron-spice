@@ -39,6 +39,119 @@ import shutil
 import pkg_resources
 from pathlib import Path, PosixPath, WindowsPath
 
+from pathlib import Path, WindowsPath, PosixPath
+from sunpy.map import GenericMap
+import astropy 
+from astropy.coordinates import SkyCoord
+from astropy import units as u
+from astropy.units.quantity import Quantity
+from sunpy.map import Map
+
+if True: #FOV functions
+  def draw_FOV(obj_map:Map):
+      
+      pix_vertices = np.array([
+          [0                    ,0                    ],
+          [0                    ,obj_map.data.shape[1]],
+          [obj_map.data.shape[0],obj_map.data.shape[1]],
+          [obj_map.data.shape[0],0                    ],
+      ])
+      
+      hlp_vertices =np.array(obj_map.wcs.wcs_pix2world(pix_vertices[:,1],pix_vertices[:,0],0))
+      
+      # Draw the rectangle around the FOV
+      hlp_vertices[hlp_vertices>180 ] -= 360
+      hlp_vertices[hlp_vertices<-180] += 360
+      hlp_vertices*=3600
+          
+      polygon = gen_polygone(
+          vertices = hlp_vertices.T
+          ,unit=u.arcsec
+          )
+      polySkycoord = SkyCoord(polygon[0],polygon[1],
+                          frame=obj_map.coordinate_frame)
+      return polySkycoord 
+  def gen_polygone(vertices,point_num_per_side=100,unit=1):
+      X,Y = [],[]
+      vertices = [*vertices]
+      vertices.append(vertices[0])
+      for i in range(1,len(vertices)):
+          x,y = gen_line(vertices[i-1],vertices[i],num=point_num_per_side,unit=1)
+          X.extend(list(x.copy()))
+          Y.extend(list(y.copy()))
+      try: return X*unit,Y*unit
+      except: return [x *unit for x in X],[y *unit for y in Y]
+  def gen_line(start,end,num=100,unit=1):
+      
+      a = (start[1]-end[1])/(start[0]-end[0]) 
+      b = start[1] - a*start[0]
+      x = np.linspace(start[0],end[0],num=num)
+      y = a*x+b
+      if np.isnan(y).any():
+          y,x = gen_line(start[::-1],end[::-1],num=num,unit=unit) 
+          
+      return x*unit,y*unit
+
+if True: #reduce map functions
+  def get_corner_HLP(FOV,outer_rectangle=True):
+      min_lon_arcsec = np.min(FOV.spherical.lon.arcsec)
+      max_lon_arcsec = np.max(FOV.spherical.lon.arcsec)
+      min_lat_arcsec = np.min(FOV.spherical.lat.arcsec)
+      max_lat_arcsec = np.max(FOV.spherical.lat.arcsec)
+      
+      if not outer_rectangle:
+          side_size= FOV.spherical.lon.arcsec.shape[0]//4
+          min_lon_arcsec  = np.max(FOV.spherical.lon.arcsec[3*side_size:3*side_size+99])
+          max_lon_arcsec  = np.min(FOV.spherical.lon.arcsec[1*side_size:1*side_size+99])
+          min_lat_arcsec  = np.max(FOV.spherical.lat.arcsec[0*side_size:0*side_size+99])
+          max_lat_arcsec  = np.min(FOV.spherical.lat.arcsec[2*side_size:2*side_size+99])
+          
+      corners = SkyCoord([min_lon_arcsec,min_lon_arcsec,max_lon_arcsec,max_lon_arcsec]*u.arcsec,
+                  [min_lat_arcsec,max_lat_arcsec,max_lat_arcsec,min_lat_arcsec]*u.arcsec,
+                  frame=FOV.frame)
+      return  corners
+  def get_lims(coords:SkyCoord,map):
+    """For Sunpy maps"""
+    xlim_pix1, ylim_pix1 = get_frame(
+        [min(coords.spherical.lon.arcsec), 
+        max(coords.spherical.lon.arcsec)]*u.arcsec,
+        [min(coords.spherical.lat.arcsec), 
+        max(coords.spherical.lat.arcsec)]*u.arcsec,
+        map=map)
+    return xlim_pix1, ylim_pix1
+  def get_frame(xlims_world=[0,0]*u.arcsec,ylims_world=[0,0]*u.arcsec,map=None):
+    try:
+        world_coords = SkyCoord(Tx=xlims_world, Ty=ylims_world, frame=map.coordinate_frame)
+    except:
+        world_coords = SkyCoord(lon=xlims_world, lat=ylims_world, frame=map.coordinate_frame)
+
+    pixel_coords = map.world_to_pixel(world_coords)
+
+    # we can then pull out the x and y values of these limits.
+    xlims_pixel = pixel_coords.x.value
+    ylims_pixel = pixel_coords.y.value
+    return xlims_pixel,ylims_pixel
+  def reduce_largeMap_SmallMapFOV(large_map,small_map,offset = None):
+      FOV = draw_FOV(small_map)
+      FOV_small_inlarge = FOV.transform_to(large_map.coordinate_frame)
+      small_corners_inlarge = get_corner_HLP(FOV_small_inlarge)
+      xlim, ylim = get_lims(small_corners_inlarge, large_map)
+      if type(offset) is not dict: offset = {"left":offset[0],"right":offset[0],"top":offset[1],"bottom":offset[1]}
+      # print(u.arcsec if isinstance(offset["left"],Quantity) else 1)
+      # print(1*(u.arcsec if isinstance(offset["left"],Quantity) else 1)).to(u.arcsec)
+      submap_bottom_left = SkyCoord(
+          np.min(FOV_small_inlarge.spherical.lon.arcsec)*u.arcsec + ((offset["left"]*(u.arcsec if not isinstance(offset["left"],Quantity) else 1)).to(u.arcsec) if offset is not None else 0),
+          np.min(FOV_small_inlarge.spherical.lat.arcsec)*u.arcsec + ((offset["bottom"]*(u.arcsec if not isinstance(offset["bottom"],Quantity) else 1)).to(u.arcsec) if offset is not None else 0),
+          frame = large_map.coordinate_frame,
+          )
+      submap_top_right   = SkyCoord(
+          np.max(FOV_small_inlarge.spherical.lon.arcsec)*u.arcsec + ((offset["right"]*(u.arcsec if not isinstance(offset["left"],Quantity) else 1)).to(u.arcsec) if offset is not None else 0),
+          np.max(FOV_small_inlarge.spherical.lat.arcsec)*u.arcsec + ((offset["top"]*(u.arcsec if not isinstance(offset["left"],Quantity) else 1)).to(u.arcsec) if offset is not None else 0),
+          frame = large_map.coordinate_frame,
+      )
+      
+      sublarge_map = large_map.submap(submap_bottom_left, top_right = submap_top_right)
+      return sublarge_map
 
 def gen_axes_side2side(
     row=1,

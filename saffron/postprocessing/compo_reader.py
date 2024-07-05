@@ -3,14 +3,27 @@ import os
 import copy
 from astropy.io.fits.hdu.hdulist import HDUList
 from astropy.wcs import WCS
+import astropy
 import pathlib
 import numpy as np
 from astropy.io import fits
 from pathlib import Path, WindowsPath, PosixPath
 import matplotlib.pyplot as plt
 import os
-from ..utils import normit, suppress_output, gen_axes_side2side, get_coord_mat
+from ..utils import normit, suppress_output, gen_axes_side2side, get_coord_mat,get_corner_HLP,get_lims,get_frame,reduce_largeMap_SmallMapFOV,coaline_with_FSI_171
 from collections.abc import Iterable
+from sunpy.map import GenericMap
+from euispice_coreg.hdrshift.alignment import Alignment
+from euispice_coreg.plot.plot import PlotFunctions
+from euispice_coreg.utils.Util import AlignCommonUtil
+
+from sunpy.net import Fido, attrs as a
+from astropy.io import fits
+from astropy.time import Time
+import sunpy.map
+from saffron.postprocessing import SPICEL3Raster
+import sunpy_soar
+
 from astropy.visualization import (
     SqrtStretch,
     PowerStretch,
@@ -561,7 +574,10 @@ class SPICEL3Raster:
         
         self.HFLines = None
         self.LFLines = None
-        
+        self.new_crvals = {"CRVAL1":None,"CRVAL2":None}
+        self.old_crvals = {"CRVAL1":None,"CRVAL2":None}
+        self.old_crvals['CRVAL1'] = self.lines[0].headers["int"]["CRVAL1"]
+        self.old_crvals['CRVAL2'] = self.lines[0].headers["int"]["CRVAL2"]
 
     def _prepare_data(self, list_paths):
         for paths in list_paths:
@@ -1058,7 +1074,7 @@ class SPICEL3Raster:
 
         return axes
 
-    def write_data(self,file_name ,overwrite=False):
+    def write_FIP_data(self,file_name ,overwrite=False):
         hdu = fits.PrimaryHDU(data=self.FIP    , header=self.FIP_header)
         hdu2 = fits.ImageHDU  (data=self.FIP_err, header=self.FIP_err_header)
         hdu3 = fits.ImageHDU  (data=self.density, header=self.density_header)
@@ -1066,7 +1082,191 @@ class SPICEL3Raster:
             raise Exception("FIP is not yet computed run gen_compo_LCR")
         hdul = fits.HDUList([hdu,hdu2,hdu3])
         hdul.writeto(file_name, overwrite=overwrite)
-        
+    
+    def _get_from_fido_closest_fsi174(self,raise_error=True):
+        # Assuming self has an attribute or method to get the observation time
+        if type(self).__name__ == SPICEL3Raster.__name__:
+          obs_time = np.datetime64(self.lines[0].obs_date)  # Replace with actual method to get time
+        else:
+          obs_time = np.datetime64(self)
+        time_range = a.Time(obs_time, obs_time + np.timedelta64(1,"h"))  # 1 hour range for example
+        # Search for FSI data close to the self observation time
+        instrument = a.Instrument('EUI')
+        level = a.Level(1)
+        product = a.soar.Product('EUI-FSI174-IMAGE')
+        query = Fido.search(instrument & time_range & level & product)
+
+        if len(query) == 0:
+          if raise_error:
+            raise ValueError("No FSI data found close to the specified time.")
+          else:
+            print("No FSI data found close to the specified time.")
+            return None
+        # Download the data
+        downloaded_files = Fido.fetch(query[0][0])  # Download the first result
+
+        if len(downloaded_files) == 0:
+          if raise_error:
+            raise ValueError("Failed to download FSI data.")
+          else:
+            print("Failed to download FSI data.")
+            return None
+        # Load the first downloaded file into an HDU list
+        hdu_list = fits.open(downloaded_files[0])
+        self.fsi174_path = hdu_list
+        return hdu_list
+    
+    def coaline_with_FSI_171(self,source=None,index=1,verbose=0,):
+      if True: #Get the large_FOV
+        def _check_index(hdul,index):
+          if index >= len(hdul):
+            raise ValueError(f"Index {index} out of range. HDU list has {len(hdul)} HDUs.")
+        if source is None:
+          if verbose>=1:print("No source provided, trying to get the closest FSI 174 image using sunpy.Fido.")
+          hdul = self._get_from_fido_closest_fsi174(self)
+          _check_index(hdul,index)
+          hdu = hdul[index]
+          header = hdu.header
+          data = hdu.data
+        elif isinstance(source, (str, PosixPath, WindowsPath,)):
+          if verbose>=1:print("Source is a path to a fits file.")
+          hdul = fits.open(source)
+          _check_index(hdul,index)
+          hdu = hdul[index] 
+          header = hdu.header
+          data = hdu.data
+        elif isinstance(source,astropy.io.fits.hdu.hdulist.HDUList):
+          if verbose>=1:print("Source is an HDUList.")
+          hdul = source
+          _check_index(hdul,index)
+          hdu = hdul[index] 
+          header = hdu.header
+          data = hdu.data
+        elif isinstance(source, astropy.io.fits.hdu.compressed.compressed.CompImageHDU):
+          if verbose>=1:print('Source is a compressed image HDU.')
+          hdu = source
+          header = hdu.header
+          data = hdu.data
+        elif isinstance(source, GenericMap):
+          if verbose>=1:print("Source is a GenericMap.")
+          header = source.meta
+          data = source.data
+        else:
+          raise ValueError("source must be a path to a fits file or an HDUList or HDU or a a GenericMap")
+      if True:#cut_down_the_FOV 
+        corrected_map = reduce_largeMap_SmallMapFOV(large_map = Map(hdu.data,hdu.header),small_map = self.lines[0].get_map(param='rad'),offset={"left": -150,"right":150,"top":150,"bottom":-150})
+    
+      "_________________________________________________________________________________" 
+      "_________________________________________________________________________________"
+      "_________________________________________________________________________________" 
+      alignement_lines = [{'ion' : 'mg_9',"closest_wavelength": 706}, {"ion" : 'ne_8'}]
+      "_________________________________________________________________________________"
+      "_________________________________________________________________________________"
+      "_________________________________________________________________________________"  
+    
+      selected_line = None
+      for line in alignement_lines:
+        lines = self.search_lines(**line)
+        if len( lines) == 0:
+          continue
+        elif 'closest_wavelength' in line.keys():
+          for line_ in lines: 
+            if line_.wavelength- line['closest_wavelength'] < 1:
+              selected_line = line_
+              break
+        else:
+          selected_line = lines[0]
+        if selected_line is not None:
+          break
+      if  selected_line is None:
+        raise Exception('No lines match the list of lines to coalign with FSI 171')
+      if verbose>=1: print('selected line for alignement', selected_line)
+      if True:#Save the result into a temporary file
+        tmp_location = Path('./tmp')
+        tmp_location.mkdir(exist_ok=True)
+        tobecorrected_map = selected_line.get_map()
+        tobecorrected_path = tmp_location/f"{int(np.random.rand()*100000)}.fits"
+        corrected_path = tmp_location/f"{int(np.random.rand()*100000)}.fits"
+        if verbose>=1:
+          print(f"saving the two maps into {tobecorrected_path} and  {corrected_path}")
+        tobecorrected_map.save(tobecorrected_path )
+        corrected_map    .save(corrected_path     )
+    
+    
+    
+      tobecorrected_path_ = tobecorrected_path 
+    
+      if True: #start aligning (Second round)
+        lag_crval1s = [
+          [-300,300,20],      [-50,50,4], [-10,10,1],
+        ]
+        lag_crval2s = [
+          [-300,300,20],      [-50,50,4], [-10,10,1],
+        ]
+        for ind,(lag_crval1_,lag_crval2_) in enumerate(zip(lag_crval1s,lag_crval2s)): 
+          print(f"correlation {ind+1}/{len(lag_crval1s)}: {lag_crval1_} {lag_crval2_}")
+          lag_crval1 = np.arange(*lag_crval1_)
+          lag_crval2 = np.arange(*lag_crval2_)    
+          lag_cdelta1 = [0]
+          lag_cdelta2 = [0]
+          lag_crota = [0]
+          A = Alignment(large_fov_known_pointing=corrected_path, small_fov_to_correct=tobecorrected_path_, lag_crval1=lag_crval1,
+                    lag_crval2=lag_crval2, lag_cdelta1=lag_cdelta1, lag_cdelta2=lag_cdelta2, lag_crota=lag_crota,
+                    parallelism=True, use_tqdm=True, counts_cpu_max=os.cpu_count(),
+                    )
+          corr = A.align_using_helioprojective(method='correlation')
+          max_index = np.unravel_index(corr.argmax(), corr.shape)
+
+
+          parameter_alignment = {
+          "lag_crval1": lag_crval1,
+          "lag_crval2": lag_crval2,
+          "lag_crota": lag_crota,
+          "lag_cdelta1": lag_cdelta1,
+          "lag_cdelta2": lag_cdelta2,
+          }
+
+          PlotFunctions.plot_correlation(corr,  show=True,
+                                path_save=os.path.join(tmp_location, f"{tobecorrected_path_.stem}_{lag_crval1[2]}_arcsec_correlation.pdf"), **parameter_alignment)
+          PlotFunctions.plot_co_alignment(small_fov_window=-1, large_fov_window=-1, corr=corr,
+                                      small_fov_path=tobecorrected_path_, large_fov_path=corrected_path, show=True,
+                                      results_folder=tmp_location, levels_percentile=[95],
+                                      **parameter_alignment)
+          AlignCommonUtil.write_corrected_fits(path_l2_input=tobecorrected_path, window_list=[-1],
+                                          path_l3_output=tobecorrected_path.parent/f'{tobecorrected_path.stem}_corrected_{lag_crval1[2]}_arcsec.fits', corr=corr,
+                                          **parameter_alignment)
+          tobecorrected_path_ = tobecorrected_path.parent/f'{tobecorrected_path.stem}_corrected_{lag_crval1[2]}_arcsec.fits'
+        with fits.open(tobecorrected_path.parent/f'{tobecorrected_path.stem}_corrected_{lag_crval1[2]}_arcsec.fits') as hdul:
+            self.new_crvals['CRVAL1'] = hdul[0].header['CRVAL1']
+            self.new_crvals['CRVAL2'] = hdul[0].header['CRVAL2']
+        return tobecorrected_map,corrected_map,A
+    def set_coaligned_crvals(self):
+        for i in range(len(self.lines)):
+            for key in self.lines[i]._all.keys():
+                self.lines[i]._all[key][1]['CRVAL1'] = self.new_crvals['CRVAL1']
+                self.lines[i]._all[key][1]['CRVAL2'] = self.new_crvals['CRVAL2']
+        if self.FIP_header is not None:
+            self.FIP_header['CRVAL1'] = self.new_crvals['CRVAL1']
+            self.FIP_err_header['CRVAL1'] = self.new_crvals['CRVAL1']
+            self.density_header['CRVAL1'] = self.new_crvals['CRVAL1']
+            
+            self.FIP_header['CRVAL2'] = self.new_crvals['CRVAL2']
+            self.FIP_err_header['CRVAL2'] = self.new_crvals['CRVAL2']
+            self.density_header['CRVAL2'] = self.new_crvals['CRVAL2']
+    def reset_crvals(self):
+        for i in range(len(self.lines)):
+            for key in self.lines[i]._all.keys():
+                self.lines[i]._all[key][1]['CRVAL1'] = self.old_crvals['CRVAL1']
+                self.lines[i]._all[key][1]['CRVAL2'] = self.old_crvals['CRVAL2']
+        if self.FIP_header is not None:
+            self.FIP_header['CRVAL1'] = self.old_crvals['CRVAL1']
+            self.FIP_err_header['CRVAL1'] = self.old_crvals['CRVAL1']
+            self.density_header['CRVAL1'] = self.old_crvals['CRVAL1']
+            
+            self.FIP_header['CRVAL2'] = self.old_crvals['CRVAL2']
+            self.FIP_err_header['CRVAL2'] = self.old_crvals['CRVAL2']
+            self.density_header['CRVAL2'] = self.old_crvals['CRVAL2']
+                
 def get_celestial_L3(raster, **kwargs):
     if type(raster) == HDUList:
 
