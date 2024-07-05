@@ -10,7 +10,7 @@ from astropy.io import fits
 from pathlib import Path, WindowsPath, PosixPath
 import matplotlib.pyplot as plt
 import os
-from ..utils import normit, suppress_output, gen_axes_side2side, get_coord_mat,get_corner_HLP,get_lims,get_frame,reduce_largeMap_SmallMapFOV,coaline_with_FSI_171
+from ..utils import normit, suppress_output, gen_axes_side2side, get_coord_mat,get_corner_HLP,get_lims,get_frame,reduce_largeMap_SmallMapFOV
 from collections.abc import Iterable
 from sunpy.map import GenericMap
 from euispice_coreg.hdrshift.alignment import Alignment
@@ -21,7 +21,6 @@ from sunpy.net import Fido, attrs as a
 from astropy.io import fits
 from astropy.time import Time
 import sunpy.map
-from saffron.postprocessing import SPICEL3Raster
 import sunpy_soar
 
 from astropy.visualization import (
@@ -578,7 +577,7 @@ class SPICEL3Raster:
         self.old_crvals = {"CRVAL1":None,"CRVAL2":None}
         self.old_crvals['CRVAL1'] = self.lines[0].headers["int"]["CRVAL1"]
         self.old_crvals['CRVAL2'] = self.lines[0].headers["int"]["CRVAL2"]
-
+        self.fsi174_path =  None
     def _prepare_data(self, list_paths):
         for paths in list_paths:
             try:
@@ -1113,7 +1112,7 @@ class SPICEL3Raster:
             return None
         # Load the first downloaded file into an HDU list
         hdu_list = fits.open(downloaded_files[0])
-        self.fsi174_path = hdu_list
+        self.fsi174_path = downloaded_files[0]
         return hdu_list
     
     def coaline_with_FSI_171(self,source=None,index=1,verbose=0,):
@@ -1122,12 +1121,20 @@ class SPICEL3Raster:
           if index >= len(hdul):
             raise ValueError(f"Index {index} out of range. HDU list has {len(hdul)} HDUs.")
         if source is None:
-          if verbose>=1:print("No source provided, trying to get the closest FSI 174 image using sunpy.Fido.")
-          hdul = self._get_from_fido_closest_fsi174(self)
-          _check_index(hdul,index)
-          hdu = hdul[index]
-          header = hdu.header
-          data = hdu.data
+          if self.fsi174_path is not None:
+            if verbose>=1:print("Using the previously available FSI 174 image in self.fsi174_path")
+            hdul = fits.open(self.fsi174_path)
+            _check_index(hdul,index)
+            hdu = hdul[index]
+            header = hdu.header
+            data = hdu.data
+          else:
+            if verbose>=1:print("No source provided, trying to get the closest FSI 174 image using sunpy.Fido.")
+            hdul = self._get_from_fido_closest_fsi174(self)
+            _check_index(hdul,index)
+            hdu = hdul[index]
+            header = hdu.header
+            data = hdu.data
         elif isinstance(source, (str, PosixPath, WindowsPath,)):
           if verbose>=1:print("Source is a path to a fits file.")
           hdul = fits.open(source)
@@ -1241,6 +1248,8 @@ class SPICEL3Raster:
             self.new_crvals['CRVAL2'] = hdul[0].header['CRVAL2']
         return tobecorrected_map,corrected_map,A
     def set_coaligned_crvals(self):
+        if self.new_crvals['CRVAL1'] is None:
+            raise Exception('No new crvals are set run coaline_with_FSI_171 first')
         for i in range(len(self.lines)):
             for key in self.lines[i]._all.keys():
                 self.lines[i]._all[key][1]['CRVAL1'] = self.new_crvals['CRVAL1']

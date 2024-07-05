@@ -29,6 +29,13 @@ from .utils import (
     normit,
     gen_axes_side2side,
     get_coord_mat,
+    draw_FOV,
+    gen_polygone,
+    gen_line,
+    get_corner_HLP,
+    get_lims,
+    get_frame,
+    reduce_largeMap_SmallMapFOV,
 )
 
 __all__ = (
@@ -62,4 +69,11 @@ __all__ = (
     "normit",
     "gen_axes_side2side",
     "get_coord_mat",
+    "draw_FOV",
+    "gen_polygone",
+    "gen_line",
+    "get_corner_HLP",
+    "get_lims",
+    "get_frame",
+    "reduce_largeMap_SmallMapFOV",
 )
