@@ -47,6 +47,10 @@ To install the module, follow these steps:
 ```bash
 pip install git+https://github.com/yourusername/spice-saffron.git
 ```
+or 
+```bash 
+pip install saffron-spice 
+```
 Or, you can install directly from the GitHub repository:
 
 1. Clone the repository:
@@ -68,12 +72,11 @@ B. **Chianti database setup**
 
 Inside the terminal run the command `setup-chianti` than follow instructions to download extract and set the variable parameter (XUVTOP) 
 
-
 ## Tutorial
 ### Basic Fitting 
 ```python
-from SlimPy.manager.manager import Manager
-from SlimPy.utils import get_input_template
+from saffron.manager.manager import Manager
+from saffron.utils import get_input_template
 get_input_template(where='./input.json')
 #Go inside JSON file and put the list of L2 files to use
 session = Manager("./input.json")
@@ -95,7 +98,7 @@ The odds are that you will need no major adjustments for the fitting as the inpu
 **JSON Input**
 In the beginning you will need a input json file that contains all the parameters needed for the analysis part.
 ```python
-from SlimPy.utils import get_input_template
+from saffron.utils import get_input_template
 get_input_template(where='./input.json')
 ```
 Inside the json the most important keys are: 
@@ -109,7 +112,7 @@ Inside the json the most important keys are:
 
 **Initiating and preparing Manager**
 ```python
-from SlimPy.manager import Manager
+from saffron.manager import Manager
 session = Manager("./input.json")
 session.build_files_list()
 ```

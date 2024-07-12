@@ -13,9 +13,9 @@ import os
 from ..utils import normit, suppress_output, gen_axes_side2side, get_coord_mat,get_corner_HLP,get_lims,get_frame,reduce_largeMap_SmallMapFOV
 from collections.abc import Iterable
 from sunpy.map import GenericMap
-from euispice_coreg.hdrshift.alignment import Alignment
-from euispice_coreg.plot.plot import PlotFunctions
-from euispice_coreg.utils.Util import AlignCommonUtil
+# from euispice_coreg.hdrshift.alignment import Alignment
+# from euispice_coreg.plot.plot import PlotFunctions
+# from euispice_coreg.utils.Util import AlignCommonUtil
 
 from sunpy.net import Fido, attrs as a
 from astropy.io import fits
@@ -1116,6 +1116,13 @@ class SPICEL3Raster:
         return hdu_list
     
     def coaline_with_FSI_171(self,source=None,index=1,verbose=0,):
+      try:
+        from euispice_coreg.hdrshift.alignment import Alignment
+        from euispice_coreg.plot.plot import PlotFunctions
+        from euispice_coreg.utils.Util import AlignCommonUtil
+      except:
+        raise Exception("Please install the euispice_coreg package by running the forked version of the package from the following link:\npip install git+https://github.com/slimguat/euispice_coreg.git")
+        
       if True: #Get the large_FOV
         def _check_index(hdul,index):
           if index >= len(hdul):
@@ -1162,7 +1169,6 @@ class SPICEL3Raster:
           raise ValueError("source must be a path to a fits file or an HDUList or HDU or a a GenericMap")
       if True:#cut_down_the_FOV 
         corrected_map = reduce_largeMap_SmallMapFOV(large_map = Map(hdu.data,hdu.header),small_map = self.lines[0].get_map(param='rad'),offset={"left": -150,"right":150,"top":150,"bottom":-150})
-    
       "_________________________________________________________________________________" 
       "_________________________________________________________________________________"
       "_________________________________________________________________________________" 
@@ -1170,7 +1176,6 @@ class SPICEL3Raster:
       "_________________________________________________________________________________"
       "_________________________________________________________________________________"
       "_________________________________________________________________________________"  
-    
       selected_line = None
       for line in alignement_lines:
         lines = self.search_lines(**line)
@@ -1198,11 +1203,7 @@ class SPICEL3Raster:
           print(f"saving the two maps into {tobecorrected_path} and  {corrected_path}")
         tobecorrected_map.save(tobecorrected_path )
         corrected_map    .save(corrected_path     )
-    
-    
-    
       tobecorrected_path_ = tobecorrected_path 
-    
       if True: #start aligning (Second round)
         lag_crval1s = [
           [-300,300,20],      [-50,50,4], [-10,10,1],
