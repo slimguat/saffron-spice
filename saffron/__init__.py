@@ -31,6 +31,9 @@ from . import manager
 from . import postprocessing
 from . import utils
 
+from .fit_models import ModelFactory
+from .utils import ModelCodec
+
 __all__ = (
     fit_functions,
     fit_models,

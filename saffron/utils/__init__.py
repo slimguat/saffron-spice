@@ -37,6 +37,7 @@ from .utils import (
     get_frame,
     reduce_largeMap_SmallMapFOV,
 )
+from .codec import ModelCodec
 
 __all__ = (
     "function_to_string",
@@ -76,4 +77,5 @@ __all__ = (
     "get_lims",
     "get_frame",
     "reduce_largeMap_SmallMapFOV",
+    "ModelCodec",
 )

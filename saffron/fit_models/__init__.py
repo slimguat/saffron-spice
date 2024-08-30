@@ -6,7 +6,7 @@ from .gauss import (
     gauss_Fe18_C3,
     gauss_LyB_Fe10,
 )
-
+from .Model import ModelFactory
 print("fit_models initiated")
 __all__ = (
     "Gauss",
@@ -15,4 +15,5 @@ __all__ = (
     "flat_multiGauss",
     "gauss_Fe18_C3",
     "gauss_LyB_Fe10",
+    'ModelFactory',
 )
