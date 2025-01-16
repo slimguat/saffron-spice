@@ -157,23 +157,38 @@ class ModelFactory():
     Returns:
         str: A formatted string that represents the Model's functions and their parameters.
     """
-    output = ''
-    for key in self.functions:
-      for key2 in self.functions[key]:
-        _repr = {key3:self.functions[key][key2][key3] for key3 in self.functions[key][key2]}
-        for key3 in _repr:
-          if isinstance(_repr[key3],dict):
-            if _repr[key3]["constraint"] == 'lock':
-              new_repr = f'locked to {_repr[key3]["reference"]["model_type"].upper()}[{_repr[key3]["reference"]["element_index"]},{_repr[key3]["reference"]["parameter"]}]{"+" if _repr[key3]["operation"] == "add" else "*"}{_repr[key3]["value"]} = {
-              _repr[key3]["value"]+self.functions[_repr[key3]["reference"]["model_type"]][_repr[key3]["reference"]["element_index"]][_repr[key3]["reference"]["parameter"]]
-              if _repr[key3]["operation"] == 'add'
-              else 
-              _repr[key3]["value"]*self.functions[_repr[key3]["reference"]["model_type"]][_repr[key3]["reference"]["element_index"]][_repr[key3]["reference"]["parameter"]]
-              }'
-              _repr[key3] = new_repr
-        output += '\n-----------------------'
-        output += (f'\n{key.upper()}[{key2}]:{(("Name: "+str(self.functions_names[key][key2]))if self.functions_names[key][key2] is not None else "")}\n   '+'\n   '.join([f"{key3}={_repr[key3]}" for key3 in _repr]))
-    output += '\n-----------------------'
+    def format_locked_parameter(param_dict):
+        """Format the representation of a locked parameter."""
+        reference = param_dict["reference"]
+        operation = "+" if param_dict["operation"] == "add" else "*"
+        reference_value = self.functions[reference["model_type"]][reference["element_index"]][reference["parameter"]]
+        calculated_value = (
+            param_dict["value"] + reference_value if param_dict["operation"] == "add"
+            else param_dict["value"] * reference_value
+        )
+        return (
+            f'locked to {reference["model_type"].upper()}[{reference["element_index"]},'
+            f'{reference["parameter"]}]{operation}{param_dict["value"]} = {calculated_value}'
+        )
+
+    output = ""
+    for key, key_dict in self.functions.items():
+        for key2, param_dict in key_dict.items():
+            # Build a representation of all parameters
+            formatted_params = {}
+            for param_name, param_value in param_dict.items():
+                if isinstance(param_value, dict) and param_value.get("constraint") == "lock":
+                    formatted_params[param_name] = format_locked_parameter(param_value)
+                else:
+                    formatted_params[param_name] = param_value
+
+            # Append to the output
+            output += "\n-----------------------"
+            function_name = self.functions_names[key][key2]
+            output += f'\n{key.upper()}[{key2}]: {"Name: " + str(function_name) if function_name else ""}'
+            output += "\n   " + "\n   ".join([f"{param}={value}" for param, value in formatted_params.items()])
+
+    output += "\n-----------------------"
     return output
   def add_gaussian(self, I: float, x: float, s: float,name=None) -> None:
     """
@@ -452,11 +467,9 @@ class ModelFactory():
     
     reference = self.functions[model_type][ind_func][key]['reference']
     value = self.functions[model_type][ind_func][key]['value']
-    ref_param_string = f"arg_{(
-      self.get_locked_index(
-        self.lockParameterIndexMapping,list(reference.values())
-        )
-      )}"
+    
+    ref_param_string = f"arg_{self.get_locked_index(self.lockParameterIndexMapping, list(reference.values()))}"
+
       
     return '('+ref_param_string + operation + f'{value})'
   def _gaussian_string_to_function(self, ind_func: int) -> str:
