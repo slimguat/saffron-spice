@@ -704,30 +704,9 @@ class ModelFactory():
           list_expressions_and_indices.append([f"{mask_array};{sub_x}", -1])
 
       return list_expressions_and_indices
-  # The implicite method used for serialization have been abandoned in favor of the hdu method 
-  # def encode_model(self,version = "latest") -> str:
-  #   """
-  #   Encodes the Model object into a Base64 encoded string using ModelSerializer.
-    
-  #   Returns:
-  #       str: The encoded model string.
-  #   """
-  #   _ = ModelCodec(version='latest')
-    
-  #   return _.serialize(self.functions)
-  # @classmethod
-  # def decode_model(cls, string: str) -> "ModelFactory":
-  #   """
-  #   Decodes a Base64 encoded string into a Model object using ModelSerializer.
-    
-  #   Args:
-  #       string (str): The encoded model string.
-        
-  #   Returns:
-  #       ModelFactory: The decoded Model object.
-  #   """
-  #   model = cls(ModelCodec.decode(string))
-  #   return model
+
+  
+  
   @property
   def callables(self) -> Dict[str, Callable]:
     """
