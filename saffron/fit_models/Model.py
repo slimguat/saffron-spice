@@ -164,11 +164,11 @@ class ModelFactory():
         for key3 in _repr:
           if isinstance(_repr[key3],dict):
             if _repr[key3]["constraint"] == 'lock':
-              new_repr = f'locked to {_repr[key3]['reference']['model_type'].upper()}[{_repr[key3]["reference"]["element_index"]},{_repr[key3]["reference"]["parameter"]}]{"+" if _repr[key3]["operation"] == "add" else "*"}{_repr[key3]["value"]} = {
-              _repr[key3]["value"]+self.functions[_repr[key3]['reference']['model_type']][_repr[key3]["reference"]["element_index"]][_repr[key3]["reference"]["parameter"]]
-              if _repr[key3]['operation'] == 'add'
+              new_repr = f'locked to {_repr[key3]["reference"]["model_type"].upper()}[{_repr[key3]["reference"]["element_index"]},{_repr[key3]["reference"]["parameter"]}]{"+" if _repr[key3]["operation"] == "add" else "*"}{_repr[key3]["value"]} = {
+              _repr[key3]["value"]+self.functions[_repr[key3]["reference"]["model_type"]][_repr[key3]["reference"]["element_index"]][_repr[key3]["reference"]["parameter"]]
+              if _repr[key3]["operation"] == 'add'
               else 
-              _repr[key3]["value"]*self.functions[_repr[key3]['reference']['model_type']][_repr[key3]["reference"]["element_index"]][_repr[key3]["reference"]["parameter"]]
+              _repr[key3]["value"]*self.functions[_repr[key3]["reference"]["model_type"]][_repr[key3]["reference"]["element_index"]][_repr[key3]["reference"]["parameter"]]
               }'
               _repr[key3] = new_repr
         output += '\n-----------------------'
