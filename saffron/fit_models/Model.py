@@ -1,16 +1,20 @@
 
-from typing import Callable
-from types import FunctionType
+from typing import Callable, Dict, Optional, Any, List, Tuple, Union
 from datetime import datetime
 from pathlib import Path
 import numpy as np
 import copy
 import sys
 import importlib.util
-from ..utils import ModelCodec
+from typing import Iterable
+import matplotlib.pyplot as plt
+from astropy.io import fits
+import pickle
+import zlib
+from astropy.io import fits
 
 class ModelFactory():
-  def __init__(self,functions = None,jit_activated = True,cache=True) -> None:
+  def __init__(self,functions = None,functions_names = None,jit_activated = True,cache=True,verbose=0) -> None:
     """
       Initializes the Model object, setting up dictionaries to store functions 
       and configurations for generating function and Jacobian strings.
@@ -71,24 +75,37 @@ class ModelFactory():
     self.jacobian_string = None
     self.func_path = None
     
-    
     self._function_string_template = "{0}\n"+(("@jit(nopython=True, inline = 'always', cache = "+f"{str(cache)}"+")" ) if jit_activated else "" )+"\ndef {1}(x,{2}):\n\tl={3}\n\tif isinstance(x,float):x = np.array([x],dtype=np.float64)\n\tsum = np.zeros((len(x), ),dtype=np.float64)"
     self._jacobian_string_template = "{0}\n"+(("@jit(nopython=True, inline = 'always', cache = "+f"{str(cache)}"+")" ) if jit_activated else "" )+"\ndef {1}(x,{2}):\n\tl={3}\n\tif isinstance(x,float):x = np.array([x],dtype=np.float64)\n\tjac = np.zeros((len(x),l),dtype=np.float64)"
     
     self.bounds = None #set in self.set_bounds
+    self.bounds_rules = {
+      "I": [0, 1000], 
+      "x": [["ref-add", -3], ["ref-add", 3]], 
+      "s": [0, 3], 
+      "B": [-10, 10]
+      } #to set in self.set_bounds
+    
     self.lockParameterIndexMapping = None #set by gen_mapping
     self.unlockParameterIndexMapping = None #set by gen_mapping
+    self.verbose = verbose
+    self._callables = None
     
     #here lies all the parameters as well as their values 
     if functions is not None:
       self.functions = functions
+      self.functions_names = (
+        functions_names if functions_names is not None else {
+          'gaussian':[None for i in range(len(functions['gaussian']))],
+          'polynome':[None for i in range(len(functions['polynome']))] } )
       self.gen_mappings()
       self.gen_fit_function()
       self.set_bounds()
       
     else:
+      self.functions_names = {'gaussian':[],'polynome':[],}
       self.functions = {"gaussian":{},"polynome":{}}
-  def __add__(self, other: 'Model') -> 'Model':
+  def __add__(self, other: 'ModelFactory') -> 'ModelFactory':
     """
     Combines two Model objects by adding their functions together.
     
@@ -101,7 +118,7 @@ class ModelFactory():
     Raises:
         ValueError: If the other object is not a Model.
     """
-    if not isinstance(other,Model):raise ValueError("Can only add Model to Model")
+    if type(other).__name__ != ModelFactory.__name__:raise ValueError("Can only add Model to Model")
     a_dict = copy.deepcopy(self.functions)
     b_dict = copy.deepcopy(other.functions)
     _res = a_dict.copy()
@@ -126,9 +143,13 @@ class ModelFactory():
             # print("-------------------")
             func_prams[key3]['reference']['element_index'] += a_lengths[model_type]
         _res[key][key2+a_lengths[key]] = func_prams
-    
-    
-    return Model(_res)
+
+      functions_names = copy.deepcopy(self.functions_names)
+      functions_names_b = copy.deepcopy(other.functions_names)
+      for key in functions_names.keys():
+        functions_names[key].extend(functions_names_b[key])
+      
+    return ModelFactory(_res,functions_names)
   def __repr__(self) -> str:
     """
     Provides a string representation of the Model, showing its functions and parameters.
@@ -151,10 +172,10 @@ class ModelFactory():
               }'
               _repr[key3] = new_repr
         output += '\n-----------------------'
-        output += (f'\n{key.upper()}[{key2}]:\n   '+'\n   '.join([f"{key3}={_repr[key3]}" for key3 in _repr]))
+        output += (f'\n{key.upper()}[{key2}]:{(("Name: "+str(self.functions_names[key][key2]))if self.functions_names[key][key2] is not None else "")}\n   '+'\n   '.join([f"{key3}={_repr[key3]}" for key3 in _repr]))
     output += '\n-----------------------'
     return output
-  def add_gaussian(self, I: float, x: float, s: float) -> None:
+  def add_gaussian(self, I: float, x: float, s: float,name=None) -> None:
     """
     Adds a Gaussian function to the Model.
     
@@ -165,10 +186,12 @@ class ModelFactory():
     """
     index = len(self.functions['gaussian'])
     self.functions['gaussian'][index] = {'I':I,'x':x,'s':s}
+    self.functions_names['gaussian'].append(name)
+    
     self.gen_mappings()
     self.gen_fit_function()
     self.set_bounds()
-  def add_polynome(self, *Bi: float, lims: list = [-np.inf, np.inf]) -> None:
+  def add_polynome(self, *Bi: float, lims: list = [-np.inf, np.inf],name=None) -> None:
     """
     Adds a polynomial function to the Model.
     
@@ -178,6 +201,8 @@ class ModelFactory():
     """
     index = len(self.functions['polynome'])
     self.functions['polynome'][index] = {**{f'B{i}':Bi[i] for i in range(len(Bi))},'lims':lims}
+    self.functions_names['polynome'].append(name)
+    
     self.gen_mappings()
     self.gen_fit_function()
     self.set_bounds()
@@ -218,7 +243,9 @@ class ModelFactory():
     
     #locking anything to polynoms is forbidden for now so I have to prohibit it
     if param_1['model_type'] == 'polynome' or param_2['model_type'] == 'polynome':
-      raise ValueError("Locking into polynoms is forbidden for now for mask conflict reasons") 
+      raise ValueError("Locking into polynoms is forbidden because of mask conflict reasons") 
+    
+    if param_1 == param_2:raise ValueError(f"Cannot lock a parameter to itself\nparam_1={param_1}\nparam_2={param_2}")
     
     index1 = param_1['element_index']
     index2 = param_2['element_index']
@@ -240,6 +267,7 @@ class ModelFactory():
       'reference':{'model_type':model_type2,'element_index':index2,'parameter':p2}
       }
     self.gen_mappings()
+    self.set_bounds()
     self.gen_fit_function()
   def gen_mappings(self) -> None:
     """
@@ -262,7 +290,7 @@ class ModelFactory():
             continue
           self.unlockParameterIndexMapping.append([model_type,element_index,parameter])
     self.unlockParameterIndexMapping = np.array(self.unlockParameterIndexMapping,dtype= object)
-  def get_lock_parameter_vector(self,unlocked_params=None) -> np.ndarray:
+  def get_lock_params(self,unlocked_params=None) -> np.ndarray:
     """
     Retrieves a vector of parameters that are locked in the Model.
     
@@ -282,7 +310,7 @@ class ModelFactory():
         index_unlock = self.get_locked_index(self.unlockParameterIndexMapping,lock)
         locked_params[index_lock] = unlocked_params[index_unlock]
     return locked_params
-  def get_unlock_parameter_vector(self,locked_params=None) -> np.ndarray:
+  def get_unlock_params(self,locked_params=None) -> np.ndarray:
     """
     Generates a vector of unlocked parameters in the Model.
     
@@ -297,7 +325,7 @@ class ModelFactory():
         else: 
           constraint = self.functions[lock[0]][lock[1]][lock[2]]['constraint']
           if constraint == 'lock':
-            reference = self.functions[lock[0]][lock[1]][lock[2]]['reference']
+            reference =self.functions[lock[0]][lock[1]][lock[2]]['reference']
             operation = self.functions[lock[0]][lock[1]][lock[2]]['operation']
             value = self.functions[lock[0]][lock[1]][lock[2]]['value']
             if operation == 'add':
@@ -306,8 +334,7 @@ class ModelFactory():
               unlocked_params[index_unlock] = value * self.functions[reference['model_type']][reference['element_index']][reference['parameter']] 
           else:
             raise ValueError(f"Constraint {constraint} not supported")
-            
-        
+
     else:
       unlocked_params = np.zeros(len(self.unlockParameterIndexMapping))
       for index_unlock,lock in enumerate(self.unlockParameterIndexMapping):
@@ -320,8 +347,8 @@ class ModelFactory():
             reference = self.functions[lock[0]][lock[1]][lock[2]]['reference']
             operation = self.functions[lock[0]][lock[1]][lock[2]]['operation']
             value = self.functions[lock[0]][lock[1]][lock[2]]['value']
+            index_lock_reference = self.get_locked_index(self.lockParameterIndexMapping,reference.values())
             if operation == 'add':
-              index_lock_reference = self.get_locked_index(self.lockParameterIndexMapping,reference.values())
               unlocked_params[index_unlock] = value + locked_params[index_lock_reference]
             else:
               unlocked_params[index_unlock] = value * locked_params[index_lock_reference]
@@ -387,6 +414,8 @@ class ModelFactory():
             
       self.jacobian_string[1] +=  '\n\t'+'\n\t'.join(mask_declarations) + '\n\t'+'\n\t' + '\n\t'.join(lines) + '\n\t'+'\n\t' + '\n\treturn jac'
       self.jacobian_string[1] = self.jacobian_string[1].replace('= +', '=')
+      self.reset_callables()
+      self.set_bounds()
   def dump_function(self, directory: Path = Path('./tmp')) -> None:
     """
     Saves the generated function and Jacobian strings to a file in the specified directory.
@@ -662,40 +691,61 @@ class ModelFactory():
           list_expressions_and_indices.append([f"{mask_array};{sub_x}", -1])
 
       return list_expressions_and_indices
-  def encode_model(self,version = "latest") -> str:
-    """
-    Encodes the Model object into a Base64 encoded string using ModelSerializer.
+  # The implicite method used for serialization have been abandoned in favor of the hdu method 
+  # def encode_model(self,version = "latest") -> str:
+  #   """
+  #   Encodes the Model object into a Base64 encoded string using ModelSerializer.
     
-    Returns:
-        str: The encoded model string.
-    """
-    _ = ModelCodec(version='latest')
+  #   Returns:
+  #       str: The encoded model string.
+  #   """
+  #   _ = ModelCodec(version='latest')
     
-    return _.serialize(self.functions)
-  @classmethod
-  def decode_model(cls, string: str) -> 'Model':
-    """
-    Decodes a Base64 encoded string into a Model object using ModelSerializer.
+  #   return _.serialize(self.functions)
+  # @classmethod
+  # def decode_model(cls, string: str) -> "ModelFactory":
+  #   """
+  #   Decodes a Base64 encoded string into a Model object using ModelSerializer.
     
-    Args:
-        string (str): The encoded model string.
+  #   Args:
+  #       string (str): The encoded model string.
         
-    Returns:
-        Model: The decoded Model object.
+  #   Returns:
+  #       ModelFactory: The decoded Model object.
+  #   """
+  #   model = cls(ModelCodec.decode(string))
+  #   return model
+  @property
+  def callables(self) -> Dict[str, Callable]:
     """
-    model = cls(ModelCodec.decode(string))
-    return model
-  def get_model_function(self):
+    Retrieves the callable functions for the model's function and its Jacobian.
+
+    If `_callables` is already generated, it returns the cached callables.
+    Otherwise, it regenerates the callables using `reset_callables`.
+
+    Returns:
+        Dict[str, Callable]: A dictionary with keys 'function' and 'jacobian', 
+        mapping to their respective callable implementations.
+    """
+    if self._callables is not None:
+      return self._callables
+    
+    return self.reset_callables()
+  def reset_callables(self) -> Dict[str, Callable]:
     """
     Generates callable functions for the model's function and its Jacobian by dumping them to a file
     and then importing them.
 
+    This method dynamically loads a Python module containing the function and Jacobian definitions,
+    retrieves the corresponding callables, and caches them in `_callables`.
+
     Returns:
-        dict: A dictionary with 'function' and 'jacobian' as keys, and their respective callable functions as values.
+        Dict[str, Callable]: A dictionary with 'function' and 'jacobian' as keys, 
+        and their respective callable functions as values.
     """
     # Dump the function and jacobian strings to a file
     self.dump_function()
-
+    
     # File path where the functions are dumped
     func_file_path = self.func_path
 
@@ -710,10 +760,31 @@ class ModelFactory():
     model_jacobian = getattr(module, self.jacobian_string[0])
 
     # Store them in the callables attribute
-    self.callables = {'function': model_function, 'jacobian': model_jacobian}
-    
-    return self.callables
-  def set_bounds(self, kwargs = {"I":[0,1000],"x":[0,1000],"s":[0,3],"B":[-10,10]}) -> None:
+    self._callables = {'function': model_function, 'jacobian': model_jacobian}
+    return self._callables
+  def set_bounds(
+    self, 
+    kwargs: Dict[str, Union[List[float], List[List[Union[str, float]]]]] = None
+  ) -> None:
+    """
+    Sets the bounds for the model parameters based on the provided constraints.
+
+    Args:
+        kwargs (Dict[str, Union[List[float], List[List[Union[str, float]]]]]): A dictionary where keys are parameter names 
+            (e.g., "I", "x", "s", "B") and values specify the lower and upper bounds. 
+            Values can be:
+              - A list of floats, e.g., {"I": [0, 1000]}.
+              - A list of lists with constraints, e.g., {"x": [["ref-add", -3], ["ref-add", 3]]}.
+            Defaults to predefined bounds.
+
+    Raises:
+        ValueError: If an unsupported constraint type is encountered in the arguments.
+    """
+    if kwargs is None:
+      kwargs = self.bounds_rules
+    else:
+      self.bounds_rules = kwargs
+      
     self.bounds = [
       #lower bounds
       [- np.inf for i in  self.lockParameterIndexMapping],
@@ -722,11 +793,223 @@ class ModelFactory():
     ]  
     for ind,(model_type,element_index,parameter) in enumerate(self.lockParameterIndexMapping):
       if parameter in kwargs:
-        self.bounds[0][ind] = kwargs[parameter][0]
-        self.bounds[1][ind] = kwargs[parameter][1] 
+        if isinstance(kwargs[parameter][0],Iterable):
+          if kwargs[parameter][0][0] == 'ref-add':
+            self.bounds[0][ind] = self.functions[model_type][element_index][parameter] + kwargs[parameter][0][1]
+          else: raise ValueError(f"Constraint {kwargs[parameter][0][0]} not supported")
+        else:
+          self.bounds[0][ind] = kwargs[parameter][0]
+        if isinstance(kwargs[parameter][1],Iterable):
+          if kwargs[parameter][1][0] == 'ref-add':
+            self.bounds[1][ind] = self.functions[model_type][element_index][parameter] + kwargs[parameter][1][1]
+          else: raise ValueError(f"Constraint {kwargs[parameter][1][0]} not supported")
+        else:
+          self.bounds[1][ind] = kwargs[parameter][1] 
       if parameter == "B0" and 'B' in kwargs:
         self.bounds[0][ind] = kwargs['B'][0]
         self.bounds[1][ind] = kwargs['B'][1]  
-  def copy(self):
-    return copy.deepcopy(self)
+    
+    self.bounds = np.array(self.bounds)
+    
+  def set_unlock_params(self, unlocked_params: np.ndarray) -> None:
+    """
+    Updates the model's unlocked parameters with the provided values.
 
+    Args:
+        unlocked_params (np.ndarray): An array of unlocked parameter values to set.
+    """
+    for ind,unlock_val in enumerate(self.unlockParameterIndexMapping):
+      val = self.functions[unlock_val[0]][unlock_val[1]][unlock_val[2]]
+      if isinstance(val,dict):
+        if self.verbose>=-1:print(f"the value of {unlock_val} is locked not going to be set")
+      else:
+        self.functions[unlock_val[0]][unlock_val[1]][unlock_val[2]] = unlocked_params[ind]
+    self.set_bounds()
+  def set_lock_params(self, locked_params: np.ndarray) -> None:
+    """
+    Updates the model's locked parameters with the provided values.
+
+    Args:
+        locked_params (np.ndarray): An array of locked parameter values to set.
+    """
+    for ind,lock_val in enumerate(self.lockParameterIndexMapping):
+      self.functions[lock_val[0]][lock_val[1]][lock_val[2]] = locked_params[ind]
+    self.set_bounds()
+  def copy(self) -> "ModelFactory":
+    """
+    Creates a deep copy of the current model instance.
+
+    Returns:
+        ModelFactory: A new instance of the model with identical properties.
+    """
+    return copy.deepcopy(self)
+  def get_lock_quentities(self) -> np.ndarray:
+    """
+    Retrieves the names of the locked parameters.
+
+    Returns:
+        np.ndarray: An array of strings representing the names of locked parameters.
+    """  
+    return np.array([i[2] for i in self.lockParameterIndexMapping])
+  def get_unlock_quentities(self) -> np.ndarray:
+    """
+    Retrieves the names of the unlocked parameters.
+
+    Returns:
+        np.ndarray: An array of strings representing the names of unlocked parameters.
+    """  
+    return np.array([i[2] for i in self.unlockParameterIndexMapping])
+  def plot_model(self, ax: Optional[List[Any]] = None, label: str = "") -> List[Any]:
+      """
+      Plots the model function and its Jacobian.
+
+      Args:
+          ax (Optional[List[Any]], optional): Axes on which to plot the model and Jacobian. 
+              If None, new axes will be created. Defaults to None.
+          label (str, optional): Label for the plot. Defaults to an empty string.
+
+      Returns:
+          List[Any]: A list of matplotlib Axes objects containing the plots.
+      """    
+      lock_params= self.get_lock_params()
+      # lock_quentities = self.get_lock_quentities()
+      unlock_params= self.get_unlock_params()
+      unlock_quentities = self.get_unlock_quentities()
+      
+      lims = [
+          np.min(unlock_params[unlock_quentities=="x"]) - np.max(unlock_params[unlock_quentities=="s"])*4,
+          np.max(unlock_params[unlock_quentities=="x"]) + np.max(unlock_params[unlock_quentities=="s"])*4,
+      ]
+      x = np.linspace(lims[0],lims[1],1000)
+      y  = self.callables['function'](x,*lock_params)
+      dy = self.callables['jacobian'](x,*lock_params)
+      
+      if ax is None:
+          fig, ax = plt.subplots(1,2,figsize=(10,5),gridspec_kw={'wspace':0})
+      ax[0].plot(x,y,label=label)
+      ax[0].set_title("model")
+      for i in range(len(lock_params)):
+          ax[1].plot(x,dy[:,i]/np.max(dy[:,i]),label=f'{self.lockParameterIndexMapping[i][0]},{self.lockParameterIndexMapping[i][1]},{self.lockParameterIndexMapping[i][2]}')
+      ax[1].legend()
+      ax[1].set_yticklabels([])
+      # ax[1].plot(x,dy)
+      ax[1].set_title("jacobian")
+      return ax
+  def get_unlock_names(self) -> List[List[Any]]:
+    """
+    Retrieves the names of the unlocked parameters along with their associated function names.
+
+    Returns:
+        List[List[Any]]: A list where each element is a list containing the parameter name 
+        and its associated function name.
+    """  
+    _ = []
+    for val in self.unlockParameterIndexMapping:
+      _.append([val[2],self.functions_names[val[0]][val[1]]])
+      
+        
+    return _
+  def get_unlock_covariance(self, locked_cov: np.ndarray) -> np.ndarray:
+    """
+    Computes the covariance matrix for unlocked parameters from the locked parameter covariance matrix.
+
+    Args:
+        locked_cov (np.ndarray): The covariance matrix for the locked parameters.
+
+    Returns:
+        np.ndarray: The covariance matrix for the unlocked parameters.
+    
+    Raises:
+        ValueError: If an unsupported constraint type is encountered during conversion.
+    """  
+    unlock_covariance = np.zeros(
+      (
+      len(self.unlockParameterIndexMapping),
+      len(self.unlockParameterIndexMapping)
+      )
+      )
+    
+    # CONTINUE HERE
+    for index_unlock,lock in enumerate(self.unlockParameterIndexMapping):
+      if not isinstance(self.functions[lock[0]][lock[1]][lock[2]],dict):
+        index_lock = self.get_locked_index(self.lockParameterIndexMapping,lock)
+        unlock_covariance[index_unlock,index_unlock] = locked_cov[index_lock,index_lock]
+      else: 
+        constraint = self.functions[lock[0]][lock[1]][lock[2]]['constraint']
+        if constraint == 'lock':
+          reference = self.functions[lock[0]][lock[1]][lock[2]]['reference']
+          operation = self.functions[lock[0]][lock[1]][lock[2]]['operation']
+          value = self.functions[lock[0]][lock[1]][lock[2]]['value']
+          index_lock_reference = self.get_locked_index(self.lockParameterIndexMapping,reference.values())
+          if operation == 'add':
+            unlock_covariance[index_unlock,index_unlock] = locked_cov[index_lock_reference,index_lock_reference]
+          else:
+            unlock_covariance[index_unlock,index_unlock] = value**2 * locked_cov[index_lock_reference,index_lock_reference]
+        else:
+          raise ValueError(f"Constraint {constraint} not supported")
+    
+    return unlock_covariance
+  
+  # Existing methods and attributes are preserved
+
+  def to_hdu(self, hdu_name="FIT_MODEL") -> fits.BinTableHDU:
+      """
+      Serializes and compresses the ModelFactory instance into a FITS HDU.
+
+      Args:
+          hdu_name (str): The name of the FITS HDU.
+
+      Returns:
+          BinTableHDU: A FITS Binary Table HDU containing the serialized, compressed ModelFactory instance.
+      """
+      # Ensure `_callables` is removed since it's not serializable
+      self._callables = None
+
+      # Serialize and compress the model object
+      serialized_model = pickle.dumps(self)
+      compressed_model = zlib.compress(serialized_model)
+
+      # Create a numpy array from the compressed binary data
+      compressed_array = np.frombuffer(compressed_model, dtype=np.uint8)
+
+      # Create the FITS Binary Table HDU
+      hdu = fits.BinTableHDU.from_columns([
+          fits.Column(name='model', format=f'{len(compressed_array)}B', array=[compressed_array])
+      ])
+      hdu.header['EXTNAME'] = hdu_name
+      hdu.header['MODELCLS'] = str(self.__class__.__name__)  # Store class name
+      hdu.header['MODELVER'] = None  # Placeholder for versioning
+      hdu.header['COMPTYPE'] = 'zlib'  # Indicate the compression type
+
+      return hdu
+
+  @classmethod
+  def from_hdu(cls, hdu: fits.BinTableHDU) -> "ModelFactory":
+      """
+      Deserializes and decompresses a ModelFactory instance from a FITS HDU.
+
+      Args:
+          hdu (BinTableHDU): The FITS Binary Table HDU containing the serialized ModelFactory instance.
+
+      Returns:
+          ModelFactory: The reconstructed ModelFactory instance.
+      """
+      # Validate the HDU structure
+      if 'model' not in hdu.columns.names:
+          raise ValueError("HDU does not contain a 'model' column.")
+      if hdu.header.get('COMPTYPE') != 'zlib':
+          raise ValueError("Unsupported compression type or missing compression metadata.")
+
+      # Extract and decompress the binary data
+      compressed_model = np.array(hdu.data['model'][0], dtype=np.uint8).tobytes()
+      serialized_model = zlib.decompress(compressed_model)
+
+      # Deserialize the ModelFactory object
+      model_instance = pickle.loads(serialized_model)
+
+      return model_instance
+    
+    
+    
+    
+  

@@ -12,6 +12,7 @@ import sys
 
 from astropy.io import fits as fits_reader
 from astropy.io.fits.hdu.image import PrimaryHDU, ImageHDU
+from astropy.io.fits import HDUList
 from astropy.visualization import (
     SqrtStretch,
     PowerStretch,
@@ -46,6 +47,76 @@ from astropy.coordinates import SkyCoord
 from astropy import units as u
 from astropy.units.quantity import Quantity
 from sunpy.map import Map
+from IPython.display import HTML, display
+import colorama
+import matplotlib.dates as mdates
+
+def colored_text(text, color):
+    """
+    Display colored text dynamically based on the environment (Jupyter or standard terminal).
+    
+    Parameters:
+        text (str): The text to display.
+        color (str): The color name (e.g., 'red', 'green', 'blue') or a hex code (e.g., '#FF0000').
+    """
+    def is_hex_color(c):
+        """Check if the string is a valid hex color."""
+        if c.startswith("#") and len(c) == 7:
+            try:
+                int(c[1:], 16)  # Validate hex value
+                return True
+            except ValueError:
+                return False
+        return False
+
+    def colored_text_terminal(text, hex_color):
+        """Display text with a True Color ANSI escape sequence in the terminal."""
+        # Convert hex to RGB
+        hex_color = hex_color.lstrip("#")
+        r, g, b = (int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        # Generate ANSI escape sequence
+        ansi_color = f"\033[38;2;{r};{g};{b}m"
+        reset = "\033[0m"
+        # Print colored text
+        print(f"{ansi_color}{text}{reset}")
+
+    try:
+        # Detect if running in an IPython or Jupyter environment
+        ipython_shell = get_ipython().__class__.__name__
+        if ipython_shell in ['ZMQInteractiveShell', 'GoogleColabShell', 'InteractiveShellEmbed']:
+            # Jupyter Notebook, Google Colab, or Embedded Shell
+            from IPython.display import HTML, display
+            if is_hex_color(color):
+                display(HTML(f'<span style="color: {color}; font-weight: bold;">{text}</span>'))
+            else:
+                display(HTML(f'<span style="color: {color}; font-weight: bold;">{text}</span>'))
+        else:
+            raise NameError("Not a Jupyter-like environment")
+    except NameError:
+        # Standard terminal or non-Jupyter environment
+        try:
+            from colorama import Fore, Style, init
+            init(autoreset=True)  # Initialize Colorama for Windows compatibility
+
+            if is_hex_color(color):
+                # Use the enhanced hex-to-ANSI function for terminals
+                colored_text_terminal(text, color)
+            else:
+                # Handle named colors with Colorama
+                colors = {
+                    'red': Fore.RED,
+                    'green': Fore.GREEN,
+                    'blue': Fore.BLUE,
+                    'yellow': Fore.YELLOW,
+                    'magenta': Fore.MAGENTA,
+                    'cyan': Fore.CYAN,
+                    'white': Fore.WHITE,
+                    'black': Fore.BLACK,
+                }
+                print(colors.get(color.lower(), Fore.WHITE) + text + Style.RESET_ALL)
+        except ImportError:
+            # Fallback if colorama is not available
+            print(text)
 
 if True: #FOV functions
   def draw_FOV(obj_map:Map):
@@ -184,8 +255,8 @@ def gen_axes_side2side(
     assert len(hspaces) == row - 1
     assert len(wspaces) == col - 1
     effective_size = (1 - right_pad - left_pad, 1 - top_pad - bottom_pad)
-    ax_w = (effective_size[0] - np.sum(wspaces)) / col
-    ax_h = (effective_size[1] - np.sum(hspaces)) / row
+    ax_w = (effective_size[1] - np.sum(wspaces)) / col
+    ax_h = (effective_size[2] - np.sum(hspaces)) / row
 
     if figsize is None:
         h = ax_size * row
@@ -214,9 +285,7 @@ def gen_axes_side2side(
                 ax_h,
             ]
 
-            axes[i][j] = fig.add_axes(
-                rect,
-            )
+            axes[i][j] = fig.add_axes(rect,)
     axes = axes[::-1]
     if sharex or sharey:
         for i, row_ax in enumerate(axes):
@@ -227,7 +296,28 @@ def gen_axes_side2side(
                     ax.set_yticklabels([])
     return axes
 
+def get_extnames(hdul: HDUList) -> List[str]:
+    """
+    Get a list of unique extension names from an HDUList, excluding specific extension names.
 
+    Args:
+        hdul (HDUList): An astropy HDUList object.
+
+    Returns:
+        List[str]: A list of unique extension names.
+    """
+    unq = [
+        hdu.header["EXTNAME"]
+        for hdu in hdul
+        if (hdu.header["EXTNAME"]
+        not in ["VARIABLE_KEYWORDS", "WCSDVARR", "WCSDVARR"]) and ('SATPIXLIST' not in hdu.header["EXTNAME"])
+    ]
+    return unq
+def get_data_raster(hdul: HDUList) -> List[np.ndarray]:
+    unq = get_extnames(hdul)
+    raster = [hdu for hdu in hdul if hdu.header["EXTNAME"] in unq] 
+    return raster    
+    
 def get_coord_mat(map, as_skycoord=False):
     res = sunpy.map.maputils.all_coordinates_from_map(map)
     if as_skycoord:
@@ -240,11 +330,9 @@ def get_coord_mat(map, as_skycoord=False):
         lat = res.lat.value
     return lon, lat
 
-
 def function_to_string(func):
     source_lines, _ = inspect.getsourcelines(func)
     return "".join(source_lines)
-
 
 def flatten(iterable):
     flattened = []
@@ -255,16 +343,6 @@ def flatten(iterable):
             flattened.append(item)
     return flattened
 
-
-def find_nth_occurrence(lst, element, n):
-    occurrences = [index for index, item in enumerate(lst) if item == element]
-
-    if n <= len(occurrences):
-        return occurrences[n - 1]
-    else:
-        return -1  # Element not found or nth occurrence doesn't exist
-
-
 def ArrToCode(arr):
     # Check if the input is a numpy array
     if not isinstance(arr, np.ndarray):
@@ -273,7 +351,6 @@ def ArrToCode(arr):
     arr_str = f"np.array({arr.tolist()})"
     arr_str = arr_str.replace("nan", "np.nan")
     return arr_str
-
 
 def prepare_filenames(
     prefix=None,
@@ -374,7 +451,6 @@ def prepare_filenames(
     # print(filename_a,filename_b,filename)
     return filename, filename_a, filename_b
 
-
 def clean_nans(
     xdata: np.ndarray,
     ydata: np.ndarray,
@@ -450,7 +526,6 @@ def clean_nans(
         sigma = 1 / (np.ones(len(clean_y)) / len(clean_y))
     return clean_x, clean_y, sigma
 
-
 @jit(nopython=True)
 def fst_neigbors(
     extent: float,
@@ -480,7 +555,6 @@ def fst_neigbors(
                 nm_list.append([n, m, s])
     return nm_list
 
-
 @jit(nopython=True)
 def join_px(data, i, j, ijc_list):
     res_px = float(0.0)
@@ -503,7 +577,6 @@ def join_px(data, i, j, ijc_list):
     else:
         return np.nan
 
-
 def _cv2blur(data, size):
     try:
         len(size)
@@ -516,7 +589,6 @@ def _cv2blur(data, size):
     for i in range(data.shape[1]):
         blured[0, i] = cv2.blur(data[0, i] * 1, size, borderType=cv2.BORDER_REFLECT_101)
     return blured
-
 
 def get_specaxis(hdu: PrimaryHDU or ImageHDU) -> np.ndarray:
     """
@@ -534,19 +606,16 @@ def get_specaxis(hdu: PrimaryHDU or ImageHDU) -> np.ndarray:
     specaxis *= 10**10
     return specaxis
 
-
 def _sciunif(data, size):
-    try:
-        len(size)
-    except:
-        size = [size, size]
-    blured = np.empty_like(
-        data,
-    )
-
-    blured[0] = uniform_filter(data[0] * 1, size, mode="reflect")
+    if not isinstance(size, Iterable):
+        # len(size)
+        size = [1,1,size, size]
+    else:
+        pass
+    
+    blured = uniform_filter(data, size, mode="reflect")
+    # print(size, blured.shape)
     return blured
-
 
 def deNaN(data):
     clean_data = data.copy()
@@ -567,13 +636,12 @@ def deNaN(data):
             min_lat = np.min(np.where(np.logical_not(np.isnan(yNaN))))
             max_lat = np.max(np.where(np.logical_not(np.isnan(yNaN)))) + 1
 
-        clean_data[0, i, 0:min_lat, :] = 0
-        clean_data[0, i, :, 0:min_lon] = 0
-        clean_data[0, i, max_lat:, :] = 0
-        clean_data[0, i, :, max_lon:] = 0
+        clean_data[:, i, 0:min_lat, :] = 0
+        clean_data[:, i, :, 0:min_lon] = 0
+        clean_data[:, i, max_lat:, :] = 0
+        clean_data[:, i, :, max_lon:] = 0
 
     return clean_data
-
 
 def reNaN(original_data, clean_data, size):
     data = original_data.copy()
@@ -594,20 +662,31 @@ def reNaN(original_data, clean_data, size):
         else:
             min_lat = np.min(np.where(np.logical_not(np.isnan(yNaN))))
             max_lat = np.max(np.where(np.logical_not(np.isnan(yNaN)))) + 1
-        min_lat = min_lat + (size[0] // 2 + (1 if size[0] % 2 != 0 else 0))
-        min_lon = min_lon + (size[1] // 2 + (1 if size[1] % 2 != 0 else 0))
-        max_lat = max_lat - (size[0] // 2 + (1 if size[0] % 2 != 0 else 0))
-        max_lon = max_lon - (size[1] // 2 + (1 if size[1] % 2 != 0 else 0))
+        
+        
+        min_lat = min_lat + (size[1] // 2 + (1 if size[1] % 2 != 0 else 0))
+        min_lon = min_lon + (size[2] // 2 + (1 if size[2] % 2 != 0 else 0))
+        max_lat = max_lat - (size[1] // 2 + (1 if size[1] % 2 != 0 else 0))
+        max_lon = max_lon - (size[2] // 2 + (1 if size[2] % 2 != 0 else 0))
+        min_tim = 0 + (size[0] // 2 + (1 if size[0] % 2 != 0 else 0))
+        max_tim = data.shape[0] - (size[0] // 2 + (1 if size[0] % 2 != 0 else 0))
 
-        min_lat = np.min([min_lat, data.shape[3]])
-        min_lon = np.min([min_lon, data.shape[2]])
+
+        min_lat = np.min([min_lat, data.shape[3]+1])
+        min_lon = np.min([min_lon, data.shape[2]+1])
         max_lat = np.max([max_lat, 0])
         max_lon = np.max([max_lon, 0])
-
-        reclean_data[0, i, 0 : min_lat - 1, :] = np.nan
-        reclean_data[0, i, :, 0 : min_lon - 1] = np.nan
-        reclean_data[0, i, max_lat + 1 :, :] = np.nan
-        reclean_data[0, i, :, max_lon + 1 :] = np.nan
+        max_tim = np.max([max_tim, 0])
+        min_tim = np.min([min_tim, data.shape[0]-1])
+        
+        
+        reclean_data[:            , i,  : min_lat - 1, :            ] = np.nan
+        reclean_data[:            , i, :             , : min_lon - 1] = np.nan
+        reclean_data[:            , i, max_lat + 1 : , :            ] = np.nan
+        reclean_data[:            , i, :             , max_lon + 1 :] = np.nan
+        reclean_data[: min_tim - 1, i, :             , :            ] = np.nan
+        reclean_data[max_tim + 1 :, i, :             , :            ] = np.nan
+        
 
     return reclean_data
 
@@ -631,6 +710,7 @@ def convolve(
     lat_pixel_size,
     convolution_extent_list,
     convolution_function,
+    
     verbose=0,
 ):
     if verbose >= 1:
@@ -697,6 +777,40 @@ def convolve(
         raise ValueError(f"mode:{mode} is not implemented or there is a misspelling")
     return conv_data
 
+def convolve_4D(
+    window,
+    mode,
+    convolution_extent_list,
+    verbose=0,
+):
+    convolution_extent_list = np.array(convolution_extent_list)
+    if verbose >= 1:
+        print(f"convolving using {mode}")
+    if mode == "cercle":
+        raise ValueError("cercle mode is deprecated")
+    elif mode == "box":
+        conv_data = np.zeros((convolution_extent_list.shape[0], *window.shape))
+        clean_window = deNaN(window)
+        for i,size in enumerate(convolution_extent_list):
+            for j in size: 
+                if size[i]>window.shape[i]:
+                    colored_text(f'Warning:One of the dimentions of convolution kernel size {size} is larger than that of the window size {window.shape}','yellow')
+                    break
+            if verbose >= 2:
+                print("creating convolution list...")
+                print(f"convolving with size {size}")
+            if (np.array(size)==1).all():
+                conv_data[i] = window.copy()
+                continue
+            else:
+                blured = _sciunif(clean_window[:,:,:,:], size)
+                # print(blured.shape,conv_data[j].shape)
+                conv_data[i] = reNaN(window, blured, [size[0],size[2],size[3]])
+        
+                
+    else:
+        raise ValueError(f"mode:{mode} is not implemented or there is a misspelling")
+    return conv_data
 
 # @jit(nopython=True) #not tryed yet
 def Preclean(cube):
@@ -842,52 +956,35 @@ def correct_velocity(velocity_hist, velocity_values, verbose=0):
     return velocity_values_corr, ref_velocity
 
 
-def get_celestial(raster, include_time=False, **kwargs):
-    if type(raster) == astropy.io.fits.hdu.hdulist.HDUList or isinstance(
+def get_all_celestials(raster,**kwargs):
+    if isinstance(raster, WCS):
+        shape = np.array(kwargs["shape"])
+        if len(shape) == 3:pass
+        elif len(shape) == 4:
+            shape[1] = 1
+        else:
+            raise ValueError("The shape of the raster is not acceptable")
+        wcs = raster
+        
+        t = np.arange(shape[0], dtype=int)
+        lbd= np.array([0], dtype=int)
+        y = np.arange(shape[2], dtype=int)
+        x = np.arange(shape[3], dtype=int)
+        # Generate the meshgrid
+        tlbdxy = np.array(np.meshgrid(x,y,lbd,t , indexing='ij'))  
+        res = wcs.pixel_to_world(tlbdxy[0], tlbdxy[1], tlbdxy[2],tlbdxy[3])
+        coords = res[0].reshape(shape[::-1], )
+        time = res[2].reshape(shape[::-1],)
+        datetime64_array = time.to_value('datetime64')
+    elif type(raster) == astropy.io.fits.hdu.hdulist.HDUList or isinstance(
         raster, Iterable
     ):
 
         shape = raster[0].data.shape
         wcs = WCS(raster[0].header)
-        y = np.arange(shape[2], dtype=int)
-        x = np.arange(shape[3], dtype=int)
-
-        y = np.repeat(y, shape[3]).reshape(shape[2], shape[3])
-        x = np.repeat(x, shape[2]).reshape(shape[3], shape[2])
-        x = x.T
-        lon, lat, _, time = wcs.wcs_pix2world(x.flatten(), y.flatten(), 0, 0, 0)
-        time = time.reshape(shape[2], shape[3])
-
-        lon[lon > 180] -= 360
-        lat[lat > 180] -= 360
-
-        lon[lon < -180] += 360
-        lat[lat < -180] += 360
-
-        lon = lon.reshape(shape[2], shape[3]) * 3600
-        lat = lat.reshape(shape[2], shape[3]) * 3600
-
-    elif isinstance(raster, WCS):
-        shape = kwargs["shape"]
-
-        wcs = raster
-        y = np.arange(shape[0], dtype=int)
-        x = np.arange(shape[1], dtype=int)
-
-        y = np.repeat(y, shape[1]).reshape(shape[0], shape[1])
-        x = np.repeat(x, shape[0]).reshape(shape[1], shape[0])
-        x = x.T
-        lon, lat, time = wcs.wcs_pix2world(x.flatten(), y.flatten(), 0, 0)
-        time = time.reshape(shape[0], shape[1])
-
-        lon[lon > 180] -= 360
-        lat[lat > 180] -= 360
-
-        lon[lon < -180] += 360
-        lat[lat < -180] += 360
-
-        lon = lon.reshape(shape[0], shape[1]) * 3600
-        lat = lat.reshape(shape[0], shape[1]) * 3600
+        return (get_all_celestials(wcs,shape= shape))
+        # specoords = res[1].reshape(shape[::-1],)
+        
     else:
         print(
             f"The raster passed doesn't match any known types: {type(raster)} but it has to be one of these types: \n{ndcube.ndcollection.NDCollection}\n{astropy.io.fits.hdu.hdulist.HDUList}"
@@ -896,7 +993,21 @@ def get_celestial(raster, include_time=False, **kwargs):
         print("--------------------------------")
         print(type(raster), isinstance(raster, Iterable))
         raise ValueError("inacceptable type")
-    return (lon, lat, time) if include_time else (lon, lat)
+    
+    return coords,datetime64_array
+    
+
+def get_celestial(raster, include_time=False, **kwargs):
+    lonlat,time = get_all_celestials(raster,**kwargs)
+    if lonlat.shape[3] == 1:# dealing wwith a raster
+        lon = lonlat.spherical.lon.arcsec[:,:,0,0]
+        lat = lonlat.spherical.lat.arcsec[:,:,0,0]
+        time = time[:,:,0,0]
+    else:# dealing wwith a time series
+        lon = lonlat.spherical.lon.arcsec[0,:,0,:]
+        lat = lonlat.spherical.lat.arcsec[0,:,0,:]
+        time = time[0,:,0,:]
+    return (lon.T, lat.T, time.T) if include_time else (lon.T, lat.T)
 
 
 def quickview(
@@ -905,6 +1016,7 @@ def quickview(
     imag_ax=None,
     fig2=None,
     spec_ax=None,
+    remove_dumbles = slice(None,None,None),
 ):
     from pathlib import PosixPath, WindowsPath, Path
 
@@ -912,44 +1024,59 @@ def quickview(
         raster = fits_reader.open(RasterOrPath)
     else:
         raster = RasterOrPath
-    raster = [
-        rast
-        for rast in raster
-        if rast.header["EXTNAME"] not in ["VARIABLE_KEYWORDS", "WCSDVARR", "WCSDVARR"]
-    ]
-
-    lon, lat = get_celestial(raster)
+    
+    raster = get_data_raster(raster)
+    
+    lon, lat,time = get_celestial(raster,include_time=True)
     n = 3
     m = len(raster) // 3 + (1 if len(raster) % 3 != 0 else 0)
 
     if type(imag_ax) == type(None):
         fig1, ax1 = plt.subplots(m, n, figsize=(n * 3, m * 3), sharex=True, sharey=True)
         ax1 = ax1.flatten()
+        #reduce inter space in h and w 
+        plt.subplots_adjust(wspace=0.1, hspace=0.1, left=0.1, right=0.9, top=0.9, bottom=0.1)
+        for ax in range(len(raster), len(ax1)):
+            ax1[ax].remove()
     if type(spec_ax) == type(None):
         fig2, ax2 = plt.subplots(m, n, figsize=(n * 3, m * 3))
         ax2 = ax2.flatten()
-    fig1.suptitle(raster[0].header["DATE_EAR"])
-    fig2.suptitle(raster[0].header["DATE_EAR"])
+        plt.subplots_adjust(wspace=0.1, hspace=0.1, left=0.1, right=0.9, top=0.9, bottom=0.1)
+        for ax in range(len(raster), len(ax2)):
+            ax2[ax].remove()
+    fig1.suptitle(raster[0].header["DATE-OBS"])
+    fig2.suptitle(raster[0].header["DATE-OBS"])
+    
+    #Dealing with a raster
     for i in range(len(raster)):
         data = raster[i].data
-        if data.shape[3] != 1:
+        if raster[0].data.shape[0]==1:
             image = np.nanmean(data, axis=(0, 1))
         else:
-            image = np.nanmean(data, axis=(0, 3))
-
+            image = np.nanmean(data, axis=(1, 3))
         spect = np.nanmean(data, axis=(0, 2, 3))
         spec_ax = get_specaxis(raster[i])
         kw = raster[i].header["EXTNAME"]
-
-        norm = normit(image[200:700])
-
-        if data.shape[3] != 1:
-            ax1[i].pcolormesh(lon, lat, image, norm=norm, cmap="magma")
+        
+        if raster[0].data.shape[0]==1:    
+            norm = normit(image[200:700])
+            ax1[i].pcolormesh(lon[remove_dumbles,:], lat[remove_dumbles,:], image[remove_dumbles,:], norm=norm, cmap="magma")
         else:
-            ax1[i].pcolormesh(image, norm=norm, cmap="magma")
+            norm = normit(image.T[200:700])
+            ax1[i].pcolormesh(time[:,remove_dumbles],lat[:,remove_dumbles],image[:,remove_dumbles], norm=norm, cmap="magma")
+            # make the locators for the time axis of order of 1 hour 
+            # ax1[i].xaxis.set_major_locator(plt.MaxNLocator(3))
+            #Hour locator 
+            from matplotlib.dates import HourLocator
+            ax1[i].xaxis.set_major_locator(HourLocator())
+            # change the date format to be dayThour:min 
+            ax1[i].xaxis.set_major_formatter(mdates.DateFormatter('%d %H:%M'))
+        
         ax2[i].step(spec_ax, spect)
         ax1[i].set_title(kw)
         ax2[i].set_title(kw)
+    
+            
     return ((fig1, ax1), (fig2, ax2))
 
 
@@ -1081,11 +1208,14 @@ def getfiles(
     return selected_fits
 
 
-def get_input_template(where="./input_config_template.json"):
+def get_input_template(where="./input_config_template.json",overwrite=False):
     PATH = pkg_resources.resource_filename(
         "saffron", "manager/input_config_template.json"
     )
-    shutil.copy(PATH, where)
+    if Path(where).exists() and not overwrite:
+        raise FileExistsError(f"{where} already exists, set overwrite to True to overwrite it")    
+    else:
+        shutil.copy(PATH, where)
 
 
 @contextlib.contextmanager
@@ -1136,3 +1266,21 @@ def normit(
     return ImageNormalize(
         data, interval, vmin=vmin, vmax=vmax, clip=clip, invalid=invalid
     )
+
+
+# def default_convolution_function(lst):
+    """
+    Default convolution function that creates an array of ones matching 
+    the shape of the input's third column.
+
+    Parameters:
+    ----------
+    lst : ndarray
+        The input data array.
+
+    Returns:
+    -------
+    ndarray
+        An array of ones with the same length as the input's third column.
+    """
+    return np.zeros_like(lst[:, 2]) + 1

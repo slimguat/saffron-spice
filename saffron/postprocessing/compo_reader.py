@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import random
 import copy
 from astropy.io.fits.hdu.hdulist import HDUList
 from astropy.wcs import WCS
@@ -11,8 +12,13 @@ from pathlib import Path, WindowsPath, PosixPath
 import matplotlib.pyplot as plt
 import os
 from ..utils import normit, suppress_output, gen_axes_side2side, get_coord_mat,get_corner_HLP,get_lims,get_frame,reduce_largeMap_SmallMapFOV
+from ..utils.fits_clone import HDUClone, HDUListClone
+from ..utils import get_specaxis
+from ..utils.utils import colored_text
 from collections.abc import Iterable
 from sunpy.map import GenericMap
+import pandas as pd
+from saffron.fit_models import ModelFactory
 # from euispice_coreg.hdrshift.alignment import Alignment
 # from euispice_coreg.plot.plot import PlotFunctions
 # from euispice_coreg.utils.Util import AlignCommonUtil
@@ -185,7 +191,7 @@ def FIP_error(ll, Errors, Datas):
 
 
 class SPECLine:
-    def __init__(self, hdul_or_path,verbose=0):
+    def __init__(self, hdul_or_path,verbose=0,parent_raster = None):
         self._all = {
             "int": None,
             "wav": None,
@@ -196,9 +202,11 @@ class SPECLine:
             "wid_err": None,
             "rad_err": None,
         }
-        self._prepare_data(hdul_or_path)
+        self.data_path = None
         self.uncorrected_wavelength = None
         self.verbose= verbose
+        self.parent_raster = parent_raster
+        self._prepare_data(hdul_or_path)
     @property
     def wavelength(self):
         return self.headers["int"]["WAVELENGTH"]
@@ -236,8 +244,23 @@ class SPECLine:
     def obs_date(self):
         return np.datetime64(self.headers['int']["DATE-OBS"])
 
-    def get_map(self, param="rad"):
-        data = self[param]
+    @property
+    def filename(self):
+        return Path(self.data_path).name
+    
+    @property
+    def model(self):
+        return self._FIT_MODEL[0]
+    
+    @property
+    def model_header(self):
+        return self._FIT_MODEL[1]
+    
+    def get_map(self, param="rad",remove_dumbells=False):
+        data = self[param].copy()
+        if remove_dumbells:
+            data[:100] = np.nan
+            data[700:] = np.nan
         _map = Map(data, self.headers[param if "rad" not in param else "int"])
         if param in ["int", "rad", "wid"] or "err" in param:
             _map.plot_settings["cmap"] = "magma" if "err" not in param else "gray"
@@ -426,11 +449,24 @@ class SPECLine:
             hdul = hdul_or_path.copy()
         else:
             raise TypeError(str(hdul_or_path))
-
-        for hdu in hdul:
+        all_background = True
+        for ind,hdu in enumerate(hdul):
+            if hdu.name == "FIT_MODEL":
+                self._FIT_MODEL = [ModelFactory.from_hdu(hdu), hdu.header]
+                continue
             if hdu.header["MEASRMNT"] == "bg":
-                raise Exception("The background is not needed in this Object")
+                if self.parent_raster is not None and self.data_path is not None:
+                    if Path(self.data_path).name not in self.parent_raster.backgrounds:
+                        self.parent_raster.backgrounds[Path(self.data_path).name] = []
+                    self.parent_raster.backgrounds[Path(self.data_path).name].append(HDUClone.from_hdu(hdu))
+                    
+                else:  
+                    raise Exception("The background is not needed in this Object")
+            else:
+                all_background = False
             self._all[hdu.header["MEASRMNT"]] = [hdu.data.copy(), hdu.header]
+        if all_background: raise Exception("tactical exit")
+            
         if isinstance(hdul_or_path, (str, PosixPath, WindowsPath, pathlib.WindowsPath)):
             hdul.close()
         
@@ -548,6 +584,18 @@ class SPECLine:
         hdul = fits.HDUList(hdu_list)
         hdul.writeto(file_name, overwrite=overwrite)
     
+    # define equality of lines 
+    def __eq__(self, other):
+        if not isinstance(other, SPECLine):
+            return False
+        return (
+            self.observatory == other.observatory and 
+            self.instrument == other.instrument and 
+            self.obs_date == other.obs_date and 
+            self.ion == other.ion and 
+            self.wavelength == other.wavelength and 
+            self.filename == other.filename
+            )
 class SPICEL3Raster:
     def __init__(self, list_paths=None, folder_path=None, verbose=0):
         if (list_paths is None and folder_path is None) or (
@@ -564,11 +612,13 @@ class SPICEL3Raster:
             pass
         self.lines = []
         self.ll             = None
+        self.backgrounds    = {}
         self.FIP_err        = None
         self.FIP_header     = None    
         self.FIP_err_header = None
         self.density_header = None
         self.verbose = verbose
+        
         self._prepare_data(list_paths)
         
         self.HFLines = None
@@ -578,12 +628,15 @@ class SPICEL3Raster:
         self.old_crvals['CRVAL1'] = self.lines[0].headers["int"]["CRVAL1"]
         self.old_crvals['CRVAL2'] = self.lines[0].headers["int"]["CRVAL2"]
         self.fsi174_path =  None
+        self.L2_data = None
+        self.L2_path = None
+        self.params_matrix = None
     def _prepare_data(self, list_paths):
         for paths in list_paths:
             try:
             # if True:
-                line = SPECLine(paths,verbose=self.verbose)
-                self.lines.append(SPECLine(paths))
+                line = SPECLine(paths,verbose=self.verbose,parent_raster=self)
+                self.lines.append(line)
             except Exception as e:
                 # print(f"Couldn't load {paths} because of {e}")
                 pass
@@ -657,7 +710,7 @@ class SPICEL3Raster:
         ll=None,
         suppressOutput=True,
         using_S_as_LF=True,
-        density = 8.3e10,
+        density = 10**8.3,
     ):
         self.HFLines = HFLines
         self.LFLines = LFLines
@@ -1085,7 +1138,7 @@ class SPICEL3Raster:
     def _get_from_fido_closest_fsi174(self,raise_error=True):
         # Assuming self has an attribute or method to get the observation time
         if type(self).__name__ == SPICEL3Raster.__name__:
-          obs_time = np.datetime64(self.lines[0].obs_date)  # Replace with actual method to get time
+          obs_time = np.datetime64(np.datetime64(self.lines[0].headers['rad']['DATE-AVG']))  # Replace with actual method to get time
         else:
           obs_time = np.datetime64(self)
         time_range = a.Time(obs_time, obs_time + np.timedelta64(1,"h"))  # 1 hour range for example
@@ -1248,6 +1301,7 @@ class SPICEL3Raster:
             self.new_crvals['CRVAL1'] = hdul[0].header['CRVAL1']
             self.new_crvals['CRVAL2'] = hdul[0].header['CRVAL2']
         return tobecorrected_map,corrected_map,A
+    
     def set_coaligned_crvals(self):
         if self.new_crvals['CRVAL1'] is None:
             raise Exception('No new crvals are set run coaline_with_FSI_171 first')
@@ -1263,6 +1317,7 @@ class SPICEL3Raster:
             self.FIP_header['CRVAL2'] = self.new_crvals['CRVAL2']
             self.FIP_err_header['CRVAL2'] = self.new_crvals['CRVAL2']
             self.density_header['CRVAL2'] = self.new_crvals['CRVAL2']
+    
     def reset_crvals(self):
         for i in range(len(self.lines)):
             for key in self.lines[i]._all.keys():
@@ -1276,7 +1331,307 @@ class SPICEL3Raster:
             self.FIP_header['CRVAL2'] = self.old_crvals['CRVAL2']
             self.FIP_err_header['CRVAL2'] = self.old_crvals['CRVAL2']
             self.density_header['CRVAL2'] = self.old_crvals['CRVAL2']
+    
+    def init_L2_recall(self,L2_data=None):
+        #starting by loading the L2_data
+        if L2_data is None and self.L2_data is None:
+            raise Exception('No L2 data is provided')
+        elif L2_data is None:
+            pass
+        else:
+            self.L2_data = L2_data
+        if isinstance(self.L2_data, (str, PosixPath, WindowsPath, pathlib.WindowsPath)):
+            self.L2_data = fits.open(self.L2_data)
+            self.L2_path = self.L2_data
+        else:
+            self.L2_path = None
+        # for each window we load the model
+        # we search for all FIT_IDs so we can reconstruct the windows and the models
+        FIT_IDs = set([line.model_header['FIT_ID'] for line in self.lines])
+        if self.params_matrix is None:
+            self.params_matrix = {FIT_ID:None for FIT_ID in FIT_IDs}
+        # retrieving the windows 
+        #first assemble each line with a FIT_ID
+        window_fit = {FIT_ID:None for FIT_ID in FIT_IDs}
+        
+        #searching foir the lines that have the same FIT_ID
+        for line in self.lines:
+            #search the MODEL's FIT_ID
+            FIT_ID = line.model_header['FIT_ID']
+            SIB_keys = [key for key in line.model_header if 'SIB' in key]
+            # print(SIB_keys)
+            if window_fit[FIT_ID] is not None:
+                continue
+            
+            #expeted siblings 
+            siblings = np.array([[line.model_header[SIB_key],line.model_header["ORD"+SIB_key[3:]]] for SIB_key in SIB_keys],dtype=object).T
+            # this will be filled with the lines index in SPICERaster object, and the oreders of the parameters of this line
+            window_fit[FIT_ID] = np.empty((3,siblings.shape[1]),dtype=object)
+            
+            
+            #search for the siblings
+            for ind,line2 in enumerate(self.lines):
+                if line2.filename in siblings[0]:
+                    position = np.where(siblings[0] == line2.filename)[0][0]
+                    order = siblings[1][position]
+                    window_fit[FIT_ID][:,position] = ["line",ind,order]
+            #searching for the backgrounds that have the same FIT_ID
+            for background_name in self.backgrounds:
+                if background_name in siblings[0]:
+                    position = np.where(siblings[0] == background_name)[0][0]
+                    order = siblings[1][position]
+                    window_fit[FIT_ID][:,position] = ["background",background_name,order]
                 
+        #turning to multi index dataframe
+        window_fit_rows = []
+        for FIT_ID, fit_data in window_fit.items():
+            if fit_data is not None:
+                for col in range(fit_data.shape[1]):  # Iterate over the columns (siblings)
+                    row = {
+                        "FIT_ID": FIT_ID,
+                        "FILE_TYPE": fit_data[0, col],  # Sibling filename
+                        "LINE_ARG": fit_data[1, col],  # Line index in SPICERaster
+                        "ORDER": fit_data[2, col],  # Order of parameters
+                    }
+                    window_fit_rows.append(row)
+
+        # Convert to  DataFrame
+        self.window_fit_df = pd.DataFrame(window_fit_rows)
+
+    def reconstruct_window(self,windowindex=None,line=None,redo=False):
+        #assertions not to call this function without initializing the L2 data either windowindex or line should be provided
+        assert self.window_fit_df is not None, "init_L2_recall should be called first"
+        assert (windowindex is not None or line is not None) and not (windowindex is not None and line is not None), "either windowindex or line should be provided"
+        
+        #find the EXTNAME of the window
+        if windowindex is None:
+            EXTNAME = line.headers['int']['L2WINDOW']
+            WINDEX = [1 if hdu.header['EXTNAME'] == EXTNAME else 0 for hdu in self.L2_data].index(1)
+            #finding the FIT_ID of the sample line
+            FIT_ID = line.model_header['FIT_ID']
+        else:
+            EXTNAME = (self.L2_data[windowindex].header['EXTNAME'])
+            WINDEX = windowindex
+        
+            # finding at least on line that has the same EXTNAME
+            line = self.lines[[1 if (EXTNAME in (line.headers['int']['L2WINDOW'].split(',')))   else 0 for line in self.lines].index(1)]
+            #now finding the FIT_ID of the sample line
+            FIT_ID = line.model_header['FIT_ID']
+        #getting the model
+        model = line.model
+        len_model = len(model.get_unlock_params())
+        # model = ModelFactory.from_hdu(line._FIT_MODEL[1]      
+        needed_lines = self.window_fit_df.query("FIT_ID == @FIT_ID")
+        if self.params_matrix is not None and FIT_ID in self.params_matrix and not redo:
+            # the code to print in red color is \033[91m and the code to reset the color is \033[0m
+            # print(f"\033[91mThe window {FIT_ID} is already reconstructed if you want to redo it set redo=True\033[0m")
+            colored_text(f"The window {FIT_ID} is already reconstructed if you want to redo it set redo=True","yellow")
+            return needed_lines
+        data = np.empty(([len_model,*line["int"].shape]),dtype=float)*0
+        
+        for row in needed_lines.iterrows():
+            if row[1]["FILE_TYPE"] == "line":
+                _line = self.lines[row[1]["LINE_ARG"]]
+                order = [int(i) for i in (row[1]["ORDER"]).split(',')]
+                keys = list(_line._all.keys())
+                for ind in range(len(order)):
+                    data[order[ind]] = _line[keys[ind]]
+                L2window_index = _line.headers['int']['L2WINDOW'].split(",")
+            elif row[1]["FILE_TYPE"] == "background":
+                _background = self.backgrounds[row[1]["LINE_ARG"]]
+                order = [int(i) for i in (row[1]["ORDER"]).split(',')]
+                for ind in range(len(order)):
+                    data[order[ind]] = _background[ind].data[0]
+                L2window_index = _background[ind].header['L2WINDOW'].split(",")
+                    
+            self.params_matrix[FIT_ID] = {
+                'data':data,
+                'model':model,
+                'L2window_name':L2window_index,
+                'L2window_index': [[hdu.header['EXTNAME'] for hdu in self.L2_data].index(L2window_index_) for L2window_index_ in L2window_index],
+                }
+        return needed_lines
+    
+    def reconstruct_raster(self,redo=False):
+        for window_index in range(len(self.L2_data)):
+            if self.L2_data[window_index].header['EXTNAME'] not in ["VARIABLE_KEYWORDS", "WCSDVARR", "WCSDVARR"]:
+                self.reconstruct_window(window_index,redo=redo)
+    
+    # def plot_pixels(self,list_indecies,window_index,axis=None):
+    #     list_indecies = np.array(list_indecies)
+    #     #Get FIT_ID based on the window_index
+    #     FIT_IDs = list(self.params_matrix.keys())
+    #     window_indecies = [self.params_matrix[FIT_ID]['L2window_index'] for FIT_ID in FIT_IDs]
+    #     FIT_ID = FIT_IDs[[1 if window_index in windex else 0 for windex in window_indecies].index(1)]
+    #     index_windows_involved = self.params_matrix[FIT_ID]['L2window_index']
+    #     if len(index_windows_involved)>1:
+    #         colored_text("The fit is involved in more than one window\nNot plotting them all","green") 
+    #     #assert that the list_indecies is of shape N,2
+    #     assert len(list_indecies.shape) == 2 and list_indecies.shape[1] == 2, "list_indecies should be of shape N,2"
+    #     if axis is None:
+    #         c = int(min(5, math.ceil(np.sqrt(len(list_indecies)))))
+    #         r = int(np.ceil(len(list_indecies)/c))
+    #         fig, axes = plt.subplots(r,c,figsize=(c*3,r*3))
+    #         axes = axes.flatten()
+    #         [ax.remove() for ax in axes[len(list_indecies):]]
+    #         [ax.grid() for ax in axes]
+    #     else:
+    #         pass
+        
+    #     hdu = self.L2_data[window_index]
+    #     specaxis = get_specaxis(hdu)
+    #     model = self.params_matrix[FIT_ID]['model']
+    #     function = model.callables['function']
+    #     for ind,index in enumerate(list_indecies):
+    #         data = self.L2_data[window_index].data[0,:,index[0],index[1]]
+    #         params = self.params_matrix[FIT_ID]['data'][:,index[0],index[1]]
+    #         lock_params = model.get_lock_params(params)
+    #         axes[ind].step(specaxis,data,ls='--',color='black')
+    #         axes[ind].plot(specaxis,function(specaxis,*lock_params),color='red')
+    #         axes[ind].set_title(f"index: {index}")
+    
+    def plot_pixels(self, list_indices, window_index, axis=None):
+        """
+        Plot pixel fits for a given list of indices.
+
+        Parameters:
+            list_indices (list): List of (y, x) indices to plot.
+            window_index (int): Index of the data window.
+            axis (matplotlib axis): Axis object if provided.
+        """
+        list_indices = np.array(list_indices)
+
+        # Get FIT_ID for the window
+        FIT_ID = self._get_fit_id(window_index)
+        involved_windows = self.params_matrix[FIT_ID]['L2window_index']
+        if len(involved_windows) > 1:
+            colored_text("The fit is involved in more than one window\nNot plotting them all", "green")
+
+        # Validate list_indices shape
+        assert len(list_indices.shape) == 2 and list_indices.shape[1] == 2, "list_indices should be of shape N,2"
+
+        # Prepare axes
+        fig, axes = self._prepare_axes(len(list_indices), axis)
+
+        # Plot each pixel using _plot_pixel
+        for ind, index in enumerate(list_indices):
+            self._plot_pixel(index, window_index, FIT_ID, axes[ind]) 
+        return axes
+    
+    def plot_random_pixels(self, num_lines, window_index, axis=None, exclude_nans=True):
+        """
+        Plot a random selection of pixel fits from a given window.
+
+        Parameters:
+            num_lines (int): Number of lines (pixels) to plot.
+            window_index (int): Index of the data window.
+            axis (matplotlib axis): Axis object if provided.
+            exclude_nans (bool): Whether to exclude pixels with NaN values.
+        """
+        # Get the data for the window and the corresponding FIT_ID
+        FIT_ID = self._get_fit_id(window_index)
+        params_data = self.params_matrix[FIT_ID]['data']  # Shape: (num_params, y, x)
+        
+        # Get the data for the window
+        hdu = self.L2_data[window_index]
+        data = hdu.data[0]  # Shape: (spectra, y, x)
+
+        # Efficiently generate all indices using NumPy
+        y_size, x_size = data.shape[1:]  # Assume shape is (spectra, y, x)
+        y_coords, x_coords = np.meshgrid(np.arange(y_size), np.arange(x_size), indexing='ij')
+        all_indices = np.stack((y_coords.ravel(), x_coords.ravel()), axis=-1)  # Shape: (total_pixels, 2)
+
+        if exclude_nans:
+            # Create a mask for NaN values and filter indices
+            nan_mask = ~np.any(np.isnan(params_data), axis=0).ravel()  # Shape: (total_pixels,)
+            all_indices = all_indices[nan_mask]
+
+        # Ensure there are enough indices to sample
+        assert len(all_indices) >= num_lines, (
+            f"Not enough valid pixels to plot. Available: {len(all_indices)}, Requested: {num_lines}"
+        )
+
+        # Randomly select `num_lines` indices
+        random_indices = all_indices[np.random.choice(len(all_indices), num_lines, replace=False)]
+
+        # Convert to list of tuples for compatibility with `plot_pixels`
+        random_indices = [tuple(index) for index in random_indices]
+
+        # Call `plot_pixels` with the random indices
+        self.plot_pixels(random_indices, window_index, axis=axis)
+    
+    
+
+    def _prepare_axes(self,num_plots, axis=None):
+        """
+        Prepare axes for plotting.
+
+        Parameters:
+            num_plots (int): Number of plots required.
+            axis (matplotlib axis): Axis object if provided.
+
+        Returns:
+            tuple: matplotlib figure and axes.
+        """
+        if axis is None:
+            c = int(min(5, math.ceil(np.sqrt(num_plots))))
+            r = int(np.ceil(num_plots / c))
+            fig, axes = plt.subplots(r, c, figsize=(c * 3, r * 3))
+            axes = axes.flatten()
+            [ax.remove() for ax in axes[num_plots:]]
+            [ax.grid() for ax in axes[:num_plots]]
+            return fig, axes[:num_plots]
+        else:
+            return None, [axis]
+
+
+    def _get_fit_id(self, window_index):
+        """
+        Get the FIT_ID corresponding to a window index.
+
+        Parameters:
+            window_index (int): Index of the window.
+
+        Returns:
+            str: The FIT_ID for the given window index.
+        """
+        FIT_IDs = list(self.params_matrix.keys())
+        window_indices = [self.params_matrix[FIT_ID]['L2window_index'] for FIT_ID in FIT_IDs]
+        FIT_ID = FIT_IDs[[1 if window_index in windex else 0 for windex in window_indices].index(1)]
+        return FIT_ID
+
+
+    def _plot_pixel(self, index, window_index, FIT_ID, ax):
+        """
+        Plot a single pixel's data and fit on the given axis.
+
+        Parameters:
+            index (tuple): (y, x) coordinates of the pixel to plot.
+            window_index (int): Index of the data window.
+            FIT_ID (str): Identifier for the fitting model.
+            ax (matplotlib axis): Axis to plot on.
+        """
+        if True:#Get the data
+            hdu = self.L2_data[window_index]
+            specaxis = get_specaxis(hdu)
+            data = hdu.data[0, :, index[0], index[1]]
+            params = self.params_matrix[FIT_ID]['data'][:, index[0], index[1]]
+            model = self.params_matrix[FIT_ID]['model']
+            function = model.callables['function']
+            lock_params = model.get_lock_params(params)
+            quentities = model.get_unlock_quentities()
+            fitted_values = function(specaxis, *lock_params)
+
+        ax.step(specaxis, data, ls='--', color='black')
+        ax.plot(specaxis, fitted_values, color='red')
+        for param in params[quentities=="x"]:
+            if np.nanmin(specaxis)<=param<=np.nanmax(specaxis):
+                ax.axvline(param,ls=':',color='blue')
+        ax.set_title(f"index: {index}")
+    
+    
+
+    
 def get_celestial_L3(raster, **kwargs):
     if type(raster) == HDUList:
 

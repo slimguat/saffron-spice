@@ -7,7 +7,6 @@ from .gauss import (
     gauss_LyB_Fe10,
 )
 from .Model import ModelFactory
-print("fit_models initiated")
 __all__ = (
     "Gauss",
     "multiGauss",

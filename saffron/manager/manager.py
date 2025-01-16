@@ -5,14 +5,19 @@ import numpy as np
 from datetime import datetime
 from pathlib import Path
 
+
+import multiprocessing as mp
+from multiprocessing import Process, Lock
 from ..fit_models import flat_inArg_multiGauss
 from ..utils import getfiles
+# from ..utils.utils import default_convolution_function
 
 # from ..init_handler import gen_fit_inits
 from ..init_handler import GenInits
 from ..fit_functions.fit_raster import RasterFit
 from typing import Union, List, Dict, Any, Callable, Tuple, Optional, Iterable
 
+import astropy.units as u
 
 class Manager:
     def __init__(self, Input_JSON: Optional[str]):
@@ -37,30 +42,24 @@ class Manager:
             self.convolute = raster_args_config["convolute"]
             self.denoise_intervals = [6, 2, 1, 0, 0]
             self.clipping_sigma = 2.5
-            self.clipping_med_size = [6, 3, 3]
+            self.clipping_med_size = [3, 6, 3, 3]
             self.clipping_iterations = 3
             self.mode = "box"
             self.conv_errors = raster_args_config["conv_errors"]
             self.convolution_extent_list = np.array(
                 raster_args_config["convolution_extent_list"]
             )
+            self.t_convolution_index = raster_args_config["t_convolution_index"]
             self.save_data = raster_args_config["save_data"]
             self.data_filename = raster_args_config["data_filename"]
             self.data_save_dir = raster_args_config["data_save_dir"]
             self.window_size = np.array(raster_args_config["window_size"])
+            self.time_size = np.array(raster_args_config["time_size"])
             self.Jobs = raster_args_config["Jobs"]
             self.geninits_verbose = self.config["geninits_verbose"]
             self.fit_verbose = self.config["fit_verbose"]
             self.selected_fits = []
             self.rasters = []
-            # TODO DELET
-            # self.plot_filename           = raster_args_config["plot_filename"       ]
-            # self.save_plot               = raster_args_config["save_plot"           ]
-            # self.plot_save_dir           = raster_args_config["plot_save_dir"       ]
-            # for directory in [self.plot_save_dir,self.data_save_dir]:
-            # if not Path(directory).exists():
-            #     print(f"the directory:{directory} doesn't exist creating it now")
-            #     os.mkdir(directory)
 
     def build_files_list(self):
         """
@@ -110,7 +109,11 @@ class Manager:
                 raise Exception(f"{file} dosn't exists")
 
     def build_rasters(
-        self, wvl_interval={"SW": slice(3, -3), "LW": slice(3, -3)}, line_catalogue=None
+        self, 
+        wvl_interval=0.4, 
+        # wvl_interval={"SW": slice(3, -3), "LW": slice(3, -3)}, 
+        line_catalogue=None,
+        extend_wvl_search = 0.5*u.Angstrom,
     ):
         """
         Create Run instances for each selected FITS file and configure their parameters.
@@ -132,25 +135,29 @@ class Manager:
                 line_catalogue=line_catalogue,
                 wvl_interval=wvl_interval,
             )
-            inits.gen_inits()
+            inits.gen_inits(extend_wvl_search=extend_wvl_search)
 
-            self.window_name = inits.windows_lines
-            self.init_params = inits.init_params
-            self.quentities = inits.quentities
+            # self.window_name = inits.windows_lines
+            # self.init_params = inits.init_params
+            # self.quentities = inits.quentities
+            self.models = inits.Models
             self.convolution_threshold = inits.convolution_threshold
-
+            
             self.rasters.append(
                 RasterFit(
                     path_or_hdul=file,
-                    init_params=self.init_params,
-                    quentities=self.quentities,
-                    fit_func=flat_inArg_multiGauss,
-                    windows_names=self.window_name,
-                    bounds=None,
+                    # init_params=self.init_params,
+                    # quentities=self.quentities,
+                    # fit_func=flat_inArg_multiGauss,
+                    # windows_names=self.window_name,
+                    # bounds=None,
+                    models = self.models,
                     window_size=self.window_size,
-                    convolution_function=lambda lst: np.zeros_like(lst[:, 2]) + 1,
+                    time_size = self.time_size,
+                    # convolution_function = default_convolution_function,
                     convolution_threshold=self.convolution_threshold,
                     convolution_extent_list=self.convolution_extent_list,
+                    t_convolution_index = self.t_convolution_index,
                     mode=self.mode,
                     weights=self.weights,
                     denoise=self.denoise,
@@ -168,6 +175,7 @@ class Manager:
                     verbose=self.fit_verbose,
                 )
             )
+            
             pass
 
     def fuse_windows(self, indices):
@@ -176,39 +184,60 @@ class Manager:
         for ind in range(len(self.rasters)):
             self.rasters[ind].fuse_windows(*indices[ind])
 
-    def set_lock_protocol(
+    def lock(
         self,
         window_type: "solo" or "fuse",
-        window_index,
-        lock_line1_index: int,
-        lock_line2_index: int,
-        lock_distance: float,
+        window_index: int,
+        param_1: dict,
+        param_2: dict,
+        lock_protocol: dict,
     ) -> None:
-        for ind in range(len(self.rasters)):
-            if window_type == "solo":
-                self.rasters[ind].windows[window_index].lock_protocols.add_lock(
-                    lock_line1_index, lock_line2_index, lock_distance
-                )
-            elif window_type == "fuse":
-                self.rasters[ind].fused_windows[window_index].lock_protocols.add_lock(
-                    lock_line1_index, lock_line2_index, lock_distance
-                )
-            else:
-                raise Exception(
-                    f"window_type is eather 'solo' or 'fuse' your value is {window_type}"
-                )
+      '''
+      This function is used to lock two parameters of the model together.
+      Parameters
+      ----------
+      window_type : str ["solo" or "fuse"]
+      The type of the window that you want to lock the parameters in. It can be either "solo" or "fuse".
+      window_index : int
+      The index of the window that you want to lock the parameters in.
+      param_1 : 
+        dict must contain the following keys: "element_index", "parameter"
+        A dictionary that contains the information of the first parameter that you want to lock.
+      param_2 : dict 
+        must contain the following keys: "element_index", "parameter"
+        A dictionary that contains the information of the second parameter that you want to lock.
+      lock_protocol : dict 
+        must contain the following keys: "operation", "value" operation: str
+        "operation" It can be either "add" or "mul".
+        A dictionary that contains the information of the lock protocol.
+      '''
+      assert "element_index" in param_1.keys() and "parameter" in param_1.keys() 
+      assert "element_index" in param_2.keys() and "parameter" in param_2.keys() 
+      assert "operation" in lock_protocol.keys() and "value" in lock_protocol.keys()
+      
+      param_1['model_type'] = "gaussian"
+      param_2['model_type'] = "gaussian"
+      
+      if param_1 == param_2:raise ValueError(f"Cannot lock a parameter to itself\nparam_1={param_1}\nparam_2={param_2}")
+      
+      for ind in range(len(self.rasters)):
+          if window_type == "solo":
+              self.rasters[ind].windows[window_index].model.lock(param_1, param_2, lock_protocol)
+            
+          elif window_type == "fuse":
+              self.rasters[ind].fused_windows[window_index].model.lock(
+                  param_1, param_2, lock_protocol
+              )
+          else:
+              raise Exception(
+                  f"window_type is eather 'solo' or 'fuse' your value is {window_type}"
+              )
 
-    def run_preparations(self, redo=False):
+    def run_preparations(self, redo=False,max_processes=mp.cpu_count()):
+        
         for i in range(len(self.rasters)):
-            self.rasters[i].run_preparations(redo=redo)
+            self.rasters[i].run_preparations(redo=redo,max_processes=max_processes)
 
-    # TODO DELETE
-    # def build_initial_parameters(self):
-    #     """
-    #     Build initial parameters for the runs.
-    #     """
-    #     for i in range(len(self.rasters)):
-    #         self.rasters[i].build_initial_parameters()
     def fit_manager(self):
         """
         Execute the fitting process for all runs.
@@ -276,3 +305,4 @@ class Manager:
             + "\n"
         )
         return val
+

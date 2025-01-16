@@ -7,17 +7,17 @@ from astropy.io import fits as fits_reader
 from astropy.io.fits import HDUList
 from astropy.io.fits.hdu.image import PrimaryHDU, ImageHDU
 from astropy.wcs import WCS
+import astropy.units as u
 
 from ..line_catalog.catalog import LineCatalog
-from ..fit_functions import fit_pixel_multi
-from ..fit_models import flat_inArg_multiGauss
-from ..utils import get_celestial, quickview, get_specaxis
-
+from ..fit_functions import fit_pixel_model
+# from ..fit_models import flat_inArg_multiGauss
+from ..fit_models import ModelFactory
+from ..utils import get_celestial, quickview, get_specaxis, get_extnames
 
 from pathlib import PosixPath, WindowsPath, Path
-from typing import Union, List, Dict, Any, Callable, Tuple
+from typing import Union, List, Dict, Any, Callable, Tuple, Iterable
 import os
-
 
 from astropy.wcs import FITSFixedWarning
 import warnings
@@ -26,14 +26,10 @@ import warnings
 class GenInits:
     def __init__(
         self,
-        hdulOrPath: Union[str, PosixPath, WindowsPath, HDUList],
-        conv_errors: Dict[str, float] = {"I": 0.1, "x": 10**-4, "s": 0.1, "B": 100},
-        wvl_interval: Dict[str, slice] = {
-            #  "SW": slice(7,-7), "LW": slice(5, -5)},
-            "SW": slice(3, -3),
-            "LW": slice(3, -3),
-        },
-        line_catalogue: LineCatalog = None,
+        hdulOrPath   : Union[str, PosixPath, WindowsPath, HDUList],
+        conv_errors  : Dict[str, float] = {"I": 0.1, "x": 10**-4, "s": 0.1, "B": 100},
+        wvl_interval : float = 0.4, 
+        line_catalogue: LineCatalog | str | PosixPath | WindowsPath  = None,
         verbose=0,
     ) -> None:
         """Description: This class is used to generate initial parameters for fitting spectral data using Gaussian functions.
@@ -43,8 +39,8 @@ class GenInits:
             hdulOrPath (Union[str, PosixPath, WindowsPath, HDUList]): Fits HDUList object or path to FITS file.
             conv_errors (dict, optional): Dictionary of convolution errors for different parameters.
                 Defaults: {"I": 0.1, "x": 10**-4, "s": 0.1, "B": 100}
-            wvl_interval (dict[slice], optional): Wavelength intervals for data processing.
-                Defaults: {"low": [7, -7], "high": [5, -5]}
+            wvl_interval : minimum ratio of the number of non-nan pixel compared to the max number along the wavelength ax to accept as initdata to use to generate the initial parameters.
+                Defaults: 0.4
             verbose (int, optional): Verbosity level for printing and plotting. Defaults to 0.
         Returns:
             None
@@ -64,26 +60,25 @@ class GenInits:
             self._path = None
 
         self.hdulOrPath = hdulOrPath
-        self.hdul = fits_reader.open(hdulOrPath)
 
         self.lon, self.lat = get_celestial(self.hdul)
         if line_catalogue is None:
             self.catalog = LineCatalog(verbose=verbose)
         elif isinstance(line_catalogue, LineCatalog):
             self.catalog = line_catalogue
-        elif isinstance(line_catalogue, [str, PosixPath, WindowsPath]):
+        elif isinstance(line_catalogue, (str, PosixPath, WindowsPath)):
             self.catalog = LineCatalog(verbose=verbose, file_location=line_catalogue)
         else:
             raise ValueError(
-                "line_catalogue must be a LineCatalog object or a path to a line catalog file \n else None to use the internal catalogue"
+                "line_catalogue must be a LineCatalog object or a path to a line catalog JSON file \nelse None to use the internal catalogue"
             )
         self.default_lines = self.catalog.get_catalog_lines()
 
-        # these are the parameters to passe
-        unq = self.get_extnames(self.hdul)
-        self.init_params = [None for i in range(len(unq))]
+        # These are the parameters to passe
+        unq = get_extnames(self.hdul)
+        # self.init_params = [None for i in range(len(unq))]
 
-        self.quentities = [None for i in range(len(unq))]
+        # self.quentities = [None for i in range(len(unq))]
         self.convolution_threshold = [None for i in range(len(unq))]
         self.windows_lines = {}
         self.global_shift = {
@@ -91,11 +86,15 @@ class GenInits:
             "LW": 0,
         }  # this is the global shift that is going to be used to shift the lines to the right position compared to the catalog
         pd.options.mode.chained_assignment = None
-
+        self.Models = [None for i in range(len(unq))] 
         # Ignore FITSFixedWarning
 
-    def _gen_inits_window(
-        self, hdul_index: int, verbose: int = None, ax=None
+    def gen_inits_window(
+        self, hdul_index: int, 
+        verbose: int = None, 
+        ax=None,
+        Model_args = {'jit_activated':False},
+        extend_wvl_search = 0.5*u.Angstrom
     ) -> Dict[str, Any]:
         """
         Description: Generate initial parameters for fitting spectral data using Gaussian functions.
@@ -107,6 +106,7 @@ class GenInits:
         if vb >= 3 or vb == -4:
             if ax is None:
                 fig, ax = plt.subplots(1, 1, figsize=(7, 7))
+
         # initializing the variables and spectral axis
         if True:
             hdu = self.hdul[hdul_index]
@@ -120,28 +120,10 @@ class GenInits:
                 warnings.filterwarnings("ignore")
                 specdata = np.nanmean(hdu.data, axis=(0, 2, 3)).astype(float)
             WV = "SW" if np.nanmean(specaxis) < 800 else "LW"
-            s = self.wvl_interval[WV]
-            # print("Before reduction",len(specdata))
-                # specdata = np.array(
-                #     [
-                #         (
-                #             specdata[i]
-                #             if (
-                #                 (s.start if s.start > 0 else len(specdata) - s.start)
-                #                 if s.start is not None
-                #                 else 0
-                #             )
-                #             <= i
-                #             < (
-                #                 (s.stop if s.stop > 0 else len(specdata) - s.stop)
-                #                 if s.stop is not None
-                #                 else len(specdata)
-                #             )
-                #             else np.nan
-                #         )
-                #         for i in range(len(specdata))
-                #     ]
-                # )
+            # s = self.wvl_interval[WV]
+            s = _get_lims_per_percentile(hdu.data,self.wvl_interval)
+            s = slice(s[0],s[1])
+            
             specdata2 = np.empty(len(specdata)) *np.nan
             specdata2[s] = specdata[s]
             specdata = specdata2.copy() 
@@ -152,9 +134,16 @@ class GenInits:
                     )
                 )
         
+        # finding the lines in the interval of the spectral window 
         if True:
+            extend_pxl_search = (
+                extend_wvl_search.to(u.Angstrom).value*len(specaxis)/(
+                    np.max(specaxis)-np.min(specaxis)
+                    )
+                )
+            # print("pixel search extension",extend_pxl_search)
             expension_factor = 0.1
-            n_expensions = 20
+            n_expensions = 10
             for i in range(n_expensions):
                 expansion = expension_factor * i
                 for ind in range(len(self.default_lines)):
@@ -163,18 +152,28 @@ class GenInits:
                         specaxis[~np.isnan(specdata)][0]
                         - expansion
                         - self.global_shift[WV]
+                        - extend_wvl_search.to(u.Angstrom).value
                     )
+                    #TODO Delete this line
+                    # strict_min_wvl = min_wvl + extend_pxl_search.to(u.Angstrom).value
                     max_wvl = (
                         specaxis[~np.isnan(specdata)][-1]
                         + expansion
                         - self.global_shift[WV]
+                        + extend_wvl_search.to(u.Angstrom).value
                     )
+                    #TODO Delete this line
+                    # strict_max_wvl = max_wvl - extend_pxl_search.to(u.Angstrom).value
                     if min_wvl <= line["wvl"] <= max_wvl:
                         window_lines.append(line)
                         line_index = np.nanargmin(np.abs(specaxis - line["wvl"]))
                         window_lines[-1][
                             "index"
                         ] = line_index  # adding the index of the line in the spectrum
+                        # TODO Delete this line
+                        # if strict_min_wvl <= line["wvl"] <= strict_max_wvl:
+                        #     window_lines[-1]["strict"] = True
+                        
                 if len(window_lines) == 0:
                     if vb >= -1:
                         print(
@@ -185,16 +184,19 @@ class GenInits:
                                 f"expanding the boundaries by from by {expansion+expension_factor} Angstroms"
                             )
                 else:
+                    
                     break
 
         # initiating basic numerical values for each parameter on the theoretical position of the line
         if True:
             self.windows_lines[kw] = window_lines
+            Free_params_Model = ModelFactory(**Model_args)
             for line in window_lines:
                 init_param_theory.extend(
                     [0.05, line["wvl"] + self.global_shift[WV], 0.35]
                 )
-                quentity.extend(["I", "x", "s"])
+                
+                # quentity.extend(["I", "x", "s"])
                 cov_th.extend(
                     [
                         self.conv_errors["I"],
@@ -202,35 +204,43 @@ class GenInits:
                         self.conv_errors["s"],
                     ]
                 )
+                Free_params_Model.add_gaussian(
+                    0.05, 
+                    line["wvl"] , 
+                    0.35,
+                    name = [line["name"],line["wvl"]] )
+                
             if len(window_lines) == 0:
-                if vb >= -1:
-                    print(f"WARNING: no lines found in the window {kw}")
-                window_lines.append({"name": "no_line", "wvl": 0})
-                init_param_theory = [np.nan, np.nan, np.nan]
-                cov_th.extend(
-                    [
-                        self.conv_errors["I"],
-                        self.conv_errors["x"],
-                        self.conv_errors["s"],
-                    ]
-                )
-                quentity.extend(["I", "x", "s"])
+                #if no line in window_line now it raises an error
+                raise ValueError(f"\033[93mWARNING: no lines found in the window {kw}\033[0m")
 
             init_param_theory.append(max(0.00, np.nanmean(specdata)))
             init_param_theory = np.array(init_param_theory)
-
+            
             cov_th.append(self.conv_errors["B"])
             cov_th = np.array(cov_th)
-            quentity.append("B")
-
+            # quentity.append("B")
+            
+            Free_params_Model.add_polynome(max(0.00, np.nanmean(specdata)),name = "Bg",lims =[specaxis[0],specaxis[-1]+(specaxis[-1]-specaxis[-2])])
+            wvl_bounds = 0.1 if hdul_index != 0 else 1
+            Free_params_Model.set_bounds(
+                {"I": [0, np.nanmax(specdata)*1.5], 
+                 "x": [["ref-add", -wvl_bounds], ["ref-add", wvl_bounds]], 
+                 "s": [0.20, 0.4], "B": [-10, 10]
+                 }
+            )
+            
+            
         # verbose actions
         if True:
             if vb >= 3 or vb < -2:
-                ax.step(specaxis, specdata, label=f"original spectrum")
+                ax.step(specaxis, np.nanmean(hdu.data, axis=(0, 2, 3)).astype(float), label=f"original spectrum",color='black',ls=":")
+                ax.step(specaxis, specdata2, color='black')
                 ax.step(
                     specaxis,
-                    flat_inArg_multiGauss(specaxis, *init_param_theory),
+                    Free_params_Model.callables['function'](specaxis, *init_param_theory),
                     label=f"predefined params{' NANs' if np.isnan(init_param_theory).any()else ''} $\Delta(\lambda_{{{WV}}})={self.global_shift[WV]:03.2f}$",
+                    
                 )
             if vb >= 2:
                 print(f"_______________________________________\n{kw}:")
@@ -239,67 +249,68 @@ class GenInits:
                         f"\t{line['name']:<8} at {line['wvl']:06.1f} in index {line['index']}"
                     )
                 print(f"_______________________________________")
-            # finding the closest line to the max spectral line and adjust init_params_theory accordingly
+        
+        # finding the closest line to the max spectral line and adjust init_params_theory accordingly
+        if True:    
             init_param_maxAdjusted, specaxis, specdata = self.find_by_default_window(
                 specaxis,
                 specdata,
-                init_param_theory,
-                window_lines,
+                Free_params_Model,
                 verbose=vb,
                 catalog=self.catalog,
             )
+            maxAdjusted_params_Model = Free_params_Model.copy()
+            if not np.any(np.isnan(init_param_maxAdjusted)):
+                maxAdjusted_params_Model.set_unlock_params(init_param_maxAdjusted)
             if vb >= 3 or vb < -2:
                 ax.step(
                     specaxis,
-                    flat_inArg_multiGauss(specaxis, *init_param_maxAdjusted),
+                    Free_params_Model.callables['function'](specaxis, *init_param_maxAdjusted),
                     label="default windows adjustement{}".format(
                         " NANs" if np.isnan(init_param_maxAdjusted).any() else ""
                     ),
                 )
 
-            # plt.legend()
-            # return
-
         # fitting with one position of the fit and generating an all in all locked init_param_maxAdjusted
+        
         if True:
+            #TODO: check this later
             if len(init_param_maxAdjusted) > 4:  # fitting with one position of the fit
-                # Generating an all in all locked init_param_maxAdjusted
-                lock_state = [["free"]]
-                line_ref = window_lines[0]
-                for i in range(1, len(window_lines)):
-                    lock_state.append(
-                        ["lock", 0, window_lines[i]["wvl"] - line_ref["wvl"]]
+                all_locked_params_Model = Free_params_Model.copy()
+                all_locked_params_Model.set_unlock_params(init_param_maxAdjusted)
+                for gauss_i in range(1,len(window_lines)):
+                    diff = Free_params_Model.functions['gaussian'][0]['x']-Free_params_Model.functions['gaussian'][gauss_i]['x']
+                    all_locked_params_Model.lock(
+                        {'model_type':'gaussian','element_index':gauss_i,'parameter':'x'},
+                        {'model_type':'gaussian','element_index':0,'parameter':'x'},
+                        {'operation':'add','value':-diff}
                     )
-                # if vb >= 2:
-                #     print(f'{kw} lock state')
-                #     for i in range(len(lock_state)):
-                #         print(window_lines[i]['name'],lock_state[i])
-
-                init_param_locked, lock_quentities = self.gen_lock_params(
-                    init_param_maxAdjusted, lock_state, verbose=vb
-                )
-                func = self.gen_lock_func(init_param_locked, lock_state)
-                lock_func = func[list(func.keys())[0]]
-                init_param_locked, var = fit_pixel_multi(
+                    all_locked_params_Model.lock(
+                        {'model_type':'gaussian','element_index':gauss_i,'parameter':'s'},
+                        {'model_type':'gaussian','element_index':0,'parameter':'s'},
+                        {'operation':'add','value':0}
+                    )
+                
+                fit_func = all_locked_params_Model.callables['function']
+                
+                init_param_locked, var = fit_pixel_model(
                     specaxis,
                     specdata,
-                    init_param_locked,
-                    quentities=lock_quentities,
-                    fit_func=lock_func,
+                    all_locked_params_Model,
                     plot_title_prefix="preadjust",
                 )
+                all_locked_params_Model.set_lock_params(init_param_locked)
+                
                 if vb >= 3 or vb < -2:
                     ax.step(
                         specaxis,
-                        lock_func(specaxis, *init_param_locked),
+                        fit_func(specaxis, *init_param_locked),
                         label="Locked fit{}".format(
                             " NANs" if np.isnan(init_param_locked).any() else ""
                         ),
                     )
                 if not np.isnan(init_param_locked).any():
-                    init_param_locked = self.get_unlock_params(
-                        init_param_locked, lock_state
-                    )
+                    init_param_locked = all_locked_params_Model.get_unlock_params(init_param_locked)
                 else:
                     if vb >= 0:
                         print(
@@ -307,16 +318,19 @@ class GenInits:
                         )
                     init_param_locked = init_param_maxAdjusted.copy()
             else:
+                all_locked_params_Model = Free_params_Model.copy()
                 init_param_locked = init_param_maxAdjusted.copy()
+                all_locked_params_Model.set_unlock_params(init_param_locked)
 
         # fitting the spectrum with the unlocked parameters
         if True:
-            init_param_unlocked, var = fit_pixel_multi(
+            all_unlocked_Model = Free_params_Model.copy()
+            all_unlocked_Model.set_unlock_params(init_param_maxAdjusted.copy())
+            
+            init_param_unlocked, var = fit_pixel_model(
                 specaxis,
                 specdata,
-                np.array(init_param_locked),
-                quentities=quentity,
-                fit_func=flat_inArg_multiGauss,
+                all_unlocked_Model,
                 plot_title_prefix="preadjust",
             )
             if not np.isnan(init_param_unlocked).any():
@@ -327,17 +341,19 @@ class GenInits:
                         "haven't found the right params after unlocking using the locked params"
                     )
                 init_param_unlocked = init_param_locked.copy()
-
+            all_unlocked_Model.set_unlock_params(init_param_unlocked)
+        
         # vb actions
         if True:
             dtime = str(datetime.datetime.now())[:19].replace(":", "-")
             if vb >= 3 or vb < -2:
-                array_quentity = np.array(quentity)
+                array_quentity = all_unlocked_Model.get_unlock_quentities()
+                
                 for i, l in enumerate(init_param_unlocked[array_quentity == "x"]):
                     ax.axvline(l, label=f"{window_lines[i]['name']},{l:6.1f}", ls=":")
                 ax.step(
                     specaxis,
-                    flat_inArg_multiGauss(specaxis, *init_param_unlocked),
+                    all_unlocked_Model.callables['function'](specaxis, *init_param_unlocked),
                     label="Unlocked fit{}".format(
                         " NANs" if np.isnan(init_param_unlocked).any() else ""
                     ),
@@ -356,24 +372,43 @@ class GenInits:
             offset = init_param_unlocked[1::3] - init_param_theory[1::3]
             if self.global_shift[WV] == 0 and not np.isnan(np.nanmean(offset)):
                 self.global_shift[WV] = np.nanmean(offset)
-            self.init_params[hdul_index] = init_param_unlocked
-            self.quentities[hdul_index] = quentity
+            
+            all_unlocked_Model.set_bounds(
+                kwargs = {
+                    "I": [0, 1000], 
+                    "x": [["ref-add", -0.5], ["ref-add", 0.5]], 
+                    "s": [0.20, 0.4], 
+                    "B": [-10, 10]
+                    }
+            )
+            toDelete_model = ModelFactory(jit_activated=True)
+            all_unlocked_Model._function_string_template = toDelete_model._function_string_template
+            all_unlocked_Model._jacobian_string_template = toDelete_model._jacobian_string_template
+            all_unlocked_Model.gen_fit_function()
+            self.Models[hdul_index] = all_unlocked_Model
+            
+            # self.init_params[hdul_index] = init_param_unlocked
+            # self.quentities[hdul_index] = quentity
             self.convolution_threshold[hdul_index] = cov_th
 
-    def gen_inits(self, verbose: int = None):
+    def gen_inits(self, extend_wvl_search=0.5*u.Angstrom,verbose: int = None):
         if verbose is None:
             vb = self.verbose
         else:
             vb = verbose
-        unq = self.get_extnames(self.hdul)
+        unq = get_extnames(self.hdul)
         if vb >= 3 or vb <= -3:
             c = 3
             r = len(unq) // c + (1 if len(unq) % c != 0 else 0)
             fig, axis = plt.subplots(r, c, figsize=(c * 5, r * 5))
             axis = axis.flatten()
+        try: list(extend_wvl_search)
+        except: extend_wvl_search = [extend_wvl_search]*len(unq)
+        
         for i in range(len(unq)):
-            self._gen_inits_window(
+            self.gen_inits_window(
                 i,
+                extend_wvl_search = extend_wvl_search[i],
                 verbose=vb if np.abs(vb) <= 3 else 3 * (vb / np.abs(vb)),
                 ax=None if abs(vb) < 3 else axis[i],
             )
@@ -385,21 +420,25 @@ class GenInits:
                 print(e)
                 print('problem saving figure')
             self.plot_overview(verbose=vb)
-        
+
     def plot_overview(self,verbose: int = None):
         if verbose is None:
             vb = self.verbose
         else:
             vb = verbose
-        unq = self.get_extnames(self.hdul)
+        unq = get_extnames(self.hdul)
             
         os.makedirs("./tmp", exist_ok=True)
         dtime = str(datetime.datetime.now())[:19].replace(":", "-")
 
         ((fig1, ax1), (fig2, ax2)) = quickview(self.hdul)
-        for i, params in enumerate(self.init_params):
+        ax2 = ax2.flatten()
+        for i, params in enumerate([model.get_unlock_params() for model in self.Models]):
             specaxis = get_specaxis(self.hdul[unq[i]])
-            ax2[i].step(specaxis, flat_inArg_multiGauss(specaxis, *params))
+            ax2[i].step(specaxis, self.Models[i].callables['function'](specaxis, *params))
+            array_quentity = self.Models[i].get_unlock_quentities()
+            for j, l in enumerate(params[array_quentity == "x"]):
+                ax2[i].axvline(l, ls=":")
         try: 
             if vb >= 4 or vb <= -4:
                 fig1.savefig(f"./tmp/{dtime}_window_all.jpg")
@@ -407,7 +446,7 @@ class GenInits:
         except Exception as e:
             print(e) 
             print('problem saving figure')
-            
+
     @staticmethod
     def gen_lock_params(
         init_params: List[float],
@@ -569,9 +608,10 @@ class GenInits:
     def find_by_default_window(
         specaxis: np.ndarray,
         specdata: np.ndarray,
-        init_params: np.ndarray,
-        window_lines: List[Dict[str, Union[str, float]]],
-        catalog: LineCatalog = None,
+        # init_params: np.ndarray,
+        # window_lines: List[Dict[str, Union[str, float]]],
+        Model: ModelFactory ,
+        catalog: LineCatalog= None,
         verbose: int = 0,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
@@ -587,41 +627,53 @@ class GenInits:
 
         Returns:
             Tuple[np.ndarray, np.ndarray, np.ndarray]: Adjusted init_params, specaxis, and specdata.
-        """
+    """
+        if catalog is None:
+                catalog = LineCatalog(verbose=verbose)
         # finding max positions
         # defining line names with their default windows
-        lines_names = [i["name"] for i in window_lines]
-        lines_names_sorted = sorted((lines_names.copy()))
+        #BEAWARE the sub** are inverted with no sub** to only anlysze the lines that are strictly inside the window
+        sub_Model = Model.copy()
+        sub_functions = Model.functions.copy()
+        sub_window_lines = Model.functions_names['gaussian']
+        no_nan_specaxis = specaxis[(~np.isnan(specdata)) & ~np.isnan(specaxis)]
+        min_val = np.nanmin(no_nan_specaxis)
+        max_val = np.nanmax(no_nan_specaxis)
+        is_strict = np.array([True if min_val <= float(wvl)  <= max_val else False for wvl in np.array(sub_window_lines)[:,1]])
+        functions = sub_functions.copy()
+        functions['gaussian'] = [sub_functions['gaussian'][i] for i in range(len(sub_functions['gaussian'])) if is_strict[i]]
+        functions['gaussian'] = {i:functions['gaussian'][i] for i in range(len(functions['gaussian']))}
+        window_lines = Model.functions_names['gaussian']
+        
+        window_lines = [sub_window_lines[i] for i in range(len(sub_window_lines)) if is_strict[i]]
+        Model = ModelFactory(jit_activated=False,functions=functions,functions_names=window_lines)
+        init_params = Model.get_unlock_params()
+        lines_IDs = catalog.line2ID(list_names=window_lines)
+        if verbose >= 1:
+            print(f"lines strictly in the window {window_lines}")
+            print(f'all lines in the window {sub_window_lines}')
+        
         if True:
-            if catalog is None:
-                catalog = LineCatalog(verbose=verbose)
-            default_lines = catalog.get_catalog_lines()
             def_win = catalog.get_catalog_windows()
             default_windows = def_win["lines"]
             max_I_names = def_win["max_line"]
 
         for i in range(len(default_windows)):
-            if lines_names_sorted == sorted(default_windows[i]):
+            if set(lines_IDs) == set(default_windows[i]):
                 I_max_line_name = max_I_names[i]
-                I_max_line_index = lines_names.index(I_max_line_name)
+                I_max_line_index = lines_IDs.index(I_max_line_name)
                 init_params2 = init_params.copy()
                 l = len(init_params) - 1
                 mod_specdata = specdata.copy()
                 line_index = np.nanargmax(mod_specdata)
-                if "ne_viii_1" in lines_names_sorted and len(lines_names_sorted) <= 5:
-                    ne_viii_wvl = 770.42
-                    line_num = np.nanargmin(np.abs(init_params[1::3] - ne_viii_wvl))
-                    line_index = np.nanargmin(
-                        np.abs(init_params[line_num * 3 + 1] - specaxis)
-                    )
-                    pass
-                x_max_I = specaxis[line_index]
-                target_wvl = x_max_I
+                
+                x_max_I     = specaxis[line_index]
+                target_wvl  = x_max_I
                 current_wvl = init_params[3 * I_max_line_index + 1]
                 if abs(target_wvl - current_wvl) > 1.5:
                     if verbose >= -1:
                         print(
-                            f" --Warning--\nThe current line is far from the target line\n\ttarget ={target_wvl}{I_max_line_name}\n\tcurrent:{current_wvl}\n\t\lines{window_lines}\ntrying to confine the boundaries"
+                            f" --Warning--\nThe current line is far from the target line\n\ttarget ={target_wvl}{I_max_line_name}\n\tcurrent:{current_wvl}\n\t\\lines{window_lines}\ntrying to confine the boundaries"
                         )
 
                         print(
@@ -643,12 +695,6 @@ class GenInits:
                         )
                     ]
                     line_index = np.nanargmax(mod_specdata_neigbors)
-                    # if "ne_viii_1" in lines_names_sorted and len(lines_names_sorted)<=5:
-                    #     ne_viii_wvl = 770.42
-                    #     line_num = np.nanargmin(np.abs(init_params[1::3]-ne_viii_wvl))
-                    #     line_index = np.nanargmin(
-                    #         np.abs(init_params[line_num*3+1]-specaxis))
-                    #     pass
                     x_max_I = specaxis[line_index]
                     target_wvl = x_max_I
 
@@ -696,36 +742,47 @@ class GenInits:
                     raise ValueError(
                         "The initial parameters are not correct\n{init_params2}"
                     )
+                
+                # Joining the strict with the no strict lines
+                for sub_ind,line in enumerate(sub_window_lines):
+                    if line in window_lines:
+                        ind = window_lines.index(line)
+                        sub_Model.functions['gaussian'][sub_ind]['I'] = init_params2[ind*3]
+                        sub_Model.functions['gaussian'][sub_ind]['x'] = init_params2[ind*3+1]
+                        sub_Model.functions['gaussian'][sub_ind]['s'] = init_params2[ind*3+2]
+                    else:
+                        sub_Model.functions["gaussian"][sub_ind]['I'] =  0
+                        sub_Model.functions["gaussian"][sub_ind]['x'] += target_wvl - current_wvl
+                        sub_Model.functions["gaussian"][sub_ind]['s'] =  0.35
+                init_params2 = sub_Model.get_unlock_params()
                 return init_params2, specaxis, specdata
 
         if verbose > -1:
             print(
-                f"The window you have chosen is not in the catalog\n\tLOG!\n\t\t:\n\t\tspecaxis    {specaxis    }\n\t\tspecdata    {specdata    }\n\t\tinit_params {init_params }\n\t\twindow_lines{window_lines}"
+                f"The window you have chosen is not in the catalog\n\tLOG\n\t\tinit_params {init_params }\n\t\twindow_lines{window_lines}"
             )
-        return (init_params * np.nan, specaxis, specdata)
+        
+        return (sub_Model.get_unlock_params(), specaxis, specdata)
 
-    @staticmethod
-    def get_extnames(hdul: HDUList) -> List[str]:
-        """
-        Get a list of unique extension names from an HDUList, excluding specific extension names.
 
-        Args:
-            hdul (HDUList): An astropy HDUList object.
-
-        Returns:
-            List[str]: A list of unique extension names.
-        """
-        unq = [
-            hdu.header["EXTNAME"]
-            for hdu in hdul
-            if hdu.header["EXTNAME"]
-            not in ["VARIABLE_KEYWORDS", "WCSDVARR", "WCSDVARR"]
-        ]
-        return unq
-
-    @property
-    def path(self):
-        if self._path is not None:
-            return Path(self.hdulOrPath)
-        else:
-            raise ValueError("The path is not defined")
+def _get_lims_per_percentile(data,percentile,verbose=0):
+  lbd_stat_N = np.empty(data.shape[1])
+  for i in range(len(lbd_stat_N)):
+      lbd_stat_N[i] = np.where(~np.isnan(data[:,i,:,:]))[0].shape[0]
+  lbd_stat_N /= np.nanmax(lbd_stat_N)
+  
+  min_perc  = np.argmin((lbd_stat_N[:len(lbd_stat_N)//2]-percentile)**2)
+  max_perc  = -np.argmin((lbd_stat_N[:len(lbd_stat_N)//2:-1]-percentile)**2)-1
+  
+  if verbose>=3 or verbose<=-3:
+    plt.figure()
+    plt.plot(lbd_stat_N)
+    plt.axhline(percentile)
+    ax = plt.gca()
+    twinx = ax.twinx()
+    twinx .plot(np.nanmean(data, axis=(0,2,3)))
+    ax.axvline(min_perc                    ,
+      color='r',ls="--")
+    ax.axvline(len(lbd_stat_N) - min_perc-1,
+      color='r',ls="--")
+  return min_perc,len(lbd_stat_N) - min_perc
