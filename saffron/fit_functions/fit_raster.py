@@ -1564,8 +1564,8 @@ class WindowFit:
                 if index_order == 0:
                     hdu0 = fits.PrimaryHDU(data=data, header=header0)
                 else: 
-                    hdu0 = fits.ImageHDU  (data=data, header=header0, name=f"Bg;{header0["Parameter"]}")
-                hdu1 = fits.ImageHDU(data=sigma, header=header1, name=f"Bg_err;{header1["Parameter"]}")
+                    hdu0 = fits.ImageHDU  (data=data, header=header0, name=f"Bg;{header0['Parameter']}")
+                hdu1 = fits.ImageHDU(data=sigma, header=header1, name=f"Bg_err;{header1['Paramete']}")
                 background_list.extend([hdu0.copy(), hdu1.copy()])
                 
             hdul = HDUList(background_list)
