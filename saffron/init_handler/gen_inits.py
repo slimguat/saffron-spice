@@ -376,8 +376,8 @@ class GenInits:
             all_unlocked_Model.set_bounds(
                 kwargs = {
                     "I": [0, 1000], 
-                    "x": [["ref-add", -0.5], ["ref-add", 0.5]], 
-                    "s": [0.20, 0.4], 
+                    "x": [["ref-add", -1], ["ref-add", 1]], 
+                    "s": [0.20, 0.6], 
                     "B": [-10, 10]
                     }
             )

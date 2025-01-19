@@ -1142,10 +1142,13 @@ class WindowFit:
 
             for i in range(self.convolution_extent_list.shape[0]):
                 for j in range(self.conv_data.shape[1]):
-                    Dnois_conv_data = denoise_data(
-                        self.conv_data[i, j], denoise_sigma=self.denoise_intervals
-                    )
-                    self.conv_data[i, j] = Dnois_conv_data.copy()
+                    if np.any(~np.isnan(self.conv_data[i, j])):
+                        Dnois_conv_data = denoise_data(
+                            self.conv_data[i, j], denoise_sigma=self.denoise_intervals
+                        )
+                        self.conv_data[i, j] = Dnois_conv_data.copy()
+                        
+
 
         self.has_treated["denoise"] = True
         if self.verbose >= 1:
