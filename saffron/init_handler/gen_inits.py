@@ -12,7 +12,7 @@ import astropy.units as u
 from ..line_catalog.catalog import LineCatalog
 from ..fit_functions import fit_pixel_model
 # from ..fit_models import flat_inArg_multiGauss
-from ..fit_models import ModelFactory
+from ..fit_models.Model import ModelFactory
 from ..utils import get_celestial, quickview, get_specaxis, get_extnames
 
 from pathlib import PosixPath, WindowsPath, Path

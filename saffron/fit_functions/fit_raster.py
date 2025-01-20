@@ -47,7 +47,7 @@ from ..utils.utils import (
 )
 from ..utils.fits_clone import HDUClone, HDUListClone
 
-from ..fit_models import ModelFactory
+from ..fit_models.Model import ModelFactory
 class RasterFit:
     def __repr__(self) -> str:
         value = (
@@ -319,11 +319,14 @@ class RasterFit:
         from concurrent.futures import ProcessPoolExecutor
         for ind in range(len(self.windows)):
             self.windows[ind].model._callables = None
+        for ind in range(len(self.fused_windows)):
+            self.fused_windows[ind].model._callables = None
         max_processes = max_processes or os.cpu_count()
         print("\033[91mrun preparation in parallel")
         print("father process id", os.getpid(),"\033[0m")
         
         with ProcessPoolExecutor(max_workers=max_processes) as executor:
+            print([model._callables for model in self.models])
             self.windows = list(executor.map(
                 run_one_window_preparations, self.windows, [redo] * len(self.windows),[without_shared_memory]*len(self.windows)
             ))
@@ -1111,7 +1114,10 @@ class WindowFit:
                 convolution_extent_list=expanded_convolution_list
             )
             self.conv_sigma = np.sqrt(self.conv_sigma)
-
+            
+            for i in range(self.conv_data.shape[0]):
+                self.conv_data[i][np.isnan(self.clean_data)] = np.nan
+            
             self.has_treated["convolve"] = True
             if self.verbose >= 1:
                 print("Convolution done")

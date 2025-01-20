@@ -1001,7 +1001,36 @@ class ModelFactory():
 
       return model_instance
     
-    
-    
-    
-  
+  # __refduce__ and __setstate__ __getstate__ are new stuff just I 
+  # learned from communicating with GPT so it might be wrong way 
+  # to do it. However I intend to avoid issues with pickling this 
+  # shit in multiprocess. Errors I faced: ```Can't pickle <class 
+  # 'saffron.fit_models.Model.ModelFactory'>: it's not the 
+  # same object as saffron.fit_models.Model.ModelFactory```  
+  # And straight refusing to pickle because _callables 
+  # is a callable that is not picklablke
+  def __reduce__(self):
+    """
+    Defines how to serialize and reconstruct the object.
+    Returns a tuple with the class, constructor arguments, and optionally the state.
+    """
+    return (
+        self.__class__,
+        (self.functions, self.functions_names, self.verbose),
+        self.__dict__,
+    )
+
+  def __getstate__(self):
+    """
+    Defines the state to serialize. Removes non-pickleable attributes.
+    """
+    state = self.__dict__.copy()
+    state["_callables"] = None  # Exclude non-pickleable attributes
+    return state
+
+  def __setstate__(self, state):
+    """
+    Restores the object's state during deserialization.
+    """
+    self.__dict__.update(state)
+    self._callables = None  # Reset or regenerate callables  
