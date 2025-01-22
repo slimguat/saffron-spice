@@ -148,8 +148,12 @@ class ModelFactory():
       functions_names_b = copy.deepcopy(other.functions_names)
       for key in functions_names.keys():
         functions_names[key].extend(functions_names_b[key])
-      
-    return ModelFactory(_res,functions_names)
+    
+    new_model = ModelFactory(_res,functions_names)
+    new_model.bounds_rules = self.bounds_rules
+    new_model.set_bounds()
+    return new_model
+  
   def __repr__(self) -> str:
     """
     Provides a string representation of the Model, showing its functions and parameters.
@@ -439,8 +443,14 @@ class ModelFactory():
         directory (Path, optional): The directory to save the function file in. Defaults to './tmp'.
     """
     directory.mkdir(exist_ok=True)
-    now_date = datetime.now()
-    self.func_path = directory/f'Model_functions_{now_date.strftime("%Y%m%d")}_{now_date.strftime("%H%M%S")}.py' 
+    while True:
+      now_date = datetime.now()
+      randomint = np.random.randint(0,10**8)
+      self.func_path = directory/f'Model_functions_{now_date.strftime("%Y%m%d")}_{now_date.strftime("%H%M%S")}_{randomint}.py' 
+      if Path(self.func_path).exists():
+        continue
+      else:
+        break
     with open(self.func_path,'w') as f:
       f.write('\n# Function definition\n'+self.function_string[1] + '\n'*5+'\n# Jacobian definition\n' + self.jacobian_string[1]) 
   def _lock_arg_string_generator(self, model_type: str, ind_func: int, key: str) -> str:
@@ -722,8 +732,9 @@ class ModelFactory():
     if self._callables is not None:
       return self._callables
     
-    return self.reset_callables()
-  def reset_callables(self) -> Dict[str, Callable]:
+    return self.reset_callables(regenerate_file=False)
+  
+  def reset_callables(self,regenerate_file=True) -> Dict[str, Callable]:
     """
     Generates callable functions for the model's function and its Jacobian by dumping them to a file
     and then importing them.
@@ -736,7 +747,8 @@ class ModelFactory():
         and their respective callable functions as values.
     """
     # Dump the function and jacobian strings to a file
-    self.dump_function()
+    if regenerate_file:
+      self.dump_function()
     
     # File path where the functions are dumped
     func_file_path = self.func_path
@@ -748,9 +760,18 @@ class ModelFactory():
     spec.loader.exec_module(module)
 
     # Retrieve the function and Jacobian from the module
-    model_function = getattr(module, self.function_string[0])
-    model_jacobian = getattr(module, self.jacobian_string[0])
-
+    try:
+      model_function = getattr(module, self.function_string[0])
+      model_jacobian = getattr(module, self.jacobian_string[0])
+    except Exception as e:
+      print('regenerate_file',regenerate_file)
+      print(module, self.function_string[0])
+      print(module, self.jacobian_string[0])
+      print(self.function_string)
+      print(self.jacobian_string)
+      return self.reset_callables(regenerate_file=True)
+      
+      raise e
     # Store them in the callables attribute
     self._callables = {'function': model_function, 'jacobian': model_jacobian}
     return self._callables

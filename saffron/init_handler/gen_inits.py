@@ -226,7 +226,7 @@ class GenInits:
             Free_params_Model.set_bounds(
                 {"I": [0, np.nanmax(specdata)*1.5], 
                  "x": [["ref-add", -wvl_bounds], ["ref-add", wvl_bounds]], 
-                 "s": [0.20, 0.4], "B": [-10, 10]
+                 "s": [0.20, 0.6], "B": [-10, 10]
                  }
             )
             
@@ -351,6 +351,10 @@ class GenInits:
                 
                 for i, l in enumerate(init_param_unlocked[array_quentity == "x"]):
                     ax.axvline(l, label=f"{window_lines[i]['name']},{l:6.1f}", ls=":")
+                try:
+                    all_unlocked_Model.callables['function'](specaxis, *init_param_unlocked)
+                except:
+                    all_unlocked_Model.reset_callables(regenerate_file=True)
                 ax.step(
                     specaxis,
                     all_unlocked_Model.callables['function'](specaxis, *init_param_unlocked),
@@ -358,6 +362,13 @@ class GenInits:
                         " NANs" if np.isnan(init_param_unlocked).any() else ""
                     ),
                 )
+                # except Exception as e:
+                #     print(e)
+                #     print("problem with the plot")
+                #     print(all_unlocked_Model)
+                #     print(init_param_unlocked)
+                #     raise e
+
                 ax.legend(fontsize=8, framealpha=0.3)
 
                 if np.abs(vb) >= 4:

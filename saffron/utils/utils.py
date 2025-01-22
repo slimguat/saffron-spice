@@ -478,7 +478,7 @@ def clean_nans(
             | (np.isnan(ydata))
             | (ydata < -100)
             | (np.isnan(weights))
-            | (np.isinf(1 / weights))
+            | (weights == 0)
         )
     else:
         num_elements = np.logical_not(

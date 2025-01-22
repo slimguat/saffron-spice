@@ -410,11 +410,12 @@ class RasterFit:
         formatted_time = now.strftime(r"%y%m%dT%H%M%S")
         if "::TIME" in self.data_filename:
             self.data_filename = self.data_filename.replace("::TIME", formatted_time)
-        strConv = "".join([f"{i:02d}" for i in self.convolution_extent_list])
+        strConv = "-".join([f"{i:02d}" for i in self.convolution_extent_list])
         if "::CONV" in self.data_filename:
             self.data_filename = self.data_filename.replace("::CONV", strConv)
+        strTConv = f"{self.t_convolution_index:02d}"
         if "::TCONV" in self.data_filename:
-            self.data_filename = self.data_filename.replace("::TCONV", self.t_convolution_index)
+            self.data_filename = self.data_filename.replace("::TCONV", strTConv)
 
 
 class ProgressFollower:
@@ -1144,7 +1145,7 @@ class WindowFit:
             if self.verbose >= 1:
                 print(f"Generating denoised maps with denoise sigma => {self.denoise}")
             if self.conv_data[0].shape[3] == 1:
-                colored_text('Warning: It appears that the data has one value along xaxis, the author of saffron didn\'t test it throughly yet so be careful of potential implications', 'yellow') 
+                colored_text('Warning: It appears that the data denoise is trying to operate on only one value along xaxis, the author of saffron didn\'t test it throughly yet so be careful of potential implications', 'yellow') 
 
             for i in range(self.convolution_extent_list.shape[0]):
                 for j in range(self.conv_data.shape[1]):
@@ -1196,14 +1197,19 @@ class WindowFit:
         
         # Compute total pixels in the specified subregion
         pixel_count = (ws[0, 1] - ws[0, 0]) * (ws[1, 1] - ws[1, 0] * (ts[1] - ts[0]))
-        batch_size = max(min(100, int(pixel_count/self.Jobs)), 10)  # Limit batch size to 100 pixels
+        batch_size = max(int(pixel_count/(self.Jobs*3)),300)
+         
+        
 
         # Vectorized creation of (t,i, j) pairs
         t_vals = np.arange(ts[0], ts[1])
         i_vals = np.arange(ws[0, 0], ws[0, 1])
         j_vals = np.arange(ws[1, 0], ws[1, 1])
         coords = np.stack(np.meshgrid(t_vals,i_vals, j_vals, indexing="ij"), axis=-1).reshape(-1, 3)
-
+        # shuffle the coords 
+        np.random.shuffle(coords)
+        
+        
         # Call the helper function and simply turn the generator into a list
         job_index_list = list(generate_coord_batches(coords, batch_size=batch_size))
 
@@ -1574,7 +1580,7 @@ class WindowFit:
                     hdu0 = fits.PrimaryHDU(data=data, header=header0)
                 else: 
                     hdu0 = fits.ImageHDU  (data=data, header=header0, name=f"Bg;{header0['Parameter']}")
-                hdu1 = fits.ImageHDU(data=sigma, header=header1, name=f"Bg_err;{header1['Paramete']}")
+                hdu1 = fits.ImageHDU(data=sigma, header=header1, name=f"Bg_err;{header1['Parameter']}")
                 background_list.extend([hdu0.copy(), hdu1.copy()])
                 
             hdul = HDUList(background_list)
@@ -1779,8 +1785,19 @@ class WindowFit:
             print("cov", self._cov)
         if self.verbose >= -2:
             print("con", self._con)
+        if self.verbose >= -2:
+            print('Saving the shared memory data to the disk')
+            temp_filename = Path("./tmp")/datetime.datetime.now().strftime("Shmm_%Y%m%d%H%M%S.pkl")
+            with open(temp_filename, "wb") as f:
+                pickle.dump(
+                    [self._par,self.model],
+                    f,
+                )
         Processes = []
         _now = datetime.datetime.now()
+        fit_func = self.model.callables['function']
+        jac_func = self.model.callables['jacobian']
+        
         for i in range(len(self.Job_index_list)):  # preparing processes:
             # Remove callables to render the class picklable
             self.model._callables = None
@@ -1796,6 +1813,8 @@ class WindowFit:
                 "convolution_threshold": self.convolution_threshold,
                 "convolution_extent_list": self.convolution_extent_list,
                 "verbose": self.verbose,
+                'fit_func': fit_func,
+                'jac_func': jac_func,
                 
             }
             if False:
@@ -1860,6 +1879,11 @@ class WindowFit:
             # sleep(2)
         for process in Processes:
             process.join()
+        if self.verbose >= -2:
+            print("finished par", self._par,'deleting the shared memory data')
+        try:
+            os.remove(temp_filename)
+        except:pass
 
     @staticmethod
     def task_fit_pixel(
@@ -1875,7 +1899,8 @@ class WindowFit:
         convolution_threshold=None,
         convolution_extent_list=None,
         verbose=0,
-        lock=None,
+        fit_func = None,
+        jac_func = None,
         **kwargs,
     ):
 
@@ -1900,8 +1925,11 @@ class WindowFit:
         unlocked_ini_params = model.get_unlock_params()
         locked_ini_params = model.get_lock_params()
         locked_quentities = model.get_lock_quentities()
-        fit_func = model.callables['function']
-        jacobian = model.callables['jacobian']
+        if fit_func is None:
+            fit_func = model.callables['function']
+        if jac_func is None:
+            jac_func = model.callables['jacobian']
+        
         bounds = model.bounds
         
         for index in list_indeces:
@@ -1934,7 +1962,7 @@ class WindowFit:
                         ini_params=(locked_ini_params),  # ini_params,
                         quentities=locked_quentities,  # quentities,
                         fit_func=fit_func,
-                        jac_func=jacobian,
+                        jac_func=jac_func,
                         bounds=bounds,
                         weights=(
                             None
@@ -1951,7 +1979,12 @@ class WindowFit:
                     last_cov = np.diag(model.get_unlock_covariance(locked_last_cov))
                     # print(f"last_par: {last_par}\nlast_cov: {last_cov}")
                     if any(np.isnan(locked_last_par)):
-                        print("no fitting possible")
+                        if verbose>=1:
+                            print("no fitting possible",
+                                "xnans", len(x[np.isnan(x)]), "total", len(x),
+                                "ynans", len(data_war[i_ad, i_t, :, i_y, i_x][np.isnan(data_war[i_ad, i_t, :, i_y, i_x])]),
+                                "params", len(locked_last_par), "cov", len(locked_last_cov)
+                                )
                 else:
                     _s = unlocked_ini_params.shape[0]
                     last_par, last_cov = (
