@@ -1521,12 +1521,12 @@ class WindowFit:
                     header21,]
                 
                
-                data0 = self.data_par[index_occurence, 0]
-                sigma0 = np.sqrt(self.data_cov[index_occurence, 0])
-                data1 = self.data_par[index_occurence + 1, 0]
-                sigma1 = np.sqrt(self.data_cov[index_occurence + 1, 0])
-                data2 = self.data_par[index_occurence + 2, 0]
-                sigma2 = np.sqrt(self.data_cov[index_occurence + 2, 0])
+                data0 = self.data_par[index_occurence]
+                sigma0 = np.sqrt(self.data_cov[index_occurence])
+                data1 = self.data_par[index_occurence + 1]
+                sigma1 = np.sqrt(self.data_cov[index_occurence + 1])
+                data2 = self.data_par[index_occurence + 2]
+                sigma2 = np.sqrt(self.data_cov[index_occurence + 2])
 
                 hdu00 = fits.PrimaryHDU(data=data0,  header=header00 ,)
                 hdu10 = fits.ImageHDU  (data=data1,  header=header10 , name="wavelength"    )
