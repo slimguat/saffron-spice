@@ -59,6 +59,8 @@ def colored_text(text, color):
         text (str): The text to display.
         color (str): The color name (e.g., 'red', 'green', 'blue') or a hex code (e.g., '#FF0000').
     """
+    print(text)
+    return
     def is_hex_color(c):
         """Check if the string is a valid hex color."""
         if c.startswith("#") and len(c) == 7:

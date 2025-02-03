@@ -1283,6 +1283,9 @@ class WindowFit:
         self.has_treated['shared_memory'] = True
         
     def write_data(self):
+        import warnings
+        from astropy.io.fits.verify import VerifyWarning
+        warnings.simplefilter("ignore", category=VerifyWarning)
         def get_python_environment_info():
             # Kernel info
             kernel = platform.system()
