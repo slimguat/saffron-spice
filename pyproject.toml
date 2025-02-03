@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "saffron-spice"
-version = "0.2.0"
+version = "0.3.0"
 description = "SAFFRON: Spectral Analysis Fitting Framework, Reduction Of Noise."
 authors = [
     "Slimane MZERGUAT <slimane.mzerguat@universite-paris-saclay.fr>",
