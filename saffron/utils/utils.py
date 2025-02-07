@@ -257,8 +257,8 @@ def gen_axes_side2side(
     assert len(hspaces) == row - 1
     assert len(wspaces) == col - 1
     effective_size = (1 - right_pad - left_pad, 1 - top_pad - bottom_pad)
-    ax_w = (effective_size[1] - np.sum(wspaces)) / col
-    ax_h = (effective_size[2] - np.sum(hspaces)) / row
+    ax_w = (effective_size[0] - np.sum(wspaces)) / col
+    ax_h = (effective_size[1] - np.sum(hspaces)) / row
 
     if figsize is None:
         h = ax_size * row
