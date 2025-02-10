@@ -1585,7 +1585,60 @@ class WindowFit:
                     hdu0 = fits.ImageHDU  (data=data, header=header0, name=f"Bg;{header0['Parameter']}")
                 hdu1 = fits.ImageHDU(data=sigma, header=header1, name=f"Bg_err;{header1['Parameter']}")
                 background_list.extend([hdu0.copy(), hdu1.copy()])
+            
+            headerlon = header.copy() #this is the  convolution matrix
+            headerlat = header.copy() #this is the  convolution matrix
+
+            headerlon["MEASRMNT"] = "con"
+            headerlat["MEASRMNT"] = "con"
+            if True: #Add informatio on the cleaning  
+                headerlon["DENOISE"] = self.denoise
+                headerlon['DESPIKE'] = self.denoise 
+                headerlon['PRECLEAN'] = self.preclean
+                headerlon['DENO_PAR'] = None if not self.denoise == True else ",".join([str(i) for i in self.denoise_intervals])
+                headerlon['DESP_PAR'] = None if not self.despike == True else ",".join(str(i) for  i in [self.clipping_sigma,self.clipping_iterations,*self.clipping_med_size])
+            if True: #Add informatio on the cleaning  
+                headerlat["DENOISE"] = self.denoise
+                headerlat['DESPIKE'] = self.denoise 
+                headerlat['PRECLEAN'] = self.preclean
+                headerlat['DENO_PAR'] = None if not self.denoise == True else ",".join([str(i) for i in self.denoise_intervals])
+                headerlat['DESP_PAR'] = None if not self.despike == True else ",".join(str(i) for  i in [self.clipping_sigma,self.clipping_iterations,*self.clipping_med_size])
                 
+            #these are the length in pixels of the convolution kernel 
+            headerlon['BUNIT'] = 'pixels'
+            headerlat['BUNIT'] = 'pixels'
+
+            headerlon['BTYPE'] = 'convolution'
+            headerlat['BTYPE'] = 'convolution'
+
+            headerlon['Parameter'] = 'lon'
+            headerlat['Parameter'] = 'lat'
+
+            con_lon_mat = np.zeros_like(self.data_con)
+            con_lat_mat = np.zeros_like(self.data_con)
+            for i in range(con_lon_mat.shape[0]):
+                for j in range(con_lon_mat.shape[1]):
+                    for t in range(con_lon_mat.shape[2]):
+                        con_val = self.data_con[i,j,t]
+                        
+                        expanded_convolution_list = np.empty([self.convolution_extent_list.shape[0], 4], dtype=int)
+                        CDELT1 = self.hdu.header["CDELT1"] if isinstance(self.hdu, HDUClone) else self.hdu[0].header["CDELT1"]
+                        CDELT2 = self.hdu.header["CDELT2"] if isinstance(self.hdu, HDUClone) else self.hdu[0].header["CDELT2"]
+                        shape = self.hdu.data.shape if isinstance(self.hdu, HDUClone) else self.hdu[0].data.shape
+                        ratio = float(CDELT1/ CDELT2)
+                        size = np.array(
+                            [
+                                1 + (con_val),
+                                1 + (con_val)* np.nanmin([ratio,1/ratio]),
+                            ],
+                            dtype=int,
+                        )
+                        con_lon_mat[i,j,t] = size[1]
+                        con_lat_mat[i,j,t] = size[0]
+            hdu0 = fits.CompImageHDU(data=con_lon_mat, header=headerlon, name="convolution_lon")
+            hdu1 = fits.CompImageHDU(data=con_lat_mat, header=headerlat, name="convolution_lat")
+            background_list.extend([hdu0.copy(), hdu1.copy()])
+            
             hdul = HDUList(background_list)
             hdul_list.append([hdul.copy(), bg_filename])
             # bg_filenames.append(bg_filename)

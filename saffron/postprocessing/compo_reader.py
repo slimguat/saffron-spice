@@ -11,7 +11,7 @@ from astropy.io import fits
 from pathlib import Path, WindowsPath, PosixPath
 import matplotlib.pyplot as plt
 import os
-from ..utils import normit, suppress_output, gen_axes_side2side, get_coord_mat,get_corner_HLP,get_lims,get_frame,reduce_largeMap_SmallMapFOV
+from ..utils import normit, suppress_output, gen_axes_side2side, get_coord_mat,get_corner_HLP,get_lims,get_frame,reduce_largeMap_SmallMapFOV,get_extnames
 from ..utils.fits_clone import HDUClone, HDUListClone
 from ..utils import get_specaxis
 from ..utils.utils import colored_text
@@ -630,6 +630,7 @@ class SPICEL3Raster:
         self.fsi174_path =  None
         self.L2_data = None
         self.L2_path = None
+        self.L2_data_clean = None 
         self.params_matrix = None
     def _prepare_data(self, list_paths):
         for paths in list_paths:
@@ -1102,6 +1103,8 @@ class SPICEL3Raster:
                 map_ = line.get_map(param)
                 norm = map_.plot_settings["norm"]
                 cmap = map_.plot_settings["cmap"]
+                if len (data.shape)==3 and data.shape[0]==1:
+                    data=data[0]
                 axes[ind, ind2].pcolormesh(lon, lat, data, norm=norm, cmap=cmap)
                 axes[ind, ind2].text(
                     0.5,
@@ -1453,43 +1456,50 @@ class SPICEL3Raster:
         return needed_lines
     
     def reconstruct_raster(self,redo=False):
-        for window_index in range(len(self.L2_data)):
-            if self.L2_data[window_index].header['EXTNAME'] not in ["VARIABLE_KEYWORDS", "WCSDVARR", "WCSDVARR"]:
-                self.reconstruct_window(window_index,redo=redo)
-    
-    # def plot_pixels(self,list_indecies,window_index,axis=None):
-    #     list_indecies = np.array(list_indecies)
-    #     #Get FIT_ID based on the window_index
-    #     FIT_IDs = list(self.params_matrix.keys())
-    #     window_indecies = [self.params_matrix[FIT_ID]['L2window_index'] for FIT_ID in FIT_IDs]
-    #     FIT_ID = FIT_IDs[[1 if window_index in windex else 0 for windex in window_indecies].index(1)]
-    #     index_windows_involved = self.params_matrix[FIT_ID]['L2window_index']
-    #     if len(index_windows_involved)>1:
-    #         colored_text("The fit is involved in more than one window\nNot plotting them all","green") 
-    #     #assert that the list_indecies is of shape N,2
-    #     assert len(list_indecies.shape) == 2 and list_indecies.shape[1] == 2, "list_indecies should be of shape N,2"
-    #     if axis is None:
-    #         c = int(min(5, math.ceil(np.sqrt(len(list_indecies)))))
-    #         r = int(np.ceil(len(list_indecies)/c))
-    #         fig, axes = plt.subplots(r,c,figsize=(c*3,r*3))
-    #         axes = axes.flatten()
-    #         [ax.remove() for ax in axes[len(list_indecies):]]
-    #         [ax.grid() for ax in axes]
-    #     else:
-    #         pass
+        unq = get_extnames(self.L2_data)
+        for window_index,EXTNAME in enumerate(unq):
+            self.reconstruct_window(window_index,redo=redo)
+
+    # def reconstruct_clean_data(self):
+    #     self.clean_data= None
         
-    #     hdu = self.L2_data[window_index]
-    #     specaxis = get_specaxis(hdu)
-    #     model = self.params_matrix[FIT_ID]['model']
-    #     function = model.callables['function']
-    #     for ind,index in enumerate(list_indecies):
-    #         data = self.L2_data[window_index].data[0,:,index[0],index[1]]
-    #         params = self.params_matrix[FIT_ID]['data'][:,index[0],index[1]]
-    #         lock_params = model.get_lock_params(params)
-    #         axes[ind].step(specaxis,data,ls='--',color='black')
-    #         axes[ind].plot(specaxis,function(specaxis,*lock_params),color='red')
-    #         axes[ind].set_title(f"index: {index}")
-    
+    #     #first search for the convolution kernal informations
+        
+        
+        
+    # def plot_pixels(self,list_indecies,window_index,axis=None):
+        #     list_indecies = np.array(list_indecies)
+        #     #Get FIT_ID based on the window_index
+        #     FIT_IDs = list(self.params_matrix.keys())
+        #     window_indecies = [self.params_matrix[FIT_ID]['L2window_index'] for FIT_ID in FIT_IDs]
+        #     FIT_ID = FIT_IDs[[1 if window_index in windex else 0 for windex in window_indecies].index(1)]
+        #     index_windows_involved = self.params_matrix[FIT_ID]['L2window_index']
+        #     if len(index_windows_involved)>1:
+        #         colored_text("The fit is involved in more than one window\nNot plotting them all","green") 
+        #     #assert that the list_indecies is of shape N,2
+        #     assert len(list_indecies.shape) == 2 and list_indecies.shape[1] == 2, "list_indecies should be of shape N,2"
+        #     if axis is None:
+        #         c = int(min(5, math.ceil(np.sqrt(len(list_indecies)))))
+        #         r = int(np.ceil(len(list_indecies)/c))
+        #         fig, axes = plt.subplots(r,c,figsize=(c*3,r*3))
+        #         axes = axes.flatten()
+        #         [ax.remove() for ax in axes[len(list_indecies):]]
+        #         [ax.grid() for ax in axes]
+        #     else:
+        #         pass
+            
+        #     hdu = self.L2_data[window_index]
+        #     specaxis = get_specaxis(hdu)
+        #     model = self.params_matrix[FIT_ID]['model']
+        #     function = model.callables['function']
+        #     for ind,index in enumerate(list_indecies):
+        #         data = self.L2_data[window_index].data[0,:,index[0],index[1]]
+        #         params = self.params_matrix[FIT_ID]['data'][:,index[0],index[1]]
+        #         lock_params = model.get_lock_params(params)
+        #         axes[ind].step(specaxis,data,ls='--',color='black')
+        #         axes[ind].plot(specaxis,function(specaxis,*lock_params),color='red')
+        #         axes[ind].set_title(f"index: {index}")
+        
     def plot_pixels(self, list_indices, window_index, axis=None):
         """
         Plot pixel fits for a given list of indices.
@@ -1508,12 +1518,15 @@ class SPICEL3Raster:
             colored_text("The fit is involved in more than one window\nNot plotting them all", "green")
 
         # Validate list_indices shape
-        assert len(list_indices.shape) == 2 and list_indices.shape[1] == 2, "list_indices should be of shape N,2"
+        assert len(list_indices.shape) == 2 and list_indices.shape[1] in [2,3], "list_indices should be of shape N,2 or N,3"
 
         # Prepare axes
         fig, axes = self._prepare_axes(len(list_indices), axis)
 
         # Plot each pixel using _plot_pixel
+        print("L2 EXTNAME : ",self.L2_data[window_index].header['EXTNAME'])
+        print("L2 FIT_ID : ",FIT_ID)
+        print("L2 window index : ",involved_windows)
         for ind, index in enumerate(list_indices):
             self._plot_pixel(index, window_index, FIT_ID, axes[ind]) 
         return axes
@@ -1534,12 +1547,13 @@ class SPICEL3Raster:
         
         # Get the data for the window
         hdu = self.L2_data[window_index]
-        data = hdu.data[0]  # Shape: (spectra, y, x)
+        data = hdu.data  # Shape: (spectra, y, x)
 
         # Efficiently generate all indices using NumPy
-        y_size, x_size = data.shape[1:]  # Assume shape is (spectra, y, x)
-        y_coords, x_coords = np.meshgrid(np.arange(y_size), np.arange(x_size), indexing='ij')
-        all_indices = np.stack((y_coords.ravel(), x_coords.ravel()), axis=-1)  # Shape: (total_pixels, 2)
+        y_size, x_size = data.shape[2:]  # Assume shape is (spectra, y, x)
+        t_size = data.shape[0] 
+        t_coords, y_coords, x_coords = np.meshgrid(np.arange(t_size),np.arange(y_size), np.arange(x_size), indexing='ij')
+        all_indices = np.stack((t_coords.ravel(),y_coords.ravel(), x_coords.ravel()), axis=-1)  # Shape: (total_pixels, 2)
 
         if exclude_nans:
             # Create a mask for NaN values and filter indices
@@ -1614,8 +1628,22 @@ class SPICEL3Raster:
         if True:#Get the data
             hdu = self.L2_data[window_index]
             specaxis = get_specaxis(hdu)
-            data = hdu.data[0, :, index[0], index[1]]
-            params = self.params_matrix[FIT_ID]['data'][:, index[0], index[1]]
+            if index.shape[0]==3:
+                data = hdu.data[index[0], :, index[1], index[2]]
+            else:
+                data = hdu.data[0, :, index[0], index[1]]
+            
+            param_dim= len(self.params_matrix[FIT_ID]['data'].shape[1:])
+            if param_dim == index.shape[0] :
+                params = self.params_matrix[FIT_ID]['data'][:,*index]
+            elif param_dim == 2 and index.shape[0] == 3:
+                params = self.params_matrix[FIT_ID]['data'][:,*index[1:]]
+            elif param_dim == 3 and index.shape[0] == 2:
+                params = self.params_matrix[FIT_ID]['data'][:,0,*index]
+            else:
+                raise ValueError("The index shape doesn't match the data shape")
+            
+            
             model = self.params_matrix[FIT_ID]['model']
             function = model.callables['function']
             lock_params = model.get_lock_params(params)
