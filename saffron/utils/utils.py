@@ -619,78 +619,100 @@ def _sciunif(data, size):
     # print(size, blured.shape)
     return blured
 
-def deNaN(data):
-    clean_data = data.copy()
+# def deNaN(data):
+#     clean_data = data.copy()
 
-    for i in range(clean_data.shape[1]):
-        xNaN = np.nanmean(data[:, i, :, :], axis=(0, 1))
-        yNaN = np.nanmean(data[:, i, :, :], axis=(0, 2))
-        if len(np.where(np.logical_not(np.isnan(xNaN)))[0]) == 0:
-            max_lon = 0
-            min_lon = 0
-        else:
-            max_lon = np.max(np.where(np.logical_not(np.isnan(xNaN)))) + 1
-            min_lon = np.min(np.where(np.logical_not(np.isnan(xNaN))))
-        if len(np.where(np.logical_not(np.isnan(yNaN)))[0]) == 0:
-            max_lat = 0
-            min_lat = 0
-        else:
-            min_lat = np.min(np.where(np.logical_not(np.isnan(yNaN))))
-            max_lat = np.max(np.where(np.logical_not(np.isnan(yNaN)))) + 1
+#     for i in range(clean_data.shape[1]):
+#         xNaN = np.nanmean(data[:, i, :, :], axis=(0, 1))
+#         yNaN = np.nanmean(data[:, i, :, :], axis=(0, 2))
+#         if len(np.where(np.logical_not(np.isnan(xNaN)))[0]) == 0:
+#             max_lon = 0
+#             min_lon = 0
+#         else:
+#             max_lon = np.max(np.where(np.logical_not(np.isnan(xNaN)))) + 1
+#             min_lon = np.min(np.where(np.logical_not(np.isnan(xNaN))))
+#         if len(np.where(np.logical_not(np.isnan(yNaN)))[0]) == 0:
+#             max_lat = 0
+#             min_lat = 0
+#         else:
+#             min_lat = np.min(np.where(np.logical_not(np.isnan(yNaN))))
+#             max_lat = np.max(np.where(np.logical_not(np.isnan(yNaN)))) + 1
 
-        clean_data[:, i, 0:min_lat, :] = 0
-        clean_data[:, i, :, 0:min_lon] = 0
-        clean_data[:, i, max_lat:, :] = 0
-        clean_data[:, i, :, max_lon:] = 0
+#         clean_data[:, i, 0:min_lat, :] = 0
+#         clean_data[:, i, :, 0:min_lon] = 0
+#         clean_data[:, i, max_lat:, :] = 0
+#         clean_data[:, i, :, max_lon:] = 0
 
-    return clean_data
+#     return clean_data
 
-def reNaN(original_data, clean_data, size):
-    data = original_data.copy()
-    reclean_data = clean_data.copy()
-    for i in range(clean_data.shape[1]):
-        xNaN = np.nanmean(data[:, i, :, :], axis=(0, 1))
-        yNaN = np.nanmean(data[:, i, :, :], axis=(0, 2))
+# def reNaN(original_data, clean_data, size):
+#     data = original_data.copy()
+#     reclean_data = clean_data.copy()
+#     for i in range(clean_data.shape[1]):
+#         xNaN = np.nanmean(data[:, i, :, :], axis=(0, 1))
+#         yNaN = np.nanmean(data[:, i, :, :], axis=(0, 2))
 
-        if len(np.where(np.logical_not(np.isnan(xNaN)))[0]) == 0:
-            max_lon = 0
-            min_lon = 0
-        else:
-            max_lon = np.max(np.where(np.logical_not(np.isnan(xNaN)))) + 1
-            min_lon = np.min(np.where(np.logical_not(np.isnan(xNaN))))
-        if len(np.where(np.logical_not(np.isnan(yNaN)))[0]) == 0:
-            max_lat = 0
-            min_lat = 0
-        else:
-            min_lat = np.min(np.where(np.logical_not(np.isnan(yNaN))))
-            max_lat = np.max(np.where(np.logical_not(np.isnan(yNaN)))) + 1
+#         if len(np.where(np.logical_not(np.isnan(xNaN)))[0]) == 0:
+#             max_lon = 0
+#             min_lon = 0
+#         else:
+#             max_lon = np.max(np.where(np.logical_not(np.isnan(xNaN)))) + 1
+#             min_lon = np.min(np.where(np.logical_not(np.isnan(xNaN))))
+#         if len(np.where(np.logical_not(np.isnan(yNaN)))[0]) == 0:
+#             max_lat = 0
+#             min_lat = 0
+#         else:
+#             min_lat = np.min(np.where(np.logical_not(np.isnan(yNaN))))
+#             max_lat = np.max(np.where(np.logical_not(np.isnan(yNaN)))) + 1
         
         
-        min_lat = min_lat + (size[1] // 2 + (1 if size[1] % 2 != 0 else 0))
-        min_lon = min_lon + (size[2] // 2 + (1 if size[2] % 2 != 0 else 0))
-        max_lat = max_lat - (size[1] // 2 + (1 if size[1] % 2 != 0 else 0))
-        max_lon = max_lon - (size[2] // 2 + (1 if size[2] % 2 != 0 else 0))
-        min_tim = 0 + (size[0] // 2 + (1 if size[0] % 2 != 0 else 0))
-        max_tim = data.shape[0] - (size[0] // 2 + (1 if size[0] % 2 != 0 else 0))
+#         min_lat = min_lat + (size[1] // 2 + (1 if size[1] % 2 != 0 else 0))
+#         min_lon = min_lon + (size[2] // 2 + (1 if size[2] % 2 != 0 else 0))
+#         max_lat = max_lat - (size[1] // 2 + (1 if size[1] % 2 != 0 else 0))
+#         max_lon = max_lon - (size[2] // 2 + (1 if size[2] % 2 != 0 else 0))
+#         min_tim = 0 + (size[0] // 2 + (1 if size[0] % 2 != 0 else 0))
+#         max_tim = data.shape[0] - (size[0] // 2 + (1 if size[0] % 2 != 0 else 0))
 
 
-        min_lat = np.min([min_lat, data.shape[3]+1])
-        min_lon = np.min([min_lon, data.shape[2]+1])
-        max_lat = np.max([max_lat, 0])
-        max_lon = np.max([max_lon, 0])
-        max_tim = np.max([max_tim, 0])
-        min_tim = np.min([min_tim, data.shape[0]-1])
+#         min_lat = np.min([min_lat, data.shape[3]+1])
+#         min_lon = np.min([min_lon, data.shape[2]+1])
+#         max_lat = np.max([max_lat, 0])
+#         max_lon = np.max([max_lon, 0])
+#         max_tim = np.max([max_tim, 0])
+#         min_tim = np.min([min_tim, data.shape[0]-1])
         
         
-        reclean_data[:            , i,  : min_lat - 1, :            ] = np.nan
-        reclean_data[:            , i, :             , : min_lon - 1] = np.nan
-        reclean_data[:            , i, max_lat + 1 : , :            ] = np.nan
-        reclean_data[:            , i, :             , max_lon + 1 :] = np.nan
-        reclean_data[: min_tim - 1, i, :             , :            ] = np.nan
-        reclean_data[max_tim + 1 :, i, :             , :            ] = np.nan
+#         reclean_data[:            , i,  : min_lat - 1, :            ] = np.nan
+#         reclean_data[:            , i, :             , : min_lon - 1] = np.nan
+#         reclean_data[:            , i, max_lat + 1 : , :            ] = np.nan
+#         reclean_data[:            , i, :             , max_lon + 1 :] = np.nan
+#         reclean_data[: min_tim - 1, i, :             , :            ] = np.nan
+#         reclean_data[max_tim + 1 :, i, :             , :            ] = np.nan
         
 
-    return reclean_data
+#     return reclean_data
+
+def boundary_size(size,data_shape):
+  boundary = np.zeros((len(data_shape),2),dtype=int)
+  for ind in range(len(size)):
+    si = size[ind]
+    sh = data_shape[ind]
+    if si %2 == 0:
+      boundary[ind] = [si//2,sh-si//2+1]
+    else:
+      boundary[ind] = [(si-1)//2,sh-(si-1)//2]
+  return boundary
+
+def reNaN(raw_data,conv_data,mask_data,size):
+    boundaries = boundary_size(size,raw_data.shape)
+    naned_data = np.empty_like(conv_data,dtype=float)*np.nan
+    # first we remove all the reflected data in the boudaries
+    slices = [slice(boundaries[ind][0],boundaries[ind][1]) for ind in range(len(size))]
+    naned_data[*slices] = conv_data[*slices]
+    # then we remove all the previous nan values
+    naned_data[mask_data<1] = np.nan
+    return naned_data
+
 
 
 @jit(nopython=True)
@@ -792,7 +814,11 @@ def convolve_4D(
         raise ValueError("cercle mode is deprecated")
     elif mode == "box":
         conv_data = np.zeros((convolution_extent_list.shape[0], *window.shape))
-        clean_window = deNaN(window)
+        # clean_window = deNaN(window)
+        clean_window = window.copy()
+        clean_window[np.isnan(clean_window)] = 0
+        data_mask = np.ones_like(window)
+        data_mask[np.isnan(window)] = 0
         for i,size in enumerate(convolution_extent_list):
             for j in size: 
                 if size[i]>window.shape[i]:
@@ -806,9 +832,10 @@ def convolve_4D(
                 continue
             else:
                 blured = _sciunif(clean_window[:,:,:,:], size)
+                blured_mask = _sciunif(data_mask[:,:,:,:], size)
                 # print(blured.shape,conv_data[j].shape)
-                conv_data[i] = reNaN(window, blured, [size[0],size[2],size[3]])
-        
+                # conv_data[i] = reNaN(window, blured, [size[0],size[2],size[3]])
+                conv_data[i] = reNaN(window, blured,blured_mask, size)
                 
     else:
         raise ValueError(f"mode:{mode} is not implemented or there is a misspelling")

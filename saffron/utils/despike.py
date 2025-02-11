@@ -198,6 +198,7 @@ def despike_4D(
     )
     despiked_data[:, min_i : max_i + 1] = clipped_data.copy()
     despiked_data[np.isnan(raw_data)] = np.nan
+    # print("removing the spikes values")
     # despiked_data[despiked_data!=raw_data] = np.nan
     
     return despiked_data

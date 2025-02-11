@@ -70,7 +70,7 @@ def denoise_data(row_data, denoise_sigma):
     denoised_3d[min_i : max_i + 1] = denoised_3d_truncated
 
     # reput the nans
-    denoised_3d[np.isnan(row_data)] = np.nan
+    # denoised_3d[np.isnan(row_data)] = np.nan
 
     return denoised_3d
 
