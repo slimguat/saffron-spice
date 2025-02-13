@@ -259,12 +259,16 @@ class SPECLine:
     def get_map(self, param="rad",remove_dumbells=False):
         data = self[param].copy()
         if remove_dumbells:
-            data[:100] = np.nan
-            data[700:] = np.nan
+            if len(data.shape)==2:
+                data[:100] = np.nan
+                data[700:] = np.nan
+            else:    
+                data[:,:100] = np.nan
+                data[:,700:] = np.nan
         _map = Map(data, self.headers[param if "rad" not in param else "int"])
         if param in ["int", "rad", "wid"] or "err" in param:
             _map.plot_settings["cmap"] = "magma" if "err" not in param else "gray"
-            _map.plot_settings["norm"] = normit(self[param][200:700])
+            _map.plot_settings["norm"] = normit(self[param][200:700][self[param][200:700]<100])
         else:
             _map.plot_settings["cmap"] = "twilight_shifted"
             mean_val = np.nanmean(self[param][200:700])
@@ -646,11 +650,24 @@ class SPICEL3Raster:
 
     @property
     def FIP(self):
+        rad_shape = np.array(self.lines[0]['rad'].shape)
+        FIP_data = np.empty(rad_shape)
         try:
             res = self.ll.FIP_map.copy()
             if res is None:
                 res = self.FIP_err.copy() + 1
-            return res
+                return res
+            
+            if len(rad_shape) == 2:
+                FIP_data = res
+            elif len(rad_shape) == 3 and rad_shape[0]==1:
+                FIP_data[0] = res
+            elif len(rad_shape) == 3 and rad_shape[2]==1:
+                FIP_data[:,:,0] = res
+            else:
+                raise Exception("The line data shape is not recognized")
+            
+            return FIP_data
         except:
             return self.FIP_err.copy() + 1
     
@@ -739,32 +756,45 @@ class SPICEL3Raster:
             density_map = (
                 density * np.ones(self.lines[0]["int"].shape, dtype=float) * u.cm**-3
             )
-        self.density = density_map
+        self.density = density_map.copy()
         wvls = np.empty(shape=(len(self.lines),))
         for ind, line in enumerate(self.lines):
             wvls[ind] = line.wavelength
 
         data = []
         err = []
+        
+        rad_shape = np.array(self.lines[0]['rad'].shape)
+        if len(rad_shape) == 2:
+            slice_2D = [slice(None),slice(None)]
+        elif len(rad_shape) == 3 and rad_shape[0]==1:
+            slice_2D = [0,slice(None),slice(None)]
+        elif len(rad_shape) == 3 and rad_shape[2]==1:
+            slice_2D = [slice(None),slice(None),0]
+        else:
+            raise Exception("The line data shape is not recognized")
+        
+        
         for ind, ionLF in enumerate(self.ll.ionsLF):
             diff = np.abs(ionLF.wvl.value - wvls)
             argmin = np.argmin(diff)
             if diff[argmin] > 0.1:
                 raise Exception(f"Haven't found an ion for: {ionLF} {wvls}")
-            self.ll.ionsLF[ind].int_map = self.lines[argmin]["rad"] * u.W * u.m**-2 / 10
-            data.append(self.lines[argmin]["rad"])
-            err.append(self.lines[argmin]["rad_err"])
+            self.ll.ionsLF[ind].int_map = self.lines[argmin]["rad"][*slice_2D] * u.W * u.m**-2 / 10
+            data.append(self.lines[argmin]["rad"][*slice_2D])
+            err.append(self.lines[argmin]["rad_err"][*slice_2D])
             # print(f"rad: {self.lines[argmin].hdul['int'][0].header['wavelength']},lc: {ionLF.wvl.value}")
         for ind, ionHF in enumerate(self.ll.ionsHF):
             diff = np.abs(ionHF.wvl.value - wvls)
             argmin = np.argmin(diff)
             if diff[argmin] > 0.1:
                 raise Exception(f"Haven't found a for: {ionHF} {wvls}")
-            self.ll.ionsHF[ind].int_map = self.lines[argmin]["rad"] * u.W * u.m**-2 / 10
-            data.append(self.lines[argmin]["rad"])
-            err.append(self.lines[argmin]["rad_err"])
+            self.ll.ionsHF[ind].int_map = self.lines[argmin]["rad"][*slice_2D] * u.W * u.m**-2 / 10
+            data.append(self.lines[argmin]["rad"][*slice_2D])
+            err.append(self.lines[argmin]["rad_err"][*slice_2D])
             # print(f"rad: {self.lines[argmin].hdul['int'][0].header['wavelength']},lc: {ionHF.wvl.value}")
-
+        density_map = density_map[*slice_2D]
+        
         fip_map(self.ll, density_map)
         if True:  # Complete calculation of error based on differentiation method
             self.FIP_err = (
@@ -773,11 +803,16 @@ class SPICEL3Raster:
                     err,
                     data,
                 )
-                / self.FIP
+                
             )
-        else:
-            S_ind = np.argmin(np.abs(wvls - 750.22))
-            self.FIP_err = self.lines[S_ind].rad_err / self.lines[S_ind].rad
+            _FIP_error = np.empty(rad_shape)
+            if len(_FIP_error) == 2:
+                _FIP_error = self.FIP_err
+            elif len(_FIP_error) == 3 and _FIP_error[0] == 1:
+                _FIP_error[0] = self.FIP_err
+            elif len(_FIP_error) == 3 and _FIP_error[2] == 1:
+                _FIP_error[:,:,0] = self.FIP_err
+            self.FIP_err = _FIP_error/ self.FIP
         
         self._gen_FIP_header(HFLines=HFLines,LFLines=LFLines)
         
@@ -1129,6 +1164,17 @@ class SPICEL3Raster:
 
         return axes
 
+    def get_FIP_map(self):
+        from matplotlib.colors import LogNorm
+        FIP_map = Map(self.FIP, self.FIP_header)
+        FIP_map.plot_settings = {
+            "cmap": "RdYlBu_r",
+            "norm": LogNorm(1/2,2),
+            "aspect": "auto",
+            }
+        
+        return FIP_map
+    
     def write_FIP_data(self,file_name ,overwrite=False):
         hdu = fits.PrimaryHDU(data=self.FIP    , header=self.FIP_header)
         hdu2 = fits.ImageHDU  (data=self.FIP_err, header=self.FIP_err_header)
@@ -1657,8 +1703,19 @@ class SPICEL3Raster:
                 ax.axvline(param,ls=':',color='blue')
         ax.set_title(f"index: {index}")
     
-    
-
+    #define larger and smaller than based on wether the date is after or before the data of the other
+    def __lt__(self, other):
+        return self.lines[0].obs_date < other.lines[0].obs_date
+    def __le__(self, other):
+        return self.lines[0].obs_date <= other.lines[0].obs_date
+    def __eq__(self, other):
+        return self.lines[0].obs_date == other.lines[0].obs_date
+    def __ne__(self, other):
+        return self.lines[0].obs_date != other.lines[0].obs_date
+    def __gt__(self, other):
+        return self.lines[0].obs_date > other.lines[0].obs_date
+    def __ge__(self, other):
+        return self.lines[0].obs_date >= other.lines[0].obs_date
     
 def get_celestial_L3(raster, **kwargs):
     if type(raster) == HDUList:
