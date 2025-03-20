@@ -55,7 +55,7 @@ Or, you can install directly from the GitHub repository:
 
 1. Clone the repository:
     ```bash
-    git clone https://github.com/yourusername/spice-saffron.git
+    git clone https://github.com/slimguat/spice-saffron.git
     ```
 
 2. Navigate to the project directory:
