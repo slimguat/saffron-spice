@@ -45,7 +45,7 @@ A. **Installing the module**
 To install the module, follow these steps:
 
 ```bash
-pip install git+https://github.com/yourusername/spice-saffron.git
+pip install git+https://github.com/slimguat/spice-saffron.git
 ```
 or 
 ```bash 
