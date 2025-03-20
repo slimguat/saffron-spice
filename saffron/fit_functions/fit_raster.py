@@ -1620,7 +1620,7 @@ class WindowFit:
                 for j in range(con_lon_mat.shape[1]):
                     for t in range(con_lon_mat.shape[2]):
                         con_val = self.data_con[i,j,t]
-                        
+                        if np.isnan(con_val): con_val = 0
                         expanded_convolution_list = np.empty([self.convolution_extent_list.shape[0], 4], dtype=int)
                         CDELT1 = self.hdu.header["CDELT1"] if isinstance(self.hdu, HDUClone) else self.hdu[0].header["CDELT1"]
                         CDELT2 = self.hdu.header["CDELT2"] if isinstance(self.hdu, HDUClone) else self.hdu[0].header["CDELT2"]
