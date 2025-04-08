@@ -385,6 +385,7 @@ class RasterFit:
             )
         self.raster = get_data_raster(self.raster) 
         self.filenames_generator()
+        self.raster = HDUListClone.from_hdulist(self.raster)
 
     # NOTE No need to adapt it, it is already good and the change will be once the object is called
     def filenames_generator(self):
