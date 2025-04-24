@@ -1423,13 +1423,13 @@ class WindowFit:
                 # Observation Context
                     "STUDYTYP", "STUDYDES", "STUDY", "OBS_MODE", "OBS_ID", "SPIOBSID",
                     "OBS_DESC", "PURPOSE", "SOOPNAME", "SOOPTYPE", "NRASTERS", "RASTERNO",
-                    "STUDY_ID", "MISOSTUD", "XSTART", "XPOSURE", "FOCUSPOS",
+                    "STUDY_ID", "MISOSTUD", "XSTART", "XPOSURE", "FOCUSPOS","SLIT_WID"
                 # Calibration and Processing Steps
                 "RADCAL",*all_keys[index_occurrences],
                 # Physical and Ephemeris Information
                     "DSUN_OBS", "DSUN_AU", "RSUN_ARC", "RSUN_REF", "SOLAR_B0", "SOLAR_P0", 
                     "CAR_ROT", "HGLT_OBS", "HGLN_OBS", "CRLT_OBS", "CRLN_OBS", "OBS_VR", 
-                    "EAR_TDEL", "SUN_TIME", "DATE_EAR", "DATE_SUN",
+                    "EAR_TDEL", "SUN_TIME", "DATE_EAR", "DATE_SUN", 'CROTA',
                 ]
             base_header = {}
             base_comments = {}
