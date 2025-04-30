@@ -63,7 +63,15 @@ def fit_pixel_model(
             )
         return (np.ones((_s)) * np.nan, np.ones((_s, _s)) * np.nan)
     try:
-        res = curve_fit(Model.callables['function'], _x, _y, p0=ini_params, bounds=bounds, sigma=w, jac=Model.callables['jacobian'])
+        res = curve_fit(
+            Model.callables['function'], 
+            _x, 
+            _y, 
+            p0=ini_params, 
+            bounds=bounds, 
+            sigma=w, 
+            jac=Model.callables['jacobian'],
+            absolute_sigma=True)
     except RuntimeError:
         plotit = True if np.random.random() * 1 >= np.inf else False
         if verbose >= 1:

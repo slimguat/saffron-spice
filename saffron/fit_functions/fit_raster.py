@@ -1118,6 +1118,7 @@ class WindowFit:
             self.conv_sigma = np.sqrt(self.conv_sigma)
             
             for i in range(self.conv_data.shape[0]):
+                self.conv_data[i] *= 1/np.sqrt(np.prod(expanded_convolution_list[i]))
                 self.conv_data[i][np.isnan(self.clean_data)] = np.nan
             
             self.has_treated["convolve"] = True
@@ -1423,7 +1424,7 @@ class WindowFit:
                 # Observation Context
                     "STUDYTYP", "STUDYDES", "STUDY", "OBS_MODE", "OBS_ID", "SPIOBSID",
                     "OBS_DESC", "PURPOSE", "SOOPNAME", "SOOPTYPE", "NRASTERS", "RASTERNO",
-                    "STUDY_ID", "MISOSTUD", "XSTART", "XPOSURE", "FOCUSPOS","SLIT_WID"
+                    "STUDY_ID", "MISOSTUD", "XSTART", "XPOSURE", "FOCUSPOS","SLIT_WID",
                 # Calibration and Processing Steps
                 "RADCAL",*all_keys[index_occurrences],
                 # Physical and Ephemeris Information
