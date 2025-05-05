@@ -63,7 +63,7 @@ def FIP_error(ll, Errors, Datas):
 
         if i < ll.xLF.shape[1]:
             S_delLF += ll.ionsLF[i].coeff_map / ll.ionsLF[i].ph_abund * Errors[i]
-            S_LF += ll.ionsLF[i].coeff_map / ll.ionsLF[i].ph_abund * Datas[i]
+            S_LF    += ll.ionsLF[i].coeff_map / ll.ionsLF[i].ph_abund * Datas[i]
             # plt.figure()
             # plt.pcolormesh(S_delLF,vmin=0,vmax=150);plt.colorbar()
             # plt.title("S_delLF")
@@ -89,7 +89,7 @@ def FIP_error(ll, Errors, Datas):
             )
             plt.figure()
             plt.pcolormesh(
-                S_delHF,
+                S_delHF[0],
                 norm=norm,
                 cmap="magma",
                 # vmin=0,vmax=150
@@ -104,7 +104,7 @@ def FIP_error(ll, Errors, Datas):
                 stretch=SqrtStretch(),
             )
             plt.pcolormesh(
-                S_delLF,
+                S_delLF[0],
                 norm=norm,
                 cmap="magma",
                 # vmin=0,vmax=150
@@ -119,7 +119,7 @@ def FIP_error(ll, Errors, Datas):
                 stretch=SqrtStretch(),
             )
             plt.pcolormesh(
-                S_HF,
+                S_HF[0],
                 norm=norm,
                 cmap="magma",
                 # vmin=0,vmax=150
@@ -134,7 +134,7 @@ def FIP_error(ll, Errors, Datas):
                 stretch=SqrtStretch(),
             )
             plt.pcolormesh(
-                S_LF,
+                S_LF[0],
                 norm=norm,
                 cmap="magma",
                 # vmin=0,vmax=150
@@ -149,7 +149,7 @@ def FIP_error(ll, Errors, Datas):
                 stretch=SqrtStretch(),
             )
             plt.pcolormesh(
-                S_delLF / S_LF,
+                (S_delLF / S_LF)[0],
                 norm=norm,
                 cmap="magma",
                 # vmin=0,vmax=150
@@ -159,12 +159,12 @@ def FIP_error(ll, Errors, Datas):
 
             plt.figure()
             norm = ImageNormalize(
-                S_delHF / S_HF,
+                (S_delHF / S_HF)[0],
                 interval=AsymmetricPercentileInterval(1, 99),
                 stretch=SqrtStretch(),
             )
             plt.pcolormesh(
-                S_delHF / S_HF,
+                (S_delHF / S_HF)[0],
                 norm=norm,
                 cmap="magma",
                 # vmin=0,vmax=150
@@ -174,12 +174,12 @@ def FIP_error(ll, Errors, Datas):
 
         plt.figure()
         norm = ImageNormalize(
-            FIP_error,
+            FIP_error[0],
             interval=AsymmetricPercentileInterval(1, 99),
             stretch=SqrtStretch(),
         )
         plt.pcolormesh(
-            FIP_error,
+            FIP_error[0],
             norm=norm,
             cmap="magma",
             # vmin=0,vmax=1
@@ -188,7 +188,6 @@ def FIP_error(ll, Errors, Datas):
         plt.title("FIP_error")
 
     return FIP_error
-
 
 class SPECLine:
     def __init__(self, hdul_or_path,verbose=0,parent_raster = None):
@@ -806,14 +805,16 @@ class SPICEL3Raster:
                 
             )
             _FIP_error = np.empty(rad_shape)
-            if len(_FIP_error) == 2:
+            if len(_FIP_error.shape) == 2:
                 _FIP_error = self.FIP_err
-            elif len(_FIP_error) == 3 and _FIP_error[0] == 1:
+            elif len(_FIP_error.shape) == 3 and _FIP_error.shape[0] == 1:
                 _FIP_error[0] = self.FIP_err
-            elif len(_FIP_error) == 3 and _FIP_error[2] == 1:
+            elif len(_FIP_error.shape) == 3 and _FIP_error.shape[2] == 1:
                 _FIP_error[:,:,0] = self.FIP_err
-            self.FIP_err = _FIP_error/ self.FIP
-        
+            else:
+                raise Exception("The line data shape is not recognized. it should be 2D or 3D if 3D either the first or last dimension should be 1")
+            self.FIP_err = _FIP_error#/ self.FIP
+            
         self._gen_FIP_header(HFLines=HFLines,LFLines=LFLines)
         
     def find_line(self, wvl):
