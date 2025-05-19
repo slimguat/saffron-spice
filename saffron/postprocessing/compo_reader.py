@@ -1165,9 +1165,22 @@ class SPICEL3Raster:
 
         return axes
 
-    def get_FIP_map(self):
+    def get_FIP_map(self,remove_dumbells=False,cutoff_threshold = -np.inf):
+        
+        
         from matplotlib.colors import LogNorm
-        FIP_map = Map(self.FIP, self.FIP_header)
+        FIP = self.FIP.copy()
+        
+        if remove_dumbells:
+            if len(FIP.shape)==2:
+                FIP[:100] = np.nan
+                FIP[700:] = np.nan
+            else:    
+                FIP[:,:100] = np.nan
+                FIP[:,700:] = np.nan
+        FIP[self.FIP_err>cutoff_threshold] = np.nan
+        
+        FIP_map = Map(FIP, self.FIP_header)
         FIP_map.plot_settings = {
             "cmap": "RdYlBu_r",
             "norm": LogNorm(1/2,2),
