@@ -264,13 +264,14 @@ class SPECLine:
             else:    
                 data[:,:100] = np.nan
                 data[:,700:] = np.nan
+        
         _map = Map(data, self.headers[param if "rad" not in param else "int"])
         if param in ["int", "rad", "wid"] or "err" in param:
             _map.plot_settings["cmap"] = "magma" if "err" not in param else "gray"
             _map.plot_settings["norm"] = normit(self[param][200:700][self[param][200:700]<100])
         else:
             _map.plot_settings["cmap"] = "twilight_shifted"
-            mean_val = np.nanmean(self[param][200:700])
+            mean_val = np.nanmean(data)
             _100_kms_equivalent_doppler = 100e3 / 3e8 * mean_val
             _map.plot_settings["norm"] = normit(
                 self[param],
@@ -291,7 +292,10 @@ class SPECLine:
             self.uncorrected_wavelength = self["wav"].copy()
         corrected_wavelength = self["wav"].copy() * np.nan
         data = self["wav"].copy()
-        # print warning in red
+        if len(data.shape)==3:
+            if data.shape[2]==1: raise Exception("This is a sit and stare observation it does not make sense to correct doppler trends on them") 
+            data = data[0]
+        # print warndataing in red
         if data.shape[-1] <= 10 and "x" in direction and verbose > -2:
             print(
                 "\033[93mWarning: Data is too small in x direction the doppler gradient estimation could be wrong\033[0m"
@@ -309,7 +313,13 @@ class SPECLine:
             _map = self.get_map("wav")
             norm = _map.plot_settings["norm"]
             cmap = _map.plot_settings["cmap"]
-            axis[0].pcolormesh(self.uncorrected_wavelength, norm=norm, cmap=cmap)
+            axis[0].pcolormesh(
+                self.uncorrected_wavelength if len(self.uncorrected_wavelength.shape) == 2
+                else self.uncorrected_wavelength[0]  # for newer versions
+                , norm=norm, cmap=cmap)
+            axis[0].set_title(
+                f"{self.line_id}"
+            )
         for ind, d in enumerate(direction):
             if d == "x":
                 new_data = data.copy()
@@ -396,7 +406,10 @@ class SPECLine:
                     var = np.nan
                     coeffs[ind] = coeff
                     errors[ind] = np.nan
-        self._all["wav"][0] = data
+        if len(self._all["wav"][0].shape) == 3:
+            self._all["wav"][0][0] = data
+        else:
+            self._all["wav"][0] = data
         return coeffs, errors
 
     def reset_doppler(self):
