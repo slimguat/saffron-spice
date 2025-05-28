@@ -268,7 +268,9 @@ class SPECLine:
         _map = Map(data, self.headers[param if "rad" not in param else "int"])
         if param in ["int", "rad", "wid"] or "err" in param:
             _map.plot_settings["cmap"] = "magma" if "err" not in param else "gray"
-            _map.plot_settings["norm"] = normit(self[param][200:700][self[param][200:700]<100])
+            _map.plot_settings["norm"] = normit(
+                self[param][:,200:700][self[param][:,200:700]<100],
+                )
         else:
             _map.plot_settings["cmap"] = "twilight_shifted"
             mean_val = np.nanmean(data)
