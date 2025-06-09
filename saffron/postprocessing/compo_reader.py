@@ -190,6 +190,21 @@ def FIP_error(ll, Errors, Datas):
     return FIP_error
 
 class SPECLine:
+    def _vprint(self, level: int, *args, **kwargs) -> None:
+        """
+        Print exactly like built-in print(), but only if
+        self.verbose >= level.
+
+        Parameters
+        ----------
+        level : int
+            The verbosity threshold for this message.
+        *args, **kwargs
+            Passed directly to print().
+        """
+        if self.verbose >= level:
+            print(*args, **kwargs)
+    
     def __init__(self, hdul_or_path,verbose=0,parent_raster = None):
         self._all = {
             "int": None,
@@ -615,6 +630,21 @@ class SPECLine:
             self.filename == other.filename
             )
 class SPICEL3Raster:
+    def _vprint(self, level: int, *args, **kwargs) -> None:
+        """
+        Print exactly like built-in print(), but only if
+        self.verbose >= level.
+
+        Parameters
+        ----------
+        level : int
+            The verbosity threshold for this message.
+        *args, **kwargs
+            Passed directly to print().
+        """
+        if self.verbose >= level:
+            print(*args, **kwargs)
+    
     def __init__(self, list_paths=None, folder_path=None, verbose=0):
         if (list_paths is None and folder_path is None) or (
             list_paths is not None and folder_path is not None
@@ -1193,7 +1223,7 @@ class SPICEL3Raster:
             else:    
                 FIP[:,:100] = np.nan
                 FIP[:,700:] = np.nan
-        FIP[self.FIP_err>cutoff_threshold] = np.nan
+        FIP[self.FIP_err<cutoff_threshold] = np.nan
         
         FIP_map = Map(FIP, self.FIP_header)
         FIP_map.plot_settings = {
@@ -1535,46 +1565,6 @@ class SPICEL3Raster:
         for window_index,EXTNAME in enumerate(unq):
             self.reconstruct_window(window_index,redo=redo)
 
-    # def reconstruct_clean_data(self):
-    #     self.clean_data= None
-        
-    #     #first search for the convolution kernal informations
-        
-        
-        
-    # def plot_pixels(self,list_indecies,window_index,axis=None):
-        #     list_indecies = np.array(list_indecies)
-        #     #Get FIT_ID based on the window_index
-        #     FIT_IDs = list(self.params_matrix.keys())
-        #     window_indecies = [self.params_matrix[FIT_ID]['L2window_index'] for FIT_ID in FIT_IDs]
-        #     FIT_ID = FIT_IDs[[1 if window_index in windex else 0 for windex in window_indecies].index(1)]
-        #     index_windows_involved = self.params_matrix[FIT_ID]['L2window_index']
-        #     if len(index_windows_involved)>1:
-        #         colored_text("The fit is involved in more than one window\nNot plotting them all","green") 
-        #     #assert that the list_indecies is of shape N,2
-        #     assert len(list_indecies.shape) == 2 and list_indecies.shape[1] == 2, "list_indecies should be of shape N,2"
-        #     if axis is None:
-        #         c = int(min(5, math.ceil(np.sqrt(len(list_indecies)))))
-        #         r = int(np.ceil(len(list_indecies)/c))
-        #         fig, axes = plt.subplots(r,c,figsize=(c*3,r*3))
-        #         axes = axes.flatten()
-        #         [ax.remove() for ax in axes[len(list_indecies):]]
-        #         [ax.grid() for ax in axes]
-        #     else:
-        #         pass
-            
-        #     hdu = self.L2_data[window_index]
-        #     specaxis = get_specaxis(hdu)
-        #     model = self.params_matrix[FIT_ID]['model']
-        #     function = model.callables['function']
-        #     for ind,index in enumerate(list_indecies):
-        #         data = self.L2_data[window_index].data[0,:,index[0],index[1]]
-        #         params = self.params_matrix[FIT_ID]['data'][:,index[0],index[1]]
-        #         lock_params = model.get_lock_params(params)
-        #         axes[ind].step(specaxis,data,ls='--',color='black')
-        #         axes[ind].plot(specaxis,function(specaxis,*lock_params),color='red')
-        #         axes[ind].set_title(f"index: {index}")
-        
     def plot_pixels(self, list_indices, window_index, axis=None):
         """
         Plot pixel fits for a given list of indices.
