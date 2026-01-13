@@ -15,10 +15,13 @@ from ..utils import normit, suppress_output, gen_axes_side2side, get_coord_mat,g
 from ..utils.fits_clone import HDUClone, HDUListClone
 from ..utils import get_specaxis
 from ..utils.utils import colored_text
+from ..utils.utils import convolve_4D
+from ..manager import Manager
 from collections.abc import Iterable
 from sunpy.map import GenericMap
 import pandas as pd
 from saffron.fit_models import ModelFactory
+
 # from euispice_coreg.hdrshift.alignment import Alignment
 # from euispice_coreg.plot.plot import PlotFunctions
 # from euispice_coreg.utils.Util import AlignCommonUtil
@@ -321,6 +324,10 @@ class SPECLine:
             print(
                 "\033[93mWarning: Data is too small in y direction the doppler gradient estimation could be wrong\033[0m"
             )
+        if data.shape[1] >= 500:
+            print("Chopping the dumbells of the map to avoid the dumbells effects")
+            data = data[:, 120:700]  # cut the edges of the map
+            
         coeffs = np.empty((len(direction),))
         errors = np.empty((len(direction),))
         if verbose > 2:
@@ -772,7 +779,7 @@ class SPICEL3Raster:
         ll=None,
         suppressOutput=True,
         using_S_as_LF=True,
-        density = 10**8.3,
+        density = 10**10,
     ):
         self.HFLines = HFLines
         self.LFLines = LFLines
@@ -1210,7 +1217,7 @@ class SPICEL3Raster:
 
         return axes
 
-    def get_FIP_map(self,remove_dumbells=False,cutoff_threshold = -np.inf):
+    def get_FIP_map(self,remove_dumbells=False,cutoff_threshold = np.inf):
         
         
         from matplotlib.colors import LogNorm
@@ -1223,7 +1230,7 @@ class SPICEL3Raster:
             else:    
                 FIP[:,:100] = np.nan
                 FIP[:,700:] = np.nan
-        FIP[self.FIP_err<cutoff_threshold] = np.nan
+        FIP[self.FIP_err>cutoff_threshold] = np.nan
         
         FIP_map = Map(FIP, self.FIP_header)
         FIP_map.plot_settings = {
@@ -1449,8 +1456,61 @@ class SPICEL3Raster:
         else:
             self.L2_data = L2_data
         if isinstance(self.L2_data, (str, PosixPath, WindowsPath, pathlib.WindowsPath)):
-            self.L2_data = fits.open(self.L2_data)
+            # session = Manager()
+            # session.selected_fits = [self.L2_data]
+            # session.weights = False
+            # session.denoise = False
+            # session.convolution_extent_list = np.array([self.lines[0].headers['int']['con0']])
+            # session.fit_verbose = -2
+            # session.geninits_verbose = -2
+            # session.convolute = True
+            # # print(session)
+            
+            # session.build_rasters()
+            # session.run_preparations()
+            
+            
+            convolution_extent_list = np.array([self.lines[0].headers['int']['con0']])
+            hdul =  copy.deepcopy(fits.open(self.L2_data))
+            expanded_convolution_list = np.empty([convolution_extent_list.shape[0], 4], dtype=int)
+            CDELT1 = hdul[0].header["CDELT1"]
+            CDELT2 = hdul[0].header["CDELT2"]
+            shape = hdul[0].data.shape
+            ratio = float(CDELT1/CDELT2)
+            for i in range(convolution_extent_list.shape[0]):
+                size = np.array(
+                    [
+                        1 + 6,
+                        1,
+                        1 + (convolution_extent_list[i]),
+                        1 + (convolution_extent_list[i])* np.nanmin([ratio,1/ratio]),
+                    ],
+                    dtype=int,
+                )
+            
+                for dim in range(len(size)): 
+                    if shape[dim] < size[dim]:
+                        size[dim] = shape[dim]
+                expanded_convolution_list[i] = size
+            print(size)
+            for ind in range(len(get_extnames(hdul))):
+                conv_data = convolve_4D(
+                    window=hdul[ind].data.copy(),
+                    mode="box",
+                    convolution_extent_list=expanded_convolution_list,
+                )
+                conv_data[0] *= 1/np.sqrt(np.prod(expanded_convolution_list[i]))
+                conv_data[0][np.isnan(hdul[ind].data)] = np.nan
+                hdul[ind].data = conv_data[0].copy()
+                
+            self.convoluted_L2_data = copy.deepcopy(hdul)
             self.L2_path = self.L2_data
+            self.L2_data = fits.open(self.L2_data)
+            # self.convoluted_L2_data = copy.deepcopy(self.L2_data)
+            # for ind in range(len(get_extnames(self.L2_data))):
+            #     self.convoluted_L2_data[ind].data = session.rasters[0].windows[ind].conv_data[0].copy()
+                
+
         else:
             self.L2_path = None
         # for each window we load the model
@@ -1611,18 +1671,20 @@ class SPICEL3Raster:
         params_data = self.params_matrix[FIT_ID]['data']  # Shape: (num_params, y, x)
         
         # Get the data for the window
-        hdu = self.L2_data[window_index]
+        hdu = self.convoluted_L2_data[window_index]
         data = hdu.data  # Shape: (spectra, y, x)
 
         # Efficiently generate all indices using NumPy
         y_size, x_size = data.shape[2:]  # Assume shape is (spectra, y, x)
-        t_size = data.shape[0] 
-        t_coords, y_coords, x_coords = np.meshgrid(np.arange(t_size),np.arange(y_size), np.arange(x_size), indexing='ij')
-        all_indices = np.stack((t_coords.ravel(),y_coords.ravel(), x_coords.ravel()), axis=-1)  # Shape: (total_pixels, 2)
-
+        t_size = data.shape[0]
+        t_coords, y_coords, x_coords = np.meshgrid(np.arange(t_size), np.arange(y_size), np.arange(x_size), indexing='ij')
+        all_indices = np.stack((t_coords.ravel(), y_coords.ravel(), x_coords.ravel()), axis=-1)  # Shape: (total_pixels, 2)
+        # print(t_coords.shape, y_coords.shape, x_coords.shape)
         if exclude_nans:
             # Create a mask for NaN values and filter indices
             nan_mask = ~np.any(np.isnan(params_data), axis=0).ravel()  # Shape: (total_pixels,)
+            # print(params_data.shape)
+            # print(all_indices.shape)
             all_indices = all_indices[nan_mask]
 
         # Ensure there are enough indices to sample
@@ -1661,7 +1723,7 @@ class SPICEL3Raster:
             [ax.grid() for ax in axes[:num_plots]]
             return fig, axes[:num_plots]
         else:
-            return None, [axis]
+            return None, axis
 
 
     def _get_fit_id(self, window_index):
@@ -1691,7 +1753,7 @@ class SPICEL3Raster:
             ax (matplotlib axis): Axis to plot on.
         """
         if True:#Get the data
-            hdu = self.L2_data[window_index]
+            hdu = self.convoluted_L2_data[window_index]
             specaxis = get_specaxis(hdu)
             if index.shape[0]==3:
                 data = hdu.data[index[0], :, index[1], index[2]]
@@ -1714,12 +1776,15 @@ class SPICEL3Raster:
             lock_params = model.get_lock_params(params)
             quentities = model.get_unlock_quentities()
             fitted_values = function(specaxis, *lock_params)
+            fitted_values[np.isnan(data)] = np.nan  # Ensure fitted values match data NaNs 
 
-        ax.step(specaxis, data, ls='--', color='black')
+        ax.step(specaxis, data, ls='--', color='black', where='mid')
         ax.plot(specaxis, fitted_values, color='red')
         for param in params[quentities=="x"]:
             if np.nanmin(specaxis)<=param<=np.nanmax(specaxis):
                 ax.axvline(param,ls=':',color='blue')
+        for param in params[quentities=="B0"]:
+                ax.axhline(param,ls=':',color='green')
         ax.set_title(f"index: {index}")
     
     #define larger and smaller than based on wether the date is after or before the data of the other

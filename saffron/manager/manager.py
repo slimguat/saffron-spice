@@ -20,46 +20,66 @@ from typing import Union, List, Dict, Any, Callable, Tuple, Optional, Iterable
 import astropy.units as u
 
 class Manager:
-    def __init__(self, Input_JSON: Optional[str]):
+    def __init__(self, Input_JSON: Optional[str] = None):
         """
         Initialize an instance of the Manager class.
 
-        Args:
-            Input_JSON (Optional[str]): Path to a JSON configuration file.
+        If Input_JSON is provided, settings are read from that file.
+        Otherwise default values are used.
         """
-        if Input_JSON is not None:
-            # Read configuration file
-            with open(Input_JSON) as config_file:
-                self.config = json.load(config_file)
+        # Set defaults
+        self.SELECTION_MODE = "folder"
+        self.preclean = True
+        self.weights = True
+        self.denoise = False
+        self.despike = True
+        self.convolute = False
+        self.denoise_intervals = [6, 2, 1, 0, 0]
+        self.clipping_sigma = 3
+        self.clipping_med_size = [3, 6, 3, 3]
+        self.clipping_iterations = 3
+        self.mode = "box"
+        self.conv_errors = {"I": 0.01,"x": 0.0001,"s": 0.01,"B": 100 }
+        self.convolution_extent_list = np.array([0])
+        self.t_convolution_index = 0
+        self.save_data = True
+        self.data_filename = "::SAMENAMEL2.5/con-::CONV_tcon-::TCONV/::SAMENAMEL2.5_::PARAMPLACEHOLDER_con.fits"
+        self.data_save_dir = Path("./SAFFRON_results/")
+        self.window_size = np.array([[0,None],[0,None]])
+        self.time_size = np.array([0, None])
+        self.Jobs = 8
+        self.geninits_verbose = 3
+        self.fit_verbose = 0
+        self.selected_fits = []
+        self.rasters = []
 
-            # In the future you need to add a reference JSON whene there is
-            self.SELECTION_MODE = self.config["SELECTION_MODE"]
-            raster_args_config = self.config["fit_raster_args"]
-            self.preclean = raster_args_config["preclean"]
-            self.weights = raster_args_config["weights"]
-            self.denoise = raster_args_config["denoise"]
-            self.despike = raster_args_config["despike"]
-            self.convolute = raster_args_config["convolute"]
-            self.denoise_intervals = [6, 2, 1, 0, 0]
-            self.clipping_sigma = 2.5
-            self.clipping_med_size = [3, 6, 3, 3]
-            self.clipping_iterations = 3
-            self.mode = "box"
-            self.conv_errors = raster_args_config["conv_errors"]
+        # If a JSON config path is provided, override defaults
+        if Input_JSON:
+            with open(Input_JSON) as cfg:
+                cfgd = json.load(cfg)
+            self.config = cfgd
+            self.SELECTION_MODE = cfgd.get("SELECTION_MODE", self.SELECTION_MODE)
+            rargs = cfgd.get("fit_raster_args", {})
+            self.preclean = rargs.get("preclean", self.preclean)
+            self.weights = rargs.get("weights", self.weights)
+            self.denoise = rargs.get("denoise", self.denoise)
+            self.despike = rargs.get("despike", self.despike)
+            self.convolute = rargs.get("convolute", self.convolute)
+            self.conv_errors = rargs.get("conv_errors", self.conv_errors)
             self.convolution_extent_list = np.array(
-                raster_args_config["convolution_extent_list"]
+                rargs.get("convolution_extent_list", self.convolution_extent_list)
             )
-            self.t_convolution_index = raster_args_config["t_convolution_index"]
-            self.save_data = raster_args_config["save_data"]
-            self.data_filename = raster_args_config["data_filename"]
-            self.data_save_dir = raster_args_config["data_save_dir"]
-            self.window_size = np.array(raster_args_config["window_size"])
-            self.time_size = np.array(raster_args_config["time_size"])
-            self.Jobs = raster_args_config["Jobs"]
-            self.geninits_verbose = self.config["geninits_verbose"]
-            self.fit_verbose = self.config["fit_verbose"]
-            self.selected_fits = []
-            self.rasters = []
+            self.t_convolution_index = rargs.get(
+                "t_convolution_index", self.t_convolution_index
+            )
+            self.save_data = rargs.get("save_data", self.save_data)
+            self.data_filename = rargs.get("data_filename", self.data_filename)
+            self.data_save_dir = Path(rargs.get("data_save_dir", str(self.data_save_dir)))
+            self.window_size = np.array(rargs.get("window_size", self.window_size))
+            self.time_size = np.array(rargs.get("time_size", self.time_size))
+            self.Jobs = rargs.get("Jobs", self.Jobs)
+            self.geninits_verbose = cfgd.get("geninits_verbose", self.geninits_verbose)
+            self.fit_verbose = cfgd.get("fit_verbose", self.fit_verbose)
 
     def build_files_list(self):
         """

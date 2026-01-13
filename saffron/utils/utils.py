@@ -1067,12 +1067,18 @@ def quickview(
         plt.subplots_adjust(wspace=0.1, hspace=0.1, left=0.1, right=0.9, top=0.9, bottom=0.1)
         for ax in range(len(raster), len(ax1)):
             ax1[ax].remove()
+    else:
+        ax1 = imag_ax
+        fig1 = fig1 if type(fig1) != type(None) else imag_ax[0].figure
     if type(spec_ax) == type(None):
         fig2, ax2 = plt.subplots(m, n, figsize=(n * 3, m * 3))
         ax2 = ax2.flatten()
         plt.subplots_adjust(wspace=0.1, hspace=0.1, left=0.1, right=0.9, top=0.9, bottom=0.1)
         for ax in range(len(raster), len(ax2)):
             ax2[ax].remove()
+    else:
+        ax2 = spec_ax
+        fig2 = fig2 if type(fig2) != type(None) else spec_ax[0].figure
     fig1.suptitle(raster[0].header["DATE-OBS"])
     fig2.suptitle(raster[0].header["DATE-OBS"])
     

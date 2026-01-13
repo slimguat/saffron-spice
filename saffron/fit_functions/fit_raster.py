@@ -320,7 +320,7 @@ class RasterFit:
         for ind in range(len(self.windows)):
             self.windows[ind].model._callables = None
         for ind in range(len(self.fused_windows)):
-            self.fused_windows[ind].model._callables = None
+            self.fused_windows[ind].model._caldata_convlables = None
         max_processes = max_processes or os.cpu_count()
         print("\033[91mrun preparation in parallel")
         print("father process id", os.getpid(),"\033[0m")
