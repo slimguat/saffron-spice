@@ -309,12 +309,19 @@ def get_extnames(hdul: HDUList) -> List[str]:
         List[str]: A list of unique extension names.
     """
     unq = [
-        hdu.header["EXTNAME"]
-        for hdu in hdul
-        if (hdu.header["EXTNAME"]
-        not in ["VARIABLE_KEYWORDS", "WCSDVARR", "WCSDVARR"]) and ('SATPIXLIST' not in hdu.header["EXTNAME"])
-    ]
+            hdu.header["EXTNAME"]
+            for hdu in hdul
+            if (hdu.header["EXTNAME"]
+            not in ["VARIABLE_KEYWORDS", "WCSDVARR"]
+            and
+            "SATPIXLIST" not in hdu.header["EXTNAME"]
+            and
+            "SPIKPIXLIST" not in hdu.header["EXTNAME"]
+            )
+            #or use if hdu.is_image and hdu.header["EXTNAME"] != WCSDVARR
+        ]
     return unq
+    
 def get_data_raster(hdul: HDUList) -> List[np.ndarray]:
     unq = get_extnames(hdul)
     raster = [hdu for hdu in hdul if hdu.header["EXTNAME"] in unq] 
