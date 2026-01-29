@@ -229,26 +229,32 @@ def process_indices_depr(args):
     indices, shmm, clipping_sigma, clipping_med_size, clipping_iterations = args
     results = []
     shmm_,raw_data = gen_shmm(create=False, **shmm)
-    for t, y, x in indices:
-        spectrum = raw_data[t, :, y, x]
+    try:
+        for t, y, x in indices:
+            spectrum = raw_data[t, :, y, x]
 
-        if np.isnan(spectrum).all():
-            continue  # Skip entirely NaN spectra
+            if np.isnan(spectrum).all():
+                continue  # Skip entirely NaN spectra
 
-        # Replace NaNs with the local mean
-        mean_spec = np.nanmean(spectrum)
-        spectrum[np.isnan(spectrum)] = mean_spec
+            # Replace NaNs with the local mean
+            mean_spec = np.nanmean(spectrum)
+            spectrum[np.isnan(spectrum)] = mean_spec
 
-        # Apply sigma clipping to remove spikes
-        clipped_spectrum = sigma_clip(
-            spectrum,
-            size=clipping_med_size[0] if isinstance(clipping_med_size, list) else clipping_med_size,
-            high=clipping_sigma,
-            low=clipping_sigma,
-            iterations=clipping_iterations,
-        )
+            # Apply sigma clipping to remove spikes
+            clipped_spectrum = sigma_clip(
+                spectrum,
+                size=clipping_med_size[0] if isinstance(clipping_med_size, list) else clipping_med_size,
+                high=clipping_sigma,
+                low=clipping_sigma,
+                iterations=clipping_iterations,
+            )
 
-        results.append((t, y, x, clipped_spectrum))
+            results.append((t, y, x, clipped_spectrum))
+    finally:
+        try:
+            shmm_.close()
+        except Exception:
+            pass
 
     return results
 
@@ -311,15 +317,25 @@ def despike_4d_depr(
     Shmm,data = gen_shmm(create=True, ndarray=raw_data)
     shmm_dict = {'name': Shmm.name, "dtype": raw_data.dtype, "shape": raw_data.shape}
     data[:] = raw_data
-     
-    # Prepare arguments for parallel processing
-    args = [
-        (batch, shmm_dict, clipping_sigma, clipping_med_size, clipping_iterations)
-        for batch in batches
-    ]
-    # Initialize multiprocessing pool
-    with Pool(processes=num_jobs) as pool:
-        results = pool.map(process_indices, args)
+
+    try:
+        # Prepare arguments for parallel processing
+        args = [
+            (batch, shmm_dict, clipping_sigma, clipping_med_size, clipping_iterations)
+            for batch in batches
+        ]
+        # Initialize multiprocessing pool
+        with Pool(processes=num_jobs) as pool:
+            results = pool.map(process_indices, args)
+    finally:
+        try:
+            Shmm.close()
+        except Exception:
+            pass
+        try:
+            Shmm.unlink()
+        except Exception:
+            pass
     
     # results = []
     # for arg in args:

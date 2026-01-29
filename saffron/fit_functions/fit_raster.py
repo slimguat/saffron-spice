@@ -363,6 +363,14 @@ class RasterFit:
         for ind2 in range(len(self.fused_windows)):
             self.fused_windows[ind2].write_data()
 
+    def cleanup_shared_memory(self):
+        for win in self.windows:
+            if hasattr(win, "cleanup_shared_memory"):
+                win.cleanup_shared_memory()
+        for win in self.fused_windows:
+            if hasattr(win, "cleanup_shared_memory"):
+                win.cleanup_shared_memory()
+
     def load_data(self):
         if self.verbose > 1:
             print("reading data")
@@ -460,7 +468,13 @@ class ProgressFollower:
         with self.pickle_lock:
             log = pickle.load(open(self.file_path, "rb"))
         shmm, data = gen_shmm(create=False, **log["is_launched"])
-        return True if data[0] == 1 else False
+        try:
+            return True if data[0] == 1 else False
+        finally:
+            try:
+                shmm.close()
+            except Exception:
+                pass
 
     def append(self, name, con, window_size,time_size):
         with open(self.file_path, "rb") as file:
@@ -501,13 +515,25 @@ class ProgressFollower:
     def __del__(self):
         # Create a Path object for the file
         file_path = Path(self.file_path)
-        if self.process.is_alive():
-            print(
-                "Progress follower process is still running. Proceeding terminating it."
-            )
-            self.process.terminate()
-        else:
-            print("Progress follower process has been terminated.")
+        if hasattr(self, "process"):
+            if self.process.is_alive():
+                print(
+                    "Progress follower process is still running. Proceeding terminating it."
+                )
+                self.process.terminate()
+            else:
+                print("Progress follower process has been terminated.")
+        def _cleanup(shmm):
+            try:
+                shmm.close()
+            except Exception:
+                pass
+            try:
+                shmm.unlink()
+            except Exception:
+                pass
+        if hasattr(self, "shmm"):
+            _cleanup(self.shmm)
         # Check if the file exists
         if file_path.exists():
             # Delete the file
@@ -534,6 +560,7 @@ class ProgressFollower:
         reload_counter = datetime.datetime.now()
         print_counter = datetime.datetime.now()
         data_cons = []
+        shmm_refs = []
         with Progress() as progress:
             tasks = []
             for ind in range(len(names)):
@@ -542,6 +569,7 @@ class ProgressFollower:
                 window_size = window_sizes[ind]
                 time_size = time_sizes[ind]
                 shmm_con, data_con = gen_shmm(create=False, **con)
+                shmm_refs.append(shmm_con)
                 data_cons.append(data_con)
                 n_pixels = data_con[
                     time_size[0] : time_size[1],
@@ -556,9 +584,7 @@ class ProgressFollower:
                     con = cons[ind]
                     window_size = window_sizes[ind]
                     time_size = time_sizes[ind]
-                    shmm_con, data_con = gen_shmm(create=False, **con)
-                    # data_con=data_cons[ind]
-
+                    data_con = data_cons[ind]
                     sub_data_con = data_con[
                         time_size[0] : time_size[1],
                         window_size[0, 0] : window_size[0, 1],
@@ -604,6 +630,7 @@ class ProgressFollower:
                             window_size = window_sizes[ind]
                             time_size = time_sizes[ind]
                             shmm_con, data_con = gen_shmm(create=False, **con)
+                            shmm_refs.append(shmm_con)
                             data_cons.append(data_con)
                             n_pixels = data_con[
                                 time_size[0] : time_size[1],
@@ -614,6 +641,12 @@ class ProgressFollower:
 
                             progress.refresh()
                     reload_counter = datetime.datetime.now()
+
+        for ref in shmm_refs:
+            try:
+                ref.close()
+            except Exception:
+                pass
 
 
 def _prepare_axes(num_plots, axis=None):
@@ -876,11 +909,14 @@ class WindowFit:
         self._shmm_con = None
         self._shmm_war = None
         self._shmm_sgm = None
+        self._shmm_sgm_backup = None
         self._par = None
         self._cov = None
         self._con = None
         self._war = None
         self._sgm = None
+        self._sgm_backup = None
+        self.conv_sigma_backup = None
         
         self.has_treated = {
             "preclean": False,
@@ -914,6 +950,48 @@ class WindowFit:
               "EXTNAME", (self.hdu.header["EXTNAME"]) if not isinstance(self.hdu, Iterable) else self.hdu[0].header["EXTNAME"],
               "beg", start,
               "end", datetime.datetime.now(),"\033[0m") 
+
+    def cleanup_shared_memory(self):
+        def _cleanup(shmm):
+            if shmm is None:
+                return
+            try:
+                shmm.close()
+            except Exception:
+                pass
+            try:
+                shmm.unlink()
+            except Exception:
+                pass
+
+        for ref in (
+            self._shmm_par,
+            self._shmm_cov,
+            self._shmm_con,
+            self._shmm_war,
+            self._shmm_sgm,
+            self._shmm_sgm_backup,
+        ):
+            _cleanup(ref)
+
+        self._shmm_par = None
+        self._shmm_cov = None
+        self._shmm_con = None
+        self._shmm_war = None
+        self._shmm_sgm = None
+        self._shmm_sgm_backup = None
+        self.data_par = None
+        self.data_cov = None
+        self.data_con = None
+        self.conv_data = None
+        self.conv_sigma = None
+        self.conv_sigma_backup = None
+        self.has_treated["shared_memory"] = False
+
+        if isinstance(self.hdu, Iterable) and hasattr(self, "separate_windows"):
+            for win in self.separate_windows:
+                if hasattr(win, "cleanup_shared_memory"):
+                    win.cleanup_shared_memory()
     
     def monoHDU_preparations(self, redo=False,without_shared_memory=False):
         self.specaxis = get_specaxis(self.hdu)
@@ -1966,157 +2044,126 @@ class WindowFit:
         shmm_par, data_par = gen_shmm(create=False, **par)
         shmm_cov, data_cov = gen_shmm(create=False, **cov)
         shmm_con, data_con = gen_shmm(create=False, **con)
+        shmm_wgt = None
         if type(wgt) != type(None):
             shmm_wgt, data_wgt = gen_shmm(create=False, **wgt)
 
-        if len(convolution_threshold) == data_par.shape[0]:
-            conv_thresh = convolution_threshold
-        else:
-            conv_thresh = np.zeros(data_par.shape[0])
+        try:
+            if len(convolution_threshold) == data_par.shape[0]:
+                conv_thresh = convolution_threshold
+            else:
+                conv_thresh = np.zeros(data_par.shape[0])
+                conv_thresh[-1] = convolution_threshold[-1]
+                for i_q in range(data_par.shape[0] // 3):
+                    conv_thresh[i_q + 0] = convolution_threshold[0]
+                    conv_thresh[i_q + 1] = convolution_threshold[1]
+                    conv_thresh[i_q + 2] = convolution_threshold[2]
 
-            conv_thresh[-1] = convolution_threshold[-1]
-            for i_q in range(data_par.shape[0] // 3):
-                conv_thresh[i_q + 0] = convolution_threshold[0]
-                conv_thresh[i_q + 1] = convolution_threshold[1]
-                conv_thresh[i_q + 2] = convolution_threshold[2]
-        
-        unlocked_ini_params = model.get_unlock_params()
-        locked_ini_params = model.get_lock_params()
-        locked_quentities = model.get_lock_quentities()
-        if fit_func is None:
-            fit_func = model.callables['function']
-        if jac_func is None:
-            jac_func = model.callables['jacobian']
-        
-        bounds = model.bounds
-        
-        for index in list_indeces:
-            i_t,i_y, i_x = index
-            if verbose >= 2:
-                print(f"fitting pixel [{i_t},{i_y},{i_x}]")
-            i_ad = -1
-            best_cov = np.zeros((*model.get_unlock_params().shape,)) * np.nan
-            best_par = np.zeros((*model.get_unlock_params().shape,)) * np.nan
-            if verbose > 2:
-                print(f"y data: {data_war[i_ad,0,:,i_y,i_x]}")
+            unlocked_ini_params = model.get_unlock_params()
+            locked_ini_params = model.get_lock_params()
+            locked_quentities = model.get_lock_quentities()
 
-            while (
-                True
-            ):  # this will break only when the convolution threshold is met or reached max allowed convolutions
-                i_ad += 1  #                 |
-                if i_ad == len(convolution_extent_list):
-                    break  # <———————————————'
-                if (
-                    data_war[i_ad, i_t, :, i_y, i_x][
-                        np.logical_not(np.isnan(data_war[i_ad, i_t, :, i_y, i_x]))
-                    ].shape[0]
-                    >= model.get_unlock_params().shape[0]
-                ):
-                    
-                    
-                    locked_last_par, locked_last_cov = fit_pixel_multi(
-                        x=x,
-                        y=data_war[i_ad, i_t, :, i_y, i_x].copy(),
-                        ini_params=(locked_ini_params),  # ini_params,
-                        quentities=locked_quentities,  # quentities,
-                        fit_func=fit_func,
-                        jac_func=jac_func,
-                        bounds=bounds,
-                        weights=(
-                            None
-                            if type(wgt) == type(None)
-                            else data_wgt[i_ad, i_t, :, i_y, i_x]
-                        ),
-                        verbose=verbose,
-                        plot_title_prefix=f"{i_y:04d},{i_x:03d},{i_ad:03d}",
-                        # lock_protocols=lock_protocols, 
-                        # #TODO search what are the reprocations for deleting the lock_protocols
-                    )
-                    last_par = model.get_unlock_params(locked_last_par) 
-                    unlocked_quentities = model.get_unlock_quentities() 
-                    last_cov = np.diag(model.get_unlock_covariance(locked_last_cov))
-                    # print(f"last_par: {last_par}\nlast_cov: {last_cov}")
-                    if any(np.isnan(locked_last_par)):
-                        if verbose>=1:
-                            print("no fitting possible",
+            if fit_func is None:
+                fit_func = model.callables['function']
+            if jac_func is None:
+                jac_func = model.callables['jacobian']
+
+            bounds = model.bounds
+
+            for index in list_indeces:
+                i_t,i_y, i_x = index
+                if verbose >= 2:
+                    print(f"fitting pixel [{i_t},{i_y},{i_x}]")
+                i_ad = -1
+                best_cov = np.zeros((*model.get_unlock_params().shape,)) * np.nan
+                best_par = np.zeros((*model.get_unlock_params().shape,)) * np.nan
+                if verbose > 2:
+                    print(f"y data: {data_war[i_ad,0,:,i_y,i_x]}")
+
+                while True:  # break when convolution threshold is met or max extent reached
+                    i_ad += 1
+                    if i_ad == len(convolution_extent_list):
+                        break
+                    if (
+                        data_war[i_ad, i_t, :, i_y, i_x][
+                            np.logical_not(np.isnan(data_war[i_ad, i_t, :, i_y, i_x]))
+                        ].shape[0]
+                        >= model.get_unlock_params().shape[0]
+                    ):
+                        locked_last_par, locked_last_cov = fit_pixel_multi(
+                            x=x,
+                            y=data_war[i_ad, i_t, :, i_y, i_x].copy(),
+                            ini_params=(locked_ini_params),
+                            quentities=locked_quentities,
+                            fit_func=fit_func,
+                            jac_func=jac_func,
+                            bounds=bounds,
+                            weights=(
+                                None
+                                if type(wgt) == type(None)
+                                else data_wgt[i_ad, i_t, :, i_y, i_x]
+                            ),
+                            verbose=verbose,
+                            plot_title_prefix=f"{i_y:04d},{i_x:03d},{i_ad:03d}",
+                        )
+                        last_par = model.get_unlock_params(locked_last_par)
+                        unlocked_quentities = model.get_unlock_quentities()
+                        last_cov = np.diag(model.get_unlock_covariance(locked_last_cov))
+                        if any(np.isnan(locked_last_par)) and verbose>=1:
+                            print(
+                                "no fitting possible",
                                 "xnans", len(x[np.isnan(x)]), "total", len(x),
                                 "ynans", len(data_war[i_ad, i_t, :, i_y, i_x][np.isnan(data_war[i_ad, i_t, :, i_y, i_x])]),
                                 "params", len(locked_last_par), "cov", len(locked_last_cov)
-                                )
-                else:
-                    _s = unlocked_ini_params.shape[0]
-                    last_par, last_cov = (
-                        np.ones((_s)) * np.nan,
-                        np.ones((_s)) * np.nan,
-                    )
-
-                if np.isnan(last_par).all():
-                    best_con = convolution_extent_list[i_ad]
-
-                else:
-                    if (np.isnan(best_par)).all():
-                        best_cov = last_cov
-                        best_par = last_par
-                        best_con = convolution_extent_list[i_ad]
-
-                    # NEW TO BE VERIFIED
+                            )
                     else:
+                        _s = unlocked_ini_params.shape[0]
+                        last_par, last_cov = (
+                            np.ones((_s)) * np.nan,
+                            np.ones((_s)) * np.nan,
+                        )
 
-                        all_good = True
-                        for i in range(len(best_par) // 3):
-                            if not ((np.sqrt((last_cov))) / last_par < conv_thresh)[
-                                i * 3 : (i + 1) * 3
-                            ].all():
-                                if ((np.sqrt((best_cov))) / best_par < conv_thresh)[
-                                    i * 3 : (i + 1) * 3
-                                ].all():
-                                    best_cov[i * 3 : (i + 1) * 3] = last_cov[
-                                        i * 3 : (i + 1) * 3
-                                    ]
-                                    best_par[i * 3 : (i + 1) * 3] = last_par[
-                                        i * 3 : (i + 1) * 3
-                                    ]
-
-                                    best_cov[-1] = last_cov[-1]
-                                    best_par[-1] = last_par[-1]
-
-                                elif np.nansum(
-                                    ((np.sqrt((last_cov))) / last_par / conv_thresh)[
-                                        i * 3 : (i + 1) * 3
-                                    ]
-                                ) < np.nansum(
-                                    ((np.sqrt((best_cov))) / best_par / conv_thresh)[
-                                        i * 3 : (i + 1) * 3
-                                    ]
-                                ):
-                                    best_cov[i * 3 : (i + 1) * 3] = last_cov[
-                                        i * 3 : (i + 1) * 3
-                                    ]
-                                    best_par[i * 3 : (i + 1) * 3] = last_par[
-                                        i * 3 : (i + 1) * 3
-                                    ]
-
-                                    best_cov[-1] = last_cov[-1]
-                                    best_par[-1] = last_par[-1]
-                                    all_good = False
-                        if all_good == True:
-                            break
+                    if np.isnan(last_par).all():
                         best_con = convolution_extent_list[i_ad]
 
-            if verbose >= 2:
-                print(f"best_par: {best_par}\nbest_con: {best_con}")
+                    else:
+                        if (np.isnan(best_par)).all():
+                            best_cov = last_cov
+                            best_par = last_par
+                            best_con = convolution_extent_list[i_ad]
+                        else:
+                            all_good = True
+                            for i in range(len(best_par) // 3):
+                                if not ((np.sqrt((last_cov))) / last_par < conv_thresh)[i * 3 : (i + 1) * 3].all():
+                                    if ((np.sqrt((best_cov))) / best_par < conv_thresh)[i * 3 : (i + 1) * 3].all():
+                                        best_cov[i * 3 : (i + 1) * 3] = last_cov[i * 3 : (i + 1) * 3]
+                                        best_par[i * 3 : (i + 1) * 3] = last_par[i * 3 : (i + 1) * 3]
+                                        best_cov[-1] = last_cov[-1]
+                                        best_par[-1] = last_par[-1]
+                                    elif np.nansum(((np.sqrt((last_cov))) / last_par / conv_thresh)[i * 3 : (i + 1) * 3]) < np.nansum(((np.sqrt((best_cov))) / best_par / conv_thresh)[i * 3 : (i + 1) * 3]):
+                                        best_cov[i * 3 : (i + 1) * 3] = last_cov[i * 3 : (i + 1) * 3]
+                                        best_par[i * 3 : (i + 1) * 3] = last_par[i * 3 : (i + 1) * 3]
+                                        best_cov[-1] = last_cov[-1]
+                                        best_par[-1] = last_par[-1]
+                                        all_good = False
+                            if all_good:
+                                break
+                            best_con = convolution_extent_list[i_ad]
 
-            # lock.acquire()
-            data_par[:, i_t, i_y, i_x] = (
-                best_par  # the result UUUUUUgh finally it's here every pixel will be here
-            )
-            data_cov[:, i_t, i_y, i_x] = (
-                best_cov  # the result UUUUUUgh finally it's here every pixel will be here
-            )
-            data_con[i_t, i_y, i_x] = (
-                best_con  # the result UUUUUUgh finally it's here every pixel will be here
-            )
-            # lock.release()
+                if verbose >= 2:
+                    print(f"best_par: {best_par}\nbest_con: {best_con}")
+
+                data_par[:, i_t, i_y, i_x] = best_par
+                data_cov[:, i_t, i_y, i_x] = best_cov
+                data_con[i_t, i_y, i_x] = best_con
+        finally:
+            for ref in (shmm_war, shmm_par, shmm_cov, shmm_con, shmm_wgt):
+                if ref is None:
+                    continue
+                try:
+                    ref.close()
+                except Exception:
+                    pass
 
 
 def run_one_window_preparations(window_fit_obj, redo=False,without_shared_memory=False):
