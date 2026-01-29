@@ -524,14 +524,21 @@ class SPECLine:
             self._all["rad"] = [None,None]
             self._all["rad_err"] = [None,None]
             
-            # self._all["rad"][0] = self["int"] * self["wid"] * np.sqrt(np.pi)
-            with warnings.filterwarnings("ignore", category=UnitsWarning):
+            # with warnings.catch_warnings():
+            warnings.filterwarnings("ignore")
+            if True:
+                # warnings.filterwarnings("ignore", category=[UnitsWarning,RuntimeWarning])
+                # warnings.filterwarnings("ignore", category=[UnitsWarning])
                 self._all["rad"][0] = (
                     (u.Unit(self.headers['int']["BUNIT"]) * self["int"]).to(u.W / (u.m**2 * u.sr* u.nm)) * 
-                    (u.Unit(self.headers['wid']["BUNIT"]) * self["wid"]).to(u.nm)  ).to(u.W / (u.m**2 * u.sr)).value * np.sqrt(2* np.pi)
-                self._all["rad_err"][0] = (
-                    self["int_err"] / self["int"] + self["wid_err"] / self["wid"]
-                ) * self["rad"]
+                    (u.Unit(self.headers['wid']["BUNIT"]) * self["wid"]).to(u.nm)
+                ).to(u.W / (u.m**2 * u.sr)).value * np.sqrt(2* np.pi)
+            
+            self._all["rad_err"][0] = (
+                self["int_err"] / self["int"] + self["wid_err"] / self["wid"]
+            ) * self["rad"]
+            warnings.filterwarnings("default")    
+            
             
             self._all["rad"]    [1] = self.headers["int"].copy()
             self._all["rad_err"][1] = self.headers["int_err"].copy()
