@@ -50,6 +50,7 @@ from sunpy.map import Map
 from IPython.display import HTML, display
 import colorama
 import matplotlib.dates as mdates
+from matplotlib.colors import Normalize
 
 def colored_text(text, color):
     """
@@ -1275,7 +1276,7 @@ def normit(
     vmax: float = None,
     clip: bool = False,
     invalid=-1.0,
-) -> ImageNormalize:
+) -> Normalize:
     """Normalize the data using the specified interval, stretch, vmin, and vmax.
 
     Args:
