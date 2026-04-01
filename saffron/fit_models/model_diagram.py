@@ -634,7 +634,8 @@ def _build_constraint_edges(elements: Sequence[ElementSpec]) -> List[ConstraintE
                         int(ref["element_index"]),
                         str(ref["parameter"]),
                     ),
-                    target=(elem.model_type, elem.element_index, str(param_name)),
+                    target=(elem.model_type, elem.element_index,
+                            str(param_name)),
                     operation=_optional_str(param_info.get("operation")),
                     value=param_info.get("value"),
                     constraint=_optional_str(param_info.get("constraint")),
@@ -765,7 +766,8 @@ def _resolve_figure_and_axes(
         Figure, axes, and a flag indicating whether the figure was created here.
     """
     assert len(figsize) == 2, "`figsize` must contain width and height."
-    assert ax is None or isinstance(ax, Axes), "`ax` must be a Matplotlib Axes."
+    assert ax is None or isinstance(
+        ax, Axes), "`ax` must be a Matplotlib Axes."
 
     if ax is not None:
         return ax.figure, ax, False
@@ -1403,7 +1405,8 @@ def _draw_routes(
     None
     """
     assert isinstance(ax, Axes), "`ax` must be a Matplotlib Axes."
-    assert len(routes) == len(route_meta), "`routes` and `route_meta` must match."
+    assert len(routes) == len(
+        route_meta), "`routes` and `route_meta` must match."
 
     for route_id, points in routes.items():
         edge = route_meta[route_id]
@@ -1504,8 +1507,10 @@ def _finalize_axes(
     assert isinstance(ax, Axes), "`ax` must be a Matplotlib Axes."
     assert isinstance(layout, LayoutSpec), "`layout` must be a LayoutSpec."
 
-    total_width = layout.n_cols * layout.box_w + (layout.n_cols - 1) * layout.inner_gap
-    total_height = layout.n_rows * layout.box_h + (layout.n_rows - 1) * layout.inner_gap
+    total_width = layout.n_cols * layout.box_w + \
+        (layout.n_cols - 1) * layout.inner_gap
+    total_height = layout.n_rows * layout.box_h + \
+        (layout.n_rows - 1) * layout.inner_gap
 
     ax.axis("off")
     ax.set_xlim(-layout.left_pad, total_width + layout.right_pad)
@@ -1911,8 +1916,10 @@ def _build_corridor_offsets(
     True
     """
     assert inner_gap > 0.0, "`inner_gap` must be positive."
-    assert isinstance(vertical_usage, Mapping), "`vertical_usage` must be a mapping."
-    assert isinstance(horizontal_usage, Mapping), "`horizontal_usage` must be a mapping."
+    assert isinstance(
+        vertical_usage, Mapping), "`vertical_usage` must be a mapping."
+    assert isinstance(horizontal_usage,
+                      Mapping), "`horizontal_usage` must be a mapping."
 
     vertical_offsets: Dict[float, Dict[Tuple[int, str], float]] = {}
     horizontal_offsets: Dict[float, Dict[Tuple[int, str], float]] = {}
@@ -2151,7 +2158,8 @@ def _safe_scalar_str(value: Any, precision: int = 5) -> str:
         return str(value)
 
     if isinstance(value, (list, tuple)):
-        inner = ", ".join(_safe_scalar_str(item, precision=precision) for item in value)
+        inner = ", ".join(_safe_scalar_str(item, precision=precision)
+                          for item in value)
         return f"[{inner}]"
 
     return str(value)
@@ -2253,7 +2261,7 @@ def _format_ion_label(ion_text: Any) -> str:
         roman_charge = str(charge).lower()
 
     if mpl.rcParams.get("text.usetex", False):
-        return rf"{element}\,{{\bfseries\scshape {roman_charge}}}"
+        return rf"{element}\,\bfseries{{\textsc{{{roman_charge}}}}}"
 
     return f"{element} {roman_charge.upper()}"
 
@@ -2466,4 +2474,3 @@ def _optional_str(value: Any) -> Optional[str]:
     if value is None:
         return None
     return str(value)
-
