@@ -12,6 +12,7 @@ from astropy.io import fits
 import pickle
 import zlib
 from astropy.io import fits
+from .model_diagram import configure_model_visualization_latex, visualize_model_structure
 
 class ModelFactory():
   def __init__(self,functions = None,functions_names = None,jit_activated = True,cache=True,verbose=0) -> None:
@@ -1055,3 +1056,91 @@ class ModelFactory():
     """
     self.__dict__.update(state)
     self._callables = None  # Reset or regenerate callables  
+
+  def visualize(
+    self,
+    latex_enable: bool = True,
+    figsize: Optional[Tuple[float, float]] = None,
+    title: str = "Model structure",
+    show_values: bool = True,
+    show_constraint_details: bool = True,
+    ax: Optional[Any] = None,
+):
+    """
+    Visualize the model structure as a dependency diagram.
+
+    This method temporarily changes Matplotlib's LaTeX text-rendering state,
+    calls the model-diagram visualization routine, and then restores the
+    previous Matplotlib configuration before returning.
+
+    Parameters
+    ----------
+    latex_enable : bool, default=True
+        If True, enable LaTeX rendering during the visualization call.
+        If False, disable LaTeX rendering during the visualization call.
+        The previous Matplotlib LaTeX state is restored afterward.
+    figsize : Optional[Tuple[float, float]], default=None
+        Figure size passed to the visualization routine. If None, the plotting
+        helper selects a deterministic default size.
+    title : str, default="Model structure"
+        Title displayed above the diagram.
+    show_values : bool, default=True
+        If True, display free parameter values inside the cards.
+    show_constraint_details : bool, default=True
+        If True, display constraint details for locked parameters.
+    ax : Optional[Any], default=None
+        Existing Matplotlib axes. If None, a new figure and axes are created.
+
+    Returns
+    -------
+    Tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]
+        The Matplotlib figure and axes containing the visualization.
+
+    Raises
+    ------
+    AssertionError
+        If `latex_enable`, `show_values`, or `show_constraint_details` is not
+        boolean.
+    TypeError
+        If the downstream visualization routine rejects the provided arguments.
+    ValueError
+        If the model does not contain any valid functions to visualize.
+
+    Notes
+    -----
+    This method preserves and restores:
+    - ``mpl.rcParams["text.usetex"]``
+    - ``mpl.rcParams["text.latex.preamble"]``
+
+    Restoration is performed in a ``finally`` block so that the original
+    Matplotlib text configuration is recovered even if plotting fails.
+
+    Examples
+    --------
+    >>> fig, ax = model.visualize()
+    >>> fig, ax = model.visualize(latex_enable=False, title="Quick view")
+    >>> fig, ax = model.visualize(ax=my_ax, show_constraint_details=False)
+    """
+    assert isinstance(latex_enable, bool), "`latex_enable` must be a boolean."
+    assert isinstance(show_values, bool), "`show_values` must be a boolean."
+    assert isinstance(
+        show_constraint_details, bool
+    ), "`show_constraint_details` must be a boolean."
+    import matplotlib as mpl
+    previous_usetex = bool(mpl.rcParams.get("text.usetex", False))
+    previous_preamble = mpl.rcParams.get("text.latex.preamble", "")
+
+    configure_model_visualization_latex(latex_enable)
+
+    try:
+        return visualize_model_structure(
+            self,
+            figsize=figsize,
+            title=title,
+            show_values=show_values,
+            show_constraint_details=show_constraint_details,
+            ax=ax,
+        )
+    finally:
+        mpl.rcParams["text.usetex"] = previous_usetex
+        mpl.rcParams["text.latex.preamble"] = previous_preamble
