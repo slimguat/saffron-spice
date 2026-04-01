@@ -1,3 +1,27 @@
+from ..fit_models.Model import ModelFactory
+from ..utils.fits_clone import HDUClone, HDUListClone
+from ..utils.utils import (
+    gen_shmm,
+    Preclean,
+    Preclean,
+    # convolve,
+    convolve_4D,
+    get_specaxis,
+    flatten,
+    # default_convolution_function,
+    get_extnames,
+    get_data_raster,
+    colored_text
+)
+from ..utils.despike import despike_4D
+from ..utils.denoise import denoise_data
+from .fit_pixel import fit_pixel as fit_pixel_multi
+from sospice import spice_error
+from ndcube import NDCollection
+from astropy.wcs import WCS
+from astropy.io.fits.hdu.hdulist import HDUList
+from astropy.io import fits
+from typing import Union, List, Dict, Any, Callable, Tuple, Optional, Iterable
 import warnings
 import numpy as np
 import os
@@ -18,36 +42,11 @@ from colorama import init, Fore, Style
 init(autoreset=True)
 
 
-from typing import Union, List, Dict, Any, Callable, Tuple, Optional, Iterable
-from astropy.io import fits
-from astropy.io.fits.hdu.hdulist import HDUList
-from astropy.wcs import WCS
-from ndcube import NDCollection
-
 # from spice_uncertainties import spice_error
-from sospice import spice_error
 
 # from sunraster.instr.spice import read_spice_l2_fits
 
-from .fit_pixel import fit_pixel as fit_pixel_multi
-from ..utils.denoise import denoise_data
-from ..utils.despike import despike_4D
-from ..utils.utils import (
-    gen_shmm,
-    Preclean,
-    Preclean,
-    # convolve,
-    convolve_4D,
-    get_specaxis,
-    flatten,
-    # default_convolution_function,
-    get_extnames,
-    get_data_raster,
-    colored_text
-)
-from ..utils.fits_clone import HDUClone, HDUListClone
 
-from ..fit_models.Model import ModelFactory
 class RasterFit:
     def __repr__(self) -> str:
         value = (
@@ -94,14 +93,15 @@ class RasterFit:
             + "\n"
             + "init_params/quentities  "
             + "\n"
-            
+
             + "\n\t".join(
                 [
-                    str(self.models[i].get_lock_params()) + "\n" + str(self.models[i].get_lock_quentities())
+                    str(self.models[i].get_lock_params()) + "\n" +
+                    str(self.models[i].get_lock_quentities())
                     for i in range(len(self.models))
                 ]
             )
-            
+
             # + "\n\t".join(
             #     [
             #         str(self.init_params[i]) + "\n" + str(self.quentities[i])
@@ -165,7 +165,6 @@ class RasterFit:
         self.data_save_dir = data_save_dir
         self.Jobs = Jobs
         self.verbose = verbose
-        
 
         self.L2_path = ""
         self.raster = None
@@ -186,14 +185,14 @@ class RasterFit:
             os.mkdir(tmp_dir)
 
         return None
-    
+
     def fuse_windows(self, *indices):
         self.fused_windows.append(
             WindowFit(
                 hdu=[self.windows[i].hdu for i in indices],
-                model= [self.windows[i].model for i in indices],
+                model=[self.windows[i].model for i in indices],
                 window_size=self.window_size,
-                time_size = self.time_size,
+                time_size=self.time_size,
                 # convolution_function=self.convolution_function,
                 convolution_threshold=(
                     self.convolution_threshold
@@ -201,7 +200,7 @@ class RasterFit:
                     else [self.convolution_threshold[i] for i in indices]
                 ),
                 convolution_extent_list=self.convolution_extent_list,
-                t_convolution_index = self.t_convolution_index,
+                t_convolution_index=self.t_convolution_index,
                 mode=self.mode,
                 weights=self.weights,
                 denoise=self.denoise,
@@ -223,66 +222,71 @@ class RasterFit:
         y = indices
         self.solo_windows_toFit = [value for value in x if value not in y]
         # if in the other windows the data has been treated copy them into the new fused windows
-        
-        # First: make sure that all the windows have the same treatment status 
+
+        # First: make sure that all the windows have the same treatment status
         all_is_treated_same = all(
             [
                 all([
-                    self.windows[i].has_treated[key]==self.windows[indices[0]].has_treated[key]
+                    self.windows[i].has_treated[key] == self.windows[indices[0]
+                                                                     ].has_treated[key]
                     for key in self.windows[i].has_treated
-                    ])
+                ])
                 for i in indices
             ]
         )
         if all_is_treated_same:
-            #Second: role over preclean,sigma, despike, convolve,denoise, 
+            # Second: role over preclean,sigma, despike, convolve,denoise,
             has_treated = self.windows[indices[0]].has_treated
-            
-            #Preclean and despike search 
+
+            # Preclean and despike search
             if self.windows[indices[0]].clean_data is not None:
                 if self.verbose >= 1:
-                    print("fusing preclean and despike found in the source windows. Using them in the fused window")
+                    print(
+                        "fusing preclean and despike found in the source windows. Using them in the fused window")
                 self.fused_windows[-1].clean_data = np.concatenate(
                     [self.windows[i].clean_data for i in indices],
-                    axis=1) 
+                    axis=1)
                 self.fused_windows[-1].has_treated["preclean"] = has_treated["preclean"]
-                self.fused_windows[-1].has_treated["despike" ] = has_treated["despike"]
-                
-            
-            #Sigma search  
+                self.fused_windows[-1].has_treated["despike"] = has_treated["despike"]
+
+            # Sigma search
             if self.windows[indices[0]].sigma is not None:
                 if self.verbose >= 1:
-                    print("fusing sigma found in the source windows. Using them in the fused window")
+                    print(
+                        "fusing sigma found in the source windows. Using them in the fused window")
                 self.fused_windows[-1].sigma = np.concatenate(
                     [self.windows[i].sigma for i in indices],
                     axis=1)
                 self.fused_windows[-1].has_treated["sigma"] = has_treated["sigma"]
-            
-            #Convolve search
+
+            # Convolve search
             if self.windows[indices[0]].conv_data is not None:
                 if self.verbose >= 1:
-                    print("fusing convolve and denoise found in the source windows. Using them in the fused window")
+                    print(
+                        "fusing convolve and denoise found in the source windows. Using them in the fused window")
                 self.fused_windows[-1].conv_data = np.concatenate(
                     [self.windows[i].conv_data for i in indices],
                     axis=2)
                 self.fused_windows[-1].conv_sigma = np.concatenate(
                     [self.windows[i].conv_sigma for i in indices],
                     axis=2)
-                
+
                 self.fused_windows[-1].has_treated["convolve"] = has_treated["convolve"]
-                self.fused_windows[-1].has_treated["denoise" ] = has_treated["denoise" ]
-            
-            #Shared memory initiation 
+                self.fused_windows[-1].has_treated["denoise"] = has_treated["denoise"]
+
+            # Shared memory initiation
             if has_treated["shared_memory"]:
                 if self.verbose >= 1:
-                    print("proceeding with shared memory generation in the fused window")
-                self.fused_windows[-1].run_preparations(redo=False,without_shared_memory=False)
-                
+                    print(
+                        "proceeding with shared memory generation in the fused window")
+                self.fused_windows[-1].run_preparations(
+                    redo=False, without_shared_memory=False)
+
     def gen_windows(self):
         for i in range(len(self.raster)):
             window = WindowFit(
                 hdu=self.raster[i],
-                model = self.models[i],
+                model=self.models[i],
                 window_size=self.window_size,
                 time_size=self.time_size,
                 # convolution_function=self.convolution_function,
@@ -308,14 +312,14 @@ class RasterFit:
                 data_save_dir=self.data_save_dir,
                 Jobs=self.Jobs,
                 verbose=self.verbose,
-                
+
             )
             self.windows.append(window)
 
-     #TODO: This have been abusively used in the code, it should be removed or rearranged
-    
-    def run_raster_preparations_parallel(self, redo=False, max_processes=None,without_shared_memory=False):
-        
+     # TODO: This have been abusively used in the code, it should be removed or rearranged
+
+    def run_raster_preparations_parallel(self, redo=False, max_processes=None, without_shared_memory=False):
+
         from concurrent.futures import ProcessPoolExecutor
         for ind in range(len(self.windows)):
             self.windows[ind].model._callables = None
@@ -323,40 +327,47 @@ class RasterFit:
             self.fused_windows[ind].model._caldata_convlables = None
         max_processes = max_processes or os.cpu_count()
         print("\033[91mrun preparation in parallel")
-        print("father process id", os.getpid(),"\033[0m")
-        
+        print("father process id", os.getpid(), "\033[0m")
+
         with ProcessPoolExecutor(max_workers=max_processes) as executor:
             print([model._callables for model in self.models])
             self.windows = list(executor.map(
-                run_one_window_preparations, self.windows, [redo] * len(self.windows),[without_shared_memory]*len(self.windows)
+                run_one_window_preparations, self.windows, [
+                    redo] * len(self.windows), [without_shared_memory]*len(self.windows)
             ))
             self.fused_windows = list(executor.map(
-                run_one_window_preparations, self.fused_windows, [redo] * len(self.fused_windows)   ,[without_shared_memory]*len(self.fused_windows)
+                run_one_window_preparations, self.fused_windows, [
+                    redo] * len(self.fused_windows), [without_shared_memory]*len(self.fused_windows)
             ))
-    
-    #TODO: new implementation of the function, to be tested
-    def run_preparations(self, redo=False,max_processes=os.cpu_count(),without_shared_memory=False):
-        if max_processes !=1:
+
+    # TODO: new implementation of the function, to be tested
+    def run_preparations(self, redo=False, max_processes=os.cpu_count(), without_shared_memory=False):
+        if max_processes != 1:
             # raise "max_processes is not implemented yet"
-            self.run_raster_preparations_parallel(redo=redo, max_processes=max_processes,without_shared_memory=True)
-            self.run_preparations(redo=False,without_shared_memory=without_shared_memory,max_processes=1)
+            self.run_raster_preparations_parallel(
+                redo=redo, max_processes=max_processes, without_shared_memory=True)
+            self.run_preparations(
+                redo=False, without_shared_memory=without_shared_memory, max_processes=1)
         else:
             for i in range(len(self.windows)):
-                self.windows[i].run_preparations(redo=redo,without_shared_memory=without_shared_memory)
+                self.windows[i].run_preparations(
+                    redo=redo, without_shared_memory=without_shared_memory)
             for i in range(len(self.fused_windows)):
-                self.fused_windows[i].run_preparations(redo=redo,without_shared_memory=without_shared_memory)
+                self.fused_windows[i].run_preparations(
+                    redo=redo, without_shared_memory=without_shared_memory)
 
     def fit_raster(self, progress_follower=None):
         if progress_follower is None:
             progress_follower = ProgressFollower()
         for ind2 in range(len(self.fused_windows)):
-            self.fused_windows[ind2].fit_window(progress_follower=progress_follower)
+            self.fused_windows[ind2].fit_window(
+                progress_follower=progress_follower)
             self.fused_windows[ind2].write_data()
 
         for ind in self.solo_windows_toFit:
             self.windows[ind].fit_window(progress_follower=progress_follower)
             self.windows[ind].write_data()
-        
+
     def write_data(self):
         for ind in self.solo_windows_toFit:
             self.windows[ind].write_data()
@@ -391,7 +402,7 @@ class RasterFit:
             raise ValueError(
                 "You need to make sure that data file is a path or HDULLIST object "
             )
-        self.raster = get_data_raster(self.raster) 
+        self.raster = get_data_raster(self.raster)
         self.filenames_generator()
         self.raster = HDUListClone.from_hdulist(self.raster)
 
@@ -402,7 +413,8 @@ class RasterFit:
         """
 
         if "::PARAMPLACEHOLDER" in self.data_filename:
-            self.data_filename = self.data_filename.replace("::PARAMPLACEHOLDER", "{}")
+            self.data_filename = self.data_filename.replace(
+                "::PARAMPLACEHOLDER", "{}")
         if "::SAMENAME" in self.data_filename:
             if "::SAMENAMEL2.5" in self.data_filename:
                 filename = Path(self.L2_path).stem
@@ -418,13 +430,15 @@ class RasterFit:
         now = datetime.datetime.now()
         formatted_time = now.strftime(r"%y%m%dT%H%M%S")
         if "::TIME" in self.data_filename:
-            self.data_filename = self.data_filename.replace("::TIME", formatted_time)
+            self.data_filename = self.data_filename.replace(
+                "::TIME", formatted_time)
         strConv = "-".join([f"{i:02d}" for i in self.convolution_extent_list])
         if "::CONV" in self.data_filename:
             self.data_filename = self.data_filename.replace("::CONV", strConv)
         strTConv = f"{self.t_convolution_index:02d}"
         if "::TCONV" in self.data_filename:
-            self.data_filename = self.data_filename.replace("::TCONV", strTConv)
+            self.data_filename = self.data_filename.replace(
+                "::TCONV", strTConv)
 
 
 class ProgressFollower:
@@ -458,7 +472,7 @@ class ProgressFollower:
                 "con": [],
                 "window_size": [],
                 "time_size": [],
-                
+
             }
             with self.pickle_lock:
                 pickle.dump(log, open(self.file_path, "wb"))
@@ -476,7 +490,7 @@ class ProgressFollower:
             except Exception:
                 pass
 
-    def append(self, name, con, window_size,time_size):
+    def append(self, name, con, window_size, time_size):
         with open(self.file_path, "rb") as file:
             log = pickle.load(file)
         log["name"].append(name if name is not None else str(len(log["name"])))
@@ -523,6 +537,7 @@ class ProgressFollower:
                 self.process.terminate()
             else:
                 print("Progress follower process has been terminated.")
+
         def _cleanup(shmm):
             try:
                 shmm.close()
@@ -572,9 +587,9 @@ class ProgressFollower:
                 shmm_refs.append(shmm_con)
                 data_cons.append(data_con)
                 n_pixels = data_con[
-                    time_size[0] : time_size[1],
-                    window_size[0, 0] : window_size[0, 1],
-                    window_size[1, 0] : window_size[1, 1],
+                    time_size[0]: time_size[1],
+                    window_size[0, 0]: window_size[0, 1],
+                    window_size[1, 0]: window_size[1, 1],
                 ].size
                 tasks.append(progress.add_task(name, total=n_pixels + 1))
 
@@ -586,9 +601,9 @@ class ProgressFollower:
                     time_size = time_sizes[ind]
                     data_con = data_cons[ind]
                     sub_data_con = data_con[
-                        time_size[0] : time_size[1],
-                        window_size[0, 0] : window_size[0, 1],
-                        window_size[1, 0] : window_size[1, 1],
+                        time_size[0]: time_size[1],
+                        window_size[0, 0]: window_size[0, 1],
+                        window_size[1, 0]: window_size[1, 1],
                     ]
                     finished_pixels = sub_data_con[
                         np.logical_not(np.isnan(sub_data_con))
@@ -608,7 +623,8 @@ class ProgressFollower:
                     # Remove the task if completed
                     if progress.tasks[task].completed:
                         progress.remove_task(task)
-                        console.log(f"Task '{names[ind]}' completed and removed.")
+                        console.log(
+                            f"Task '{names[ind]}' completed and removed.")
                     # console.log(progress)
                     progress.refresh()
                 # sleep(0.1)
@@ -633,11 +649,12 @@ class ProgressFollower:
                             shmm_refs.append(shmm_con)
                             data_cons.append(data_con)
                             n_pixels = data_con[
-                                time_size[0] : time_size[1],
-                                window_size[0, 0] : window_size[0, 1],
-                                window_size[1, 0] : window_size[1, 1],
+                                time_size[0]: time_size[1],
+                                window_size[0, 0]: window_size[0, 1],
+                                window_size[1, 0]: window_size[1, 1],
                             ].size
-                            tasks.append(progress.add_task(name, total=n_pixels + 1))
+                            tasks.append(progress.add_task(
+                                name, total=n_pixels + 1))
 
                             progress.refresh()
                     reload_counter = datetime.datetime.now()
@@ -664,8 +681,10 @@ def _prepare_axes(num_plots, axis=None):
         c = int(min(5, math.ceil(np.sqrt(num_plots))))
         r = int(np.ceil(num_plots / c))
         fig, axes = plt.subplots(r, c, figsize=(c * 3, r * 3))
-        try:axes = axes.flatten()
-        except:pass
+        try:
+            axes = axes.flatten()
+        except:
+            pass
         [ax.remove() for ax in axes[num_plots:]]
         [ax.grid() for ax in axes[:num_plots]]
         return fig, axes[:num_plots]
@@ -673,7 +692,7 @@ def _prepare_axes(num_plots, axis=None):
         return None, axis
 
 
-def plot_pixel(spectrum,x_axis=None, t=None, y=None, x=None, ax=None,plot_kwargs={}):
+def plot_pixel(spectrum, x_axis=None, t=None, y=None, x=None, ax=None, plot_kwargs={}):
     """
     Plots the spectrum of a single pixel.
 
@@ -694,16 +713,17 @@ def plot_pixel(spectrum,x_axis=None, t=None, y=None, x=None, ax=None,plot_kwargs
     -------
     None
     """
-    fig,ax = _prepare_axes(1, ax)
+    fig, ax = _prepare_axes(1, ax)
     if x_axis is None:
         x_axis = np.arange(len(spectrum))
-    ax.step(x_axis,spectrum, label=f"t={t}, y={y}, x={x}",**plot_kwargs)
+    ax.step(x_axis, spectrum, label=f"t={t}, y={y}, x={x}", **plot_kwargs)
     ax.set_xlabel("Wavelength Index")
     ax.set_ylabel("Intensity")
     ax.set_title(f"Spectrum at (t={t}, y={y}, x={x})")
     ax.legend()
 
-def plot_predefined_pixels(hdu, indices, plot_pixel_function, axis=None,plot_kwargs={}):
+
+def plot_predefined_pixels(hdu, indices, plot_pixel_function, axis=None, plot_kwargs={}):
     """
     Plots a list of predefined indices from the data.
 
@@ -722,7 +742,7 @@ def plot_predefined_pixels(hdu, indices, plot_pixel_function, axis=None,plot_kwa
     -------
     tuple: (indices, axis)
     """
-    if not isinstance(hdu,np.ndarray):
+    if not isinstance(hdu, np.ndarray):
         data = hdu.data.copy()
         specaxis = get_specaxis(hdu)
     else:
@@ -732,21 +752,25 @@ def plot_predefined_pixels(hdu, indices, plot_pixel_function, axis=None,plot_kwa
 
     # Validate data shape
     if len(data.shape) != 4:
-        raise ValueError("Input data must be a 4D array with shape (time, wavelength, height, width).")
+        raise ValueError(
+            "Input data must be a 4D array with shape (time, wavelength, height, width).")
 
     # Prepare axes for plotting
     fig, axes = _prepare_axes(num_pixels, axis)
 
     # Plot the selected pixels
     for index, (rand_t, rand_y, rand_x) in enumerate(indices):
-        spectrum = data[rand_t, :, rand_y, rand_x]  # Extract the spectrum along the wavelength axis
-        plot_pixel_function(spectrum, x_axis=specaxis, t=rand_t, y=rand_y, x=rand_x, ax=axes[index],plot_kwargs=plot_kwargs)
+        # Extract the spectrum along the wavelength axis
+        spectrum = data[rand_t, :, rand_y, rand_x]
+        plot_pixel_function(spectrum, x_axis=specaxis, t=rand_t,
+                            y=rand_y, x=rand_x, ax=axes[index], plot_kwargs=plot_kwargs)
 
     plt.tight_layout()
     # plt.show()
     return indices, axes
 
-def plot_random_pixels(hdu, num_pixels, plot_pixel_function, axis=None,plot_kwargs={}):
+
+def plot_random_pixels(hdu, num_pixels, plot_pixel_function, axis=None, plot_kwargs={}):
     """
     Picks random pixels from data along axes (t, y, x) and calls `plot_predefined_pixels`.
 
@@ -765,33 +789,35 @@ def plot_random_pixels(hdu, num_pixels, plot_pixel_function, axis=None,plot_kwar
     -------
     tuple: (indices, axis)
     """
-    if not isinstance(hdu,np.ndarray):
+    if not isinstance(hdu, np.ndarray):
         data = hdu.data.copy()
     else:
         data = hdu.copy()
     # Validate data shape
     if len(data.shape) != 4:
-        raise ValueError("Input data must be a 4D array with shape (time, wavelength, height, width).")
+        raise ValueError(
+            "Input data must be a 4D array with shape (time, wavelength, height, width).")
 
     n_time, _, n_y, n_x = data.shape
 
     # Ensure we don't pick more pixels than possible
     max_pixels = n_time * n_y * n_x
     if num_pixels > max_pixels:
-        raise ValueError(f"Cannot pick {num_pixels} pixels from a total of {max_pixels} available pixels.")
+        raise ValueError(
+            f"Cannot pick {num_pixels} pixels from a total of {max_pixels} available pixels.")
 
     # Generate a list of all (t, y, x) combinations
     t_indices, y_indices, x_indices = np.meshgrid(
         np.arange(n_time), np.arange(n_y), np.arange(n_x), indexing='ij'
     )
-    all_indices = np.stack([t_indices.ravel(), y_indices.ravel(), x_indices.ravel()], axis=1)
+    all_indices = np.stack(
+        [t_indices.ravel(), y_indices.ravel(), x_indices.ravel()], axis=1)
 
     # Randomly choose `num_pixels` indices without replacement
     chosen_indices = random.sample(list(all_indices), num_pixels)
 
     # Call `plot_predefined_pixels` with the chosen indices
-    return plot_predefined_pixels(hdu, chosen_indices, plot_pixel_function, axis=axis,plot_kwargs=plot_kwargs)
-
+    return plot_predefined_pixels(hdu, chosen_indices, plot_pixel_function, axis=axis, plot_kwargs=plot_kwargs)
 
 
 class WindowFit:
@@ -843,7 +869,7 @@ class WindowFit:
     def __init__(
         self,
         hdu: str or NDCollection or List[str or NDCollection],
-        model : ModelFactory,
+        model: ModelFactory,
         window_size: np.ndarray = np.array([[500, 510], [60, 70]]),
         time_size: Iterable = [0, None],
         convolution_threshold: np.ndarray = np.array([0.1, 10**-4, 0.1, 100]),
@@ -864,8 +890,8 @@ class WindowFit:
         data_save_dir: str = "./.p/",
         Jobs: int = 1,
         verbose: int = 0,
-    ):  
-        
+    ):
+
         if not isinstance(hdu, HDUClone) and not isinstance(hdu, Iterable):
             hdu = HDUClone.from_hdu(hdu)
         self.hdu = hdu
@@ -891,8 +917,7 @@ class WindowFit:
         self.data_save_dir = data_save_dir
         self.Jobs = Jobs
         self.verbose = verbose
-        
-        
+
         self.specaxis = None
         self.clean_data = None
         self.conv_data = None
@@ -917,14 +942,14 @@ class WindowFit:
         self._sgm = None
         self._sgm_backup = None
         self.conv_sigma_backup = None
-        
+
         self.has_treated = {
             "preclean": False,
             "sigma": False,
             "despike": False,
             "convolve": False,
             "denoise": False,
-            'shared_memory':False
+            'shared_memory': False
         }
         # In case of multiple windows these windows will be stored in here
         if isinstance(self.hdu, Iterable):
@@ -939,17 +964,20 @@ class WindowFit:
         # self.run_preparations()
         # self.FIT_window()
 
-    def run_preparations(self, redo=False,without_shared_memory=False):
+    def run_preparations(self, redo=False, without_shared_memory=False):
         warnings.filterwarnings("ignore")
-        start = datetime.datetime.now() 
+        start = datetime.datetime.now()
         if isinstance(self.hdu, Iterable):
-            self.polyHDU_preparation(without_shared_memory=without_shared_memory)
+            self.polyHDU_preparation(
+                without_shared_memory=without_shared_memory)
         else:
-            self.monoHDU_preparations(redo=redo,without_shared_memory=without_shared_memory)
+            self.monoHDU_preparations(
+                redo=redo, without_shared_memory=without_shared_memory)
         print("\033[91m process id", os.getpid(),
-              "EXTNAME", (self.hdu.header["EXTNAME"]) if not isinstance(self.hdu, Iterable) else self.hdu[0].header["EXTNAME"],
+              "EXTNAME", (self.hdu.header["EXTNAME"]) if not isinstance(
+                  self.hdu, Iterable) else self.hdu[0].header["EXTNAME"],
               "beg", start,
-              "end", datetime.datetime.now(),"\033[0m") 
+              "end", datetime.datetime.now(), "\033[0m")
 
     def cleanup_shared_memory(self):
         def _cleanup(shmm):
@@ -992,22 +1020,23 @@ class WindowFit:
             for win in self.separate_windows:
                 if hasattr(win, "cleanup_shared_memory"):
                     win.cleanup_shared_memory()
-    
-    def monoHDU_preparations(self, redo=False,without_shared_memory=False):
+
+    def monoHDU_preparations(self, redo=False, without_shared_memory=False):
         self.specaxis = get_specaxis(self.hdu)
         self._preclean(redo=redo)
         self._get_sigma_data(redo=redo)
         self._despike(redo=redo)
         self._convolve(redo=redo)
         self._denoise(redo=redo)
-        print("without shared memory inside monoHDU_preparations",without_shared_memory)
+        print("without shared memory inside monoHDU_preparations",
+              without_shared_memory)
         if not without_shared_memory:
             self._Gen_output_shared_memory()
             self._index_list()
-        
+
         pass
 
-    def polyHDU_preparation(self,without_shared_memory=False):
+    def polyHDU_preparation(self, without_shared_memory=False):
         if len(self.separate_windows) == len(self.hdu):
             if self.verbose > -1:
                 print(
@@ -1020,7 +1049,7 @@ class WindowFit:
                 self.separate_windows.append(
                     WindowFit(
                         hdu=self.hdu[ind],
-                        model = self.model[ind],
+                        model=self.model[ind],
                         # bounds=self.bounds,
                         window_size=self.window_size,
                         time_size=self.time_size,
@@ -1047,41 +1076,45 @@ class WindowFit:
                         data_save_dir=self.data_save_dir,
                         Jobs=self.Jobs,
                         verbose=self.verbose,
-                        
+
                     )
                 )
-            
-             
+
             if [self.preclean == self.has_treated["preclean"],
                 self.denoise == self.has_treated["denoise"],
                 self.despike == self.has_treated["despike"],
-                self.convolute == self.has_treated["convolve"]].count(False) > 0: 
+                    self.convolute == self.has_treated["convolve"]].count(False) > 0:
                 # coppying the cleaned data to the fused windows
                 # if self.has_treated
-                old_v = [self.separate_windows[ind].verbose for ind in range(len(self.separate_windows))]
-                for ind in range(len(self.separate_windows)): self.separate_windows[ind].verbose = -2
-                [self.separate_windows[ind].run_preparations() for ind in range(len(self.separate_windows))]
-                for ind in range(len(self.separate_windows)): self.separate_windows[ind].verbose = old_v[ind] 
-                self.sigma = np.concatenate([i.sigma for i in self.separate_windows], axis=1)
+                old_v = [self.separate_windows[ind].verbose for ind in range(
+                    len(self.separate_windows))]
+                for ind in range(len(self.separate_windows)):
+                    self.separate_windows[ind].verbose = -2
+                [self.separate_windows[ind].run_preparations()
+                 for ind in range(len(self.separate_windows))]
+                for ind in range(len(self.separate_windows)):
+                    self.separate_windows[ind].verbose = old_v[ind]
+                self.sigma = np.concatenate(
+                    [i.sigma for i in self.separate_windows], axis=1)
                 self.conv_sigma = np.concatenate(
                     [i.conv_sigma for i in self.separate_windows], axis=2
                 )
                 self.conv_data = np.concatenate(
                     [i.conv_data for i in self.separate_windows], axis=2
                 )
-        
+
         self.convolution_threshold = np.concatenate(
             [i.convolution_threshold for i in self.separate_windows], axis=0
         )
         self.model = np.sum(self.separate_models)
-        
+
         self.specaxis = np.concatenate(
             [get_specaxis(i.hdu) for i in self.separate_windows], axis=0
         )
         if not without_shared_memory:
             self._Gen_output_shared_memory()
             self._index_list()
-    
+
     def _get_sigma_data(self, redo=False):
         if self.verbose >= 0:
             print("Computing uncertainties")
@@ -1095,7 +1128,8 @@ class WindowFit:
             self.sigma = np.ones(self.hdu.data.shape)
             return
         if self.verbose >= 1:
-            av_constant_noise_level, sigma = spice_error(self.hdu.to_hdu(), verbose=self.verbose)
+            av_constant_noise_level, sigma = spice_error(
+                self.hdu.to_hdu(), verbose=self.verbose)
         else:
             from ..utils.utils import suppress_output
 
@@ -1104,15 +1138,16 @@ class WindowFit:
                 av_constant_noise_level, sigma = spice_error(
                     self.hdu.to_hdu(), verbose=self.verbose
                 )
-                
+
         self.sigma = sigma["Total"].value.astype(float)
         if np.all(np.isnan(self.sigma)):
-            print("\033[91mAll sigma values are nan, going back to sigma = 1 everywhere\033[0m")
+            print(
+                "\033[91mAll sigma values are nan, going back to sigma = 1 everywhere\033[0m")
             self.sigma[:] = 1
         self.has_treated["sigma"] = True
         if self.verbose >= 1:
             print("Uncertainties computed")
-        
+
     def _preclean(self, redo=False):
         if self.verbose >= 0:
             print("Precleaning data")
@@ -1155,7 +1190,7 @@ class WindowFit:
             print("Despiking done")
 
     def _convolve(self, redo=False):
-        #convolve in space and date
+        # convolve in space and date
         if self.verbose >= 0:
             print("Convolving data")
         if self.has_treated["convolve"] and not redo:
@@ -1164,22 +1199,27 @@ class WindowFit:
             return
         elif self.convolute:
             if True:
-                expanded_convolution_list = np.empty([self.convolution_extent_list.shape[0], 4], dtype=int)
-                CDELT1 = self.hdu.header["CDELT1"] if isinstance(self.hdu, HDUClone) else self.hdu[0].header["CDELT1"]
-                CDELT2 = self.hdu.header["CDELT2"] if isinstance(self.hdu, HDUClone) else self.hdu[0].header["CDELT2"]
-                shape = self.hdu.data.shape if isinstance(self.hdu, HDUClone) else self.hdu[0].data.shape
-                ratio = float(CDELT1/ CDELT2)
+                expanded_convolution_list = np.empty(
+                    [self.convolution_extent_list.shape[0], 4], dtype=int)
+                CDELT1 = self.hdu.header["CDELT1"] if isinstance(
+                    self.hdu, HDUClone) else self.hdu[0].header["CDELT1"]
+                CDELT2 = self.hdu.header["CDELT2"] if isinstance(
+                    self.hdu, HDUClone) else self.hdu[0].header["CDELT2"]
+                shape = self.hdu.data.shape if isinstance(
+                    self.hdu, HDUClone) else self.hdu[0].data.shape
+                ratio = float(CDELT1 / CDELT2)
                 for i in range(self.convolution_extent_list.shape[0]):
                     size = np.array(
                         [
                             1 + self.t_convolution_index,
                             1,
                             1 + (self.convolution_extent_list[i]),
-                            1 + (self.convolution_extent_list[i])* np.nanmin([ratio,1/ratio]),
+                            (1 + self.convolution_extent_list[i]
+                             ) * np.nanmin([ratio, 1/ratio]),
                         ],
                         dtype=int,
                     )
-                    for dim in range(len(size)): 
+                    for dim in range(len(size)):
                         if shape[dim] < size[dim]:
                             size[dim] = shape[dim]
                     expanded_convolution_list[i] = size
@@ -1194,22 +1234,27 @@ class WindowFit:
                 convolution_extent_list=expanded_convolution_list
             )
             self.conv_sigma = np.sqrt(self.conv_sigma)
-            
+
             for i in range(self.conv_data.shape[0]):
-                self.conv_data[i] *= 1/np.sqrt(np.prod(expanded_convolution_list[i]))
+                self.conv_data[i] *= 1 / \
+                    np.sqrt(np.prod(expanded_convolution_list[i]))
                 self.conv_data[i][np.isnan(self.clean_data)] = np.nan
-            
+
             self.has_treated["convolve"] = True
             if self.verbose >= 1:
                 print("Convolution done")
-            
+
         else:
+
+            self.convolution_extent_list = np.array([0], dtype=int)
+            self.t_convolution_index = 0
+
             if self.verbose >= 0:
                 print("convolute is set to false it's not going to be computed")
             self.conv_data = np.array([self.clean_data])
-            self.conv_sigma = np.array([self.sigma]) 
+            self.conv_sigma = np.array([self.sigma])
             # self.has_treated["convolve"] = True
-            
+
     def _denoise(self, redo=False):
         if self.verbose >= 0:
             print("Denoising data")
@@ -1223,24 +1268,24 @@ class WindowFit:
             return
         if type(self.denoise) != type(None):
             if self.verbose >= 1:
-                print(f"Generating denoised maps with denoise sigma => {self.denoise}")
+                print(
+                    f"Generating denoised maps with denoise sigma => {self.denoise}")
             if self.conv_data[0].shape[3] == 1:
-                colored_text('Warning: It appears that the data denoise is trying to operate on only one value along xaxis, the author of saffron didn\'t test it throughly yet so be careful of potential implications', 'yellow') 
+                colored_text('Warning: It appears that the data denoise is trying to operate on only one value along xaxis, the author of saffron didn\'t test it throughly yet so be careful of potential implications', 'yellow')
 
             for i in range(self.convolution_extent_list.shape[0]):
                 for j in range(self.conv_data.shape[1]):
                     if np.any(~np.isnan(self.conv_data[i, j])):
                         Dnois_conv_data = denoise_data(
-                            self.conv_data[i, j], denoise_sigma=self.denoise_intervals
+                            self.conv_data[i,
+                                           j], denoise_sigma=self.denoise_intervals
                         )
                         self.conv_data[i, j] = Dnois_conv_data.copy()
-                        
-
 
         self.has_treated["denoise"] = True
         if self.verbose >= 1:
             print("Denoising done")
-    
+
     def _index_list(self):
         """
         Create a list of (i, j) pixel indices to be fit,
@@ -1253,49 +1298,49 @@ class WindowFit:
             Each yielded value is an array of shape (<=batch_size, 2).
             """
             for start_idx in range(0, len(coords), batch_size):
-                yield coords[start_idx : start_idx + batch_size]
-        
+                yield coords[start_idx: start_idx + batch_size]
+
         # Make a local copy of window_size
         ws = self.window_size.copy()
         ts = np.array(self.time_size).copy()
-        
+
         # Handle None boundaries
-        if ws[0, 1] is None or ws[0,1]>self.data_par.shape[2]:
+        if ws[0, 1] is None or ws[0, 1] > self.data_par.shape[2]:
             ws[0, 1] = self.data_par.shape[2]
-        if ws[1, 1] is None or ws[1,1]>self.data_par.shape[3]:
+        if ws[1, 1] is None or ws[1, 1] > self.data_par.shape[3]:
             ws[1, 1] = self.data_par.shape[3]
-        if ts[1] is None or ts[1]>self.data_par.shape[1]:
+        if ts[1] is None or ts[1] > self.data_par.shape[1]:
             ts[1] = self.data_par.shape[1]
-        if ws[0, 0] is None or ws[0,0]>self.data_par.shape[2]:
+        if ws[0, 0] is None or ws[0, 0] > self.data_par.shape[2]:
             ws[0, 0] = 0
-        if ws[1, 0] is None or ws[1,0]>self.data_par.shape[3]:
+        if ws[1, 0] is None or ws[1, 0] > self.data_par.shape[3]:
             ws[1, 0] = 0
-        if ts[0] is None or ts[0]>self.data_par.shape[1]:
+        if ts[0] is None or ts[0] > self.data_par.shape[1]:
             ts[0] = 0
         self.window_size = ws.copy()
         self.time_size = ts.copy()
-        
+
         # Compute total pixels in the specified subregion
-        pixel_count = (ws[0, 1] - ws[0, 0]) * (ws[1, 1] - ws[1, 0] * (ts[1] - ts[0]))
-        batch_size = max(int(pixel_count/(self.Jobs*3)),300)
-         
-        
+        pixel_count = (ws[0, 1] - ws[0, 0]) * \
+            (ws[1, 1] - ws[1, 0] * (ts[1] - ts[0]))
+        batch_size = max(int(pixel_count/(self.Jobs*3)), 300)
 
         # Vectorized creation of (t,i, j) pairs
         t_vals = np.arange(ts[0], ts[1])
         i_vals = np.arange(ws[0, 0], ws[0, 1])
         j_vals = np.arange(ws[1, 0], ws[1, 1])
-        coords = np.stack(np.meshgrid(t_vals,i_vals, j_vals, indexing="ij"), axis=-1).reshape(-1, 3)
-        # shuffle the coords 
+        coords = np.stack(np.meshgrid(t_vals, i_vals, j_vals,
+                          indexing="ij"), axis=-1).reshape(-1, 3)
+        # shuffle the coords
         np.random.shuffle(coords)
-        
-        
+
         # Call the helper function and simply turn the generator into a list
-        job_index_list = list(generate_coord_batches(coords, batch_size=batch_size))
+        job_index_list = list(generate_coord_batches(
+            coords, batch_size=batch_size))
 
         self.Job_index_list = job_index_list
 
-        return np.array(job_index_list,dtype=object)
+        return np.array(job_index_list, dtype=object)
 
     def _Gen_output_shared_memory(self):
         if self.verbose >= 0:
@@ -1308,13 +1353,18 @@ class WindowFit:
             ]
         )
 
-        self.data_par = np.zeros((self.model.get_unlock_params().shape[0], *dshape)) * np.nan
-        self.data_cov = np.zeros((self.model.get_unlock_params().shape[0], *dshape)) * np.nan
+        self.data_par = np.zeros(
+            (self.model.get_unlock_params().shape[0], *dshape)) * np.nan
+        self.data_cov = np.zeros(
+            (self.model.get_unlock_params().shape[0], *dshape)) * np.nan
         self.data_con = np.zeros(dshape) * np.nan
 
-        self._shmm_par, self.data_par = gen_shmm(create=True, ndarray=self.data_par)
-        self._shmm_cov, self.data_cov = gen_shmm(create=True, ndarray=self.data_cov)
-        self._shmm_con, self.data_con = gen_shmm(create=True, ndarray=self.data_con)
+        self._shmm_par, self.data_par = gen_shmm(
+            create=True, ndarray=self.data_par)
+        self._shmm_cov, self.data_cov = gen_shmm(
+            create=True, ndarray=self.data_cov)
+        self._shmm_con, self.data_con = gen_shmm(
+            create=True, ndarray=self.data_con)
 
         self._par = {
             "name": self._shmm_par.name,
@@ -1332,7 +1382,8 @@ class WindowFit:
             "shape": self.data_con.shape,
         }
 
-        self._shmm_war, self.conv_data = gen_shmm(create=True, ndarray=self.conv_data)
+        self._shmm_war, self.conv_data = gen_shmm(
+            create=True, ndarray=self.conv_data)
         self._war = {
             "name": self._shmm_war.name,
             "dtype": self.conv_data.dtype,
@@ -1361,22 +1412,23 @@ class WindowFit:
         if self.verbose >= 1:
             print("Shared memory generated")
         self.has_treated['shared_memory'] = True
-        
+
     def write_data(self):
         import warnings
         from astropy.io.fits.verify import VerifyWarning
         warnings.simplefilter("ignore", category=VerifyWarning)
+
         def get_python_environment_info():
             # Kernel info
             kernel = platform.system()
             kernel_release = platform.release()
-            
+
             # Architecture info
             architecture = platform.machine()
-            
+
             # Hostname
             hostname = platform.node()
-            
+
             # Operating System info
             os_info = platform.platform()
 
@@ -1384,12 +1436,15 @@ class WindowFit:
             cpu_info = "Unknown CPU"
             try:
                 if kernel == "Linux":
-                    cpu_info = subprocess.check_output("lscpu", shell=True).decode().strip()
-                    cpu_info = [line.split(":")[1].strip() for line in cpu_info.split("\n") if line.startswith("Model name")][0]
+                    cpu_info = subprocess.check_output(
+                        "lscpu", shell=True).decode().strip()
+                    cpu_info = [line.split(":")[1].strip() for line in cpu_info.split(
+                        "\n") if line.startswith("Model name")][0]
                 elif kernel == "Windows":
                     cpu_info = platform.processor()
                 elif kernel == "Darwin":
-                    cpu_info = subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"]).decode().strip()
+                    cpu_info = subprocess.check_output(
+                        ["sysctl", "-n", "machdep.cpu.brand_string"]).decode().strip()
             except Exception as e:
                 cpu_info = f"Could not retrieve CPU info: {e}"
 
@@ -1397,8 +1452,9 @@ class WindowFit:
             python_version = sys.version.split()[0]  # Python version
             python_compiler = platform.python_compiler()  # Compiler
             python_build = platform.python_build()  # Build details
-            virtual_env = os.environ.get("VIRTUAL_ENV", "None")  # Virtual environment
-            
+            virtual_env = os.environ.get(
+                "VIRTUAL_ENV", "None")  # Virtual environment
+
             # Key libraries and their versions (optional)
             try:
                 import numpy
@@ -1420,14 +1476,16 @@ class WindowFit:
                 Memory bits: 64, File offset bits: 64
             """
             return environment_info.strip()
+
         def generate_fit_id():
             # Get the current time as a numpy datetime64 with millisecond precision
             current_time = np.datetime64('now', 'ms')
             # Convert to string and format as desired
-            fit_id = str(current_time).replace('-', '').replace(':', '').replace('T', 'T')  # Keep 'T' separator
+            fit_id = str(current_time).replace('-', '').replace(':',
+                                                                '').replace('T', 'T')  # Keep 'T' separator
             return fit_id
-        
-        if True: #preparing the filename 
+
+        if True:  # preparing the filename
             if isinstance(self.hdu, Iterable):
                 hdu = flatten(self.hdu)[0]
             else:
@@ -1437,7 +1495,7 @@ class WindowFit:
                     print(
                         r'You haven\'t specified so It\'s going to be set as "solo-spice-L2.5_{specific_param_val}.fits" '
                     )
-                # in case the data_filename is not defined 
+                # in case the data_filename is not defined
                 self.data_filename = (
                     hdu.header["FILENAME"].replace("L2", "L2.5")[:-5]
                     + str(datetime.datetime.now())
@@ -1461,8 +1519,8 @@ class WindowFit:
         v_BUNIT = "Angstrom"
         w_BTYPE = "Line Width"
         w_BUNIT = "Angstrom"
-        
-        if True: #preparing base header
+
+        if True:  # preparing base header
             # Generate a FIT_ID
             fit_id = generate_fit_id()
             # Add it to the FITS header
@@ -1470,65 +1528,80 @@ class WindowFit:
             PRENV2 = get_python_environment_info()
             PRENV2 = PRENV2.replace("\n", ";")
             PRENV2 = PRENV2.replace("  ", "")
-            # FILENAME = 
+            # FILENAME =
             L2PARENT = hdu.header["FILENAME"]
-            L2WINDOW = (self.hdu.header["EXTNAME"] if isinstance(self.hdu, HDUClone) else ",".join([h.header["EXTNAME"] for h in self.hdu]))
+            L2WINDOW = (self.hdu.header["EXTNAME"] if isinstance(
+                self.hdu, HDUClone) else ",".join([h.header["EXTNAME"] for h in self.hdu]))
             # print(L2WINDOW)
             L1PARENT = hdu.header["PARENT"]
-            LEVEL= 'L2.5'
+            LEVEL = 'L2.5'
             HISTORY = str(hdu.header["HISTORY"])+'\nSAFFRON python library'
             HISTORY = HISTORY.replace("\n", ";")
-            
-            # These are L2 header keys to be transformed into the L3 data header
-            all_keys=  np.array(list(hdu.header.keys()))
 
-            pattern = r"PR(?:STEP|PROC|PVER)\d+"  
-            matches = np.vectorize(lambda x: bool(re.search(pattern, x)))(all_keys)
+            # These are L2 header keys to be transformed into the L3 data header
+            all_keys = np.array(list(hdu.header.keys()))
+
+            pattern = r"PR(?:STEP|PROC|PVER)\d+"
+            matches = np.vectorize(lambda x: bool(
+                re.search(pattern, x)))(all_keys)
             index_occurrences = np.where(matches)[0]
             all_keys[index_occurrences]
             largest_number = max(
                 int(match.group()) for key in all_keys[index_occurrences] for match in [re.search(r'\d+', key)] if match
             )
 
-            PRSTEPkey  = f"PRSTEP{largest_number+1}"
-            PRPROCkey  = f"PRPROC{largest_number+1}"
-            PRPVERkey  = f"PRPVER{largest_number+1}"
+            PRSTEPkey = f"PRSTEP{largest_number+1}"
+            PRPROCkey = f"PRPROC{largest_number+1}"
+            PRPVERkey = f"PRPVER{largest_number+1}"
 
             PRSTEP = "FITTING"
             PRPROC = "SAFFRON application of the fitting algorithm"
             PRPVER = "1.3"
-            WINSIZE = ','.join([str(i) for i in [*self.window_size.flatten(),*self.time_size] ])
+            WINSIZE = ','.join(
+                [str(i) for i in [*self.window_size.flatten(), *self.time_size]])
             copy_keys = [
                 # Observation Context
-                    "STUDYTYP", "STUDYDES", "STUDY", "OBS_MODE", "OBS_ID", "SPIOBSID",
-                    "OBS_DESC", "PURPOSE", "SOOPNAME", "SOOPTYPE", "NRASTERS", "RASTERNO",
-                    "STUDY_ID", "MISOSTUD", "XSTART", "XPOSURE", "FOCUSPOS","SLIT_WID",
+                "STUDYTYP", "STUDYDES", "STUDY", "OBS_MODE", "OBS_ID", "SPIOBSID",
+                "OBS_DESC", "PURPOSE", "SOOPNAME", "SOOPTYPE", "NRASTERS", "RASTERNO",
+                "STUDY_ID", "MISOSTUD", "XSTART", "XPOSURE", "FOCUSPOS", "SLIT_WID",
                 # Calibration and Processing Steps
-                "RADCAL",*all_keys[index_occurrences],
+                "RADCAL", *all_keys[index_occurrences],
                 # Physical and Ephemeris Information
-                    "DSUN_OBS", "DSUN_AU", "RSUN_ARC", "RSUN_REF", "SOLAR_B0", "SOLAR_P0", 
-                    "CAR_ROT", "HGLT_OBS", "HGLN_OBS", "CRLT_OBS", "CRLN_OBS", "OBS_VR", 
-                    "EAR_TDEL", "SUN_TIME", "DATE_EAR", "DATE_SUN", 'CROTA',
-                ]
+                "DSUN_OBS", "DSUN_AU", "RSUN_ARC", "RSUN_REF", "SOLAR_B0", "SOLAR_P0",
+                "CAR_ROT", "HGLT_OBS", "HGLN_OBS", "CRLT_OBS", "CRLN_OBS", "OBS_VR",
+                "EAR_TDEL", "SUN_TIME", "DATE_EAR", "DATE_SUN", 'CROTA',
+            ]
             base_header = {}
             base_comments = {}
             for key in copy_keys:
                 base_header[key] = hdu.header[key]
                 base_comments[key] = hdu.header.comments[key]
 
-                base_header["L2PARENT" ] = L2PARENT; base_comments["L2PARENT" ] = "L2 parent file name" 
-                base_header["L1PARENT" ] = L1PARENT; base_comments["L1PARENT" ] = "L1 parent file name"
-                base_header["L2WINDOW"    ] = L2WINDOW; base_comments["L2WINDOW"    ] = "L2 extension name"
-                base_header["FILENAME" ] = Path(self.data_filename).name ; base_comments["FILENAME" ] = "Data product file name"
-                base_header["LEVEL"    ] = LEVEL   ; base_comments["LEVEL"    ] = "Data product level"
-                base_header["HISTORY"  ] = HISTORY ; base_comments["HISTORY"  ] = "Processing history"
-                base_header["PRENV2"   ] = PRENV2  ; base_comments["PRENV2"   ] = "environment information"
-                base_header[PRSTEPkey  ] = PRSTEP  ; base_comments[PRSTEPkey  ] = "Processing step"
-                base_header[PRPROCkey  ] = PRPROC  ; base_comments[PRPROCkey  ] = "Processing procedure"
-                base_header[PRPVERkey  ] = PRPVER  ; base_comments[PRPVERkey  ] = "Processing version"
-                base_header["FIT_ID"   ] = fit_id  ; base_comments["FIT_ID"   ] = "Unique ID for the window fit process"
-                base_header['WINSIZE'  ] = WINSIZE ; base_comments['WINSIZE'  ] = "Window size and time size"
-                
+                base_header["L2PARENT"] = L2PARENT
+                base_comments["L2PARENT"] = "L2 parent file name"
+                base_header["L1PARENT"] = L1PARENT
+                base_comments["L1PARENT"] = "L1 parent file name"
+                base_header["L2WINDOW"] = L2WINDOW
+                base_comments["L2WINDOW"] = "L2 extension name"
+                base_header["FILENAME"] = Path(self.data_filename).name
+                base_comments["FILENAME"] = "Data product file name"
+                base_header["LEVEL"] = LEVEL
+                base_comments["LEVEL"] = "Data product level"
+                base_header["HISTORY"] = HISTORY
+                base_comments["HISTORY"] = "Processing history"
+                base_header["PRENV2"] = PRENV2
+                base_comments["PRENV2"] = "environment information"
+                base_header[PRSTEPkey] = PRSTEP
+                base_comments[PRSTEPkey] = "Processing step"
+                base_header[PRPROCkey] = PRPROC
+                base_comments[PRPROCkey] = "Processing procedure"
+                base_header[PRPVERkey] = PRPVER
+                base_comments[PRPVERkey] = "Processing version"
+                base_header["FIT_ID"] = fit_id
+                base_comments["FIT_ID"] = "Unique ID for the window fit process"
+                base_header['WINSIZE'] = WINSIZE
+                base_comments['WINSIZE'] = "Window size and time size"
+
         hdul_list = []
         quentities = self.model.get_unlock_quentities()
         # Siblings = np.zeros(
@@ -1536,12 +1609,13 @@ class WindowFit:
         #         ,dtype=object
         #         )
         Siblings = []
-        if True:        
-            I_pattern = r"I"  
-            matches = np.vectorize(lambda x: bool(re.search(I_pattern, x)))(quentities)
+        if True:
+            I_pattern = r"I"
+            matches = np.vectorize(lambda x: bool(
+                re.search(I_pattern, x)))(quentities)
             I_index_occurrences = np.where(matches)[0]
-            
-            for index_order , index_occurence in enumerate(I_index_occurrences):
+
+            for index_order, index_occurence in enumerate(I_index_occurrences):
                 try:
                     wvl = self.model.functions_names['gaussian'][index_order][1]
                 except Exception as e:
@@ -1552,26 +1626,26 @@ class WindowFit:
                 except Exception as e:
                     name = "unknown"
                     print(f"Error: {e}")
-                    
+
                 headers = [
                     wcs_par.to_header(),
                     wcs_par.to_header(),
                     wcs_par.to_header(),
                 ]
-                
+
                 for j in range(3):
                     headers[j]["OBSERVATORY"] = "Solar Orbiter"
                     headers[j]["INSTRUMENT"] = "SPICE"
-                    
+
                     headers[j]["WAVELENGTH"] = wvl
-                    headers[j]["ION"] = name 
-                    headers[j]["LINE_ID"] = (f"{wvl:08.2f}-{name}").replace(" ", "_")
-                        
+                    headers[j]["ION"] = name
+                    headers[j]["LINE_ID"] = (
+                        f"{wvl:08.2f}-{name}").replace(" ", "_")
+
                     headers[j]["WAVEUNIT"] = "Angstrom"
                     for k, con in enumerate(self.convolution_extent_list):
                         headers[j][f"con{k}"] = con
-                    
-                
+
                 headers[0]["BTYPE"] = I_BTYPE
                 headers[0]["BUNIT"] = I_BUNIT
                 headers[1]["BTYPE"] = v_BTYPE
@@ -1599,8 +1673,7 @@ class WindowFit:
                     header11,
                     header20,
                     header21,]
-                
-               
+
                 data0 = self.data_par[index_occurence]
                 sigma0 = np.sqrt(self.data_cov[index_occurence])
                 data1 = self.data_par[index_occurence + 1]
@@ -1608,49 +1681,57 @@ class WindowFit:
                 data2 = self.data_par[index_occurence + 2]
                 sigma2 = np.sqrt(self.data_cov[index_occurence + 2])
 
-                hdu00 = fits.PrimaryHDU(data=data0,  header=header00 ,)
-                hdu10 = fits.ImageHDU  (data=data1,  header=header10 , name="wavelength"    )
-                hdu20 = fits.ImageHDU  (data=data2,  header=header20 , name="width"         )
-                hdu01 = fits.ImageHDU  (data=sigma0, header=header01 , name="intensity_err" )
-                hdu11 = fits.ImageHDU  (data=sigma1, header=header11 , name="wavelength_err")
-                hdu21 = fits.ImageHDU  (data=sigma2, header=header21 , name="width_err"     )
+                hdu00 = fits.PrimaryHDU(data=data0,  header=header00,)
+                hdu10 = fits.ImageHDU(
+                    data=data1,  header=header10, name="wavelength")
+                hdu20 = fits.ImageHDU(
+                    data=data2,  header=header20, name="width")
+                hdu01 = fits.ImageHDU(
+                    data=sigma0, header=header01, name="intensity_err")
+                hdu11 = fits.ImageHDU(
+                    data=sigma1, header=header11, name="wavelength_err")
+                hdu21 = fits.ImageHDU(
+                    data=sigma2, header=header21, name="width_err")
 
                 hdul = HDUList([hdu00, hdu10, hdu20, hdu01, hdu11, hdu21])
-                keys=  list(base_header.keys())
+                keys = list(base_header.keys())
                 keys.sort()
-                for key in keys: 
+                for key in keys:
                     for ind in range(len(hdul)):
                         hdul[ind].header[key] = base_header[key]
                         hdul[ind].header.comments[key] = base_comments[key]
-                        
+
                 l_filename = self.data_filename.format(header00["LINE_ID"])
                 hdul_list.append([hdul.copy(), l_filename])
-                Siblings.append([l_filename,[index_occurence,index_occurence+1,index_occurence+2,]])
-                
+                Siblings.append(
+                    [l_filename, [index_occurence, index_occurence+1, index_occurence+2,]])
+
         if True:
-            B_pattern = r"B(\d?)"  # Expression régulière pour trouver "B" ou "B" suivi d'un chiffre
-            matches = np.vectorize(lambda x: bool(re.search(B_pattern, x)))(quentities)
+            # Expression régulière pour trouver "B" ou "B" suivi d'un chiffre
+            B_pattern = r"B(\d?)"
+            matches = np.vectorize(lambda x: bool(
+                re.search(B_pattern, x)))(quentities)
             B_index_occurrences = np.where(matches)[0]
             # quentities[B_index_occurrences]
-            #NOTE All the bakgrounds of a model are in one file
+            # NOTE All the bakgrounds of a model are in one file
             # Generating a FIT_ID window ID
             bg_filename = self.data_filename.format(
-                    # quentities[index_occurence] +"_"+ str(index_order) + "_" + str(int(np.random.random() * 100))
-                    "Background" + "_" + fit_id
-                )
+                # quentities[index_occurence] +"_"+ str(index_order) + "_" + str(int(np.random.random() * 100))
+                "Background" + "_" + fit_id
+            )
             background_list = []
             bg_index_occurence = []
-            for index_order , index_occurence in enumerate(B_index_occurrences):
+            for index_order, index_occurence in enumerate(B_index_occurrences):
                 bg_index_occurence.append(index_occurence)
                 header = wcs_par.to_header()
                 data = self.data_par[index_occurence]
                 sigma = np.sqrt(self.data_cov[index_occurence])
                 header["BTYPE"] = I_BTYPE
                 header["BUNIT"] = I_BUNIT
-                for key in base_header: 
+                for key in base_header:
                     header[key] = base_header[key]
                     header.comments[key] = base_comments[key]
-                    
+
                 header0 = header.copy()
                 header1 = header.copy()
 
@@ -1658,33 +1739,39 @@ class WindowFit:
                 header1["MEASRMNT"] = "bg_err"
                 header0["Parameter"] = f"{quentities[index_occurence]};{index_occurence}"
                 header1["Parameter"] = f"{quentities[index_occurence]};{index_occurence}"
-                
+
                 if index_order == 0:
                     hdu0 = fits.PrimaryHDU(data=data, header=header0)
-                else: 
-                    hdu0 = fits.ImageHDU  (data=data, header=header0, name=f"Bg;{header0['Parameter']}")
-                hdu1 = fits.ImageHDU(data=sigma, header=header1, name=f"Bg_err;{header1['Parameter']}")
+                else:
+                    hdu0 = fits.ImageHDU(
+                        data=data, header=header0, name=f"Bg;{header0['Parameter']}")
+                hdu1 = fits.ImageHDU(
+                    data=sigma, header=header1, name=f"Bg_err;{header1['Parameter']}")
                 background_list.extend([hdu0.copy(), hdu1.copy()])
-            
-            headerlon = header.copy() #this is the  convolution matrix
-            headerlat = header.copy() #this is the  convolution matrix
+
+            headerlon = header.copy()  # this is the  convolution matrix
+            headerlat = header.copy()  # this is the  convolution matrix
 
             headerlon["MEASRMNT"] = "con"
             headerlat["MEASRMNT"] = "con"
-            if True: #Add informatio on the cleaning  
+            if True:  # Add informatio on the cleaning
                 headerlon["DENOISE"] = self.denoise
-                headerlon['DESPIKE'] = self.denoise 
+                headerlon['DESPIKE'] = self.denoise
                 headerlon['PRECLEAN'] = self.preclean
-                headerlon['DENO_PAR'] = None if not self.denoise == True else ",".join([str(i) for i in self.denoise_intervals])
-                headerlon['DESP_PAR'] = None if not self.despike == True else ",".join(str(i) for  i in [self.clipping_sigma,self.clipping_iterations,*self.clipping_med_size])
-            if True: #Add informatio on the cleaning  
+                headerlon['DENO_PAR'] = None if not self.denoise == True else ",".join(
+                    [str(i) for i in self.denoise_intervals])
+                headerlon['DESP_PAR'] = None if not self.despike == True else ",".join(str(
+                    i) for i in [self.clipping_sigma, self.clipping_iterations, *self.clipping_med_size])
+            if True:  # Add informatio on the cleaning
                 headerlat["DENOISE"] = self.denoise
-                headerlat['DESPIKE'] = self.denoise 
+                headerlat['DESPIKE'] = self.denoise
                 headerlat['PRECLEAN'] = self.preclean
-                headerlat['DENO_PAR'] = None if not self.denoise == True else ",".join([str(i) for i in self.denoise_intervals])
-                headerlat['DESP_PAR'] = None if not self.despike == True else ",".join(str(i) for  i in [self.clipping_sigma,self.clipping_iterations,*self.clipping_med_size])
-                
-            #these are the length in pixels of the convolution kernel 
+                headerlat['DENO_PAR'] = None if not self.denoise == True else ",".join(
+                    [str(i) for i in self.denoise_intervals])
+                headerlat['DESP_PAR'] = None if not self.despike == True else ",".join(str(
+                    i) for i in [self.clipping_sigma, self.clipping_iterations, *self.clipping_med_size])
+
+            # these are the length in pixels of the convolution kernel
             headerlon['BUNIT'] = 'pixels'
             headerlat['BUNIT'] = 'pixels'
 
@@ -1699,45 +1786,57 @@ class WindowFit:
             for i in range(con_lon_mat.shape[0]):
                 for j in range(con_lon_mat.shape[1]):
                     for t in range(con_lon_mat.shape[2]):
-                        con_val = self.data_con[i,j,t]
-                        if np.isnan(con_val): con_val = 0
-                        expanded_convolution_list = np.empty([self.convolution_extent_list.shape[0], 4], dtype=int)
-                        CDELT1 = self.hdu.header["CDELT1"] if isinstance(self.hdu, HDUClone) else self.hdu[0].header["CDELT1"]
-                        CDELT2 = self.hdu.header["CDELT2"] if isinstance(self.hdu, HDUClone) else self.hdu[0].header["CDELT2"]
-                        shape = self.hdu.data.shape if isinstance(self.hdu, HDUClone) else self.hdu[0].data.shape
-                        ratio = float(CDELT1/ CDELT2)
+                        con_val = self.data_con[i, j, t]
+                        if np.isnan(con_val):
+                            con_val = 0
+                        expanded_convolution_list = np.empty(
+                            [self.convolution_extent_list.shape[0], 4], dtype=int)
+                        CDELT1 = self.hdu.header["CDELT1"] if isinstance(
+                            self.hdu, HDUClone) else self.hdu[0].header["CDELT1"]
+                        CDELT2 = self.hdu.header["CDELT2"] if isinstance(
+                            self.hdu, HDUClone) else self.hdu[0].header["CDELT2"]
+                        shape = self.hdu.data.shape if isinstance(
+                            self.hdu, HDUClone) else self.hdu[0].data.shape
+                        ratio = float(CDELT1 / CDELT2)
                         size = np.array(
                             [
                                 1 + (con_val),
-                                1 + (con_val)* np.nanmin([ratio,1/ratio]),
+                                1 + (con_val) * np.nanmin([ratio, 1/ratio]),
                             ],
                             dtype=int,
                         )
-                        con_lon_mat[i,j,t] = size[1]
-                        con_lat_mat[i,j,t] = size[0]
-            hdu0 = fits.CompImageHDU(data=con_lon_mat, header=headerlon, name="convolution_lon")
-            hdu1 = fits.CompImageHDU(data=con_lat_mat, header=headerlat, name="convolution_lat")
+                        con_lon_mat[i, j, t] = size[1]
+                        con_lat_mat[i, j, t] = size[0]
+            hdu0 = fits.CompImageHDU(
+                data=con_lon_mat, header=headerlon, name="convolution_lon")
+            hdu1 = fits.CompImageHDU(
+                data=con_lat_mat, header=headerlat, name="convolution_lat")
             background_list.extend([hdu0.copy(), hdu1.copy()])
-            
+
             hdul = HDUList(background_list)
             hdul_list.append([hdul.copy(), bg_filename])
             # bg_filenames.append(bg_filename)
             Siblings.append([bg_filename, bg_index_occurence])
-        
+
         if True:
             # indicate for each file what are its siblings and add them to the model hdu
             model_hdu = self.model.to_hdu()
-            model_hdu.header["FIT_ID"   ] = fit_id  ; base_comments["FIT_ID"   ] = "Unique ID for the window fit process"
-            
-            for sibling_ind,sibling in enumerate(Siblings):
-                model_hdu.header["SIB"+str(sibling_ind)] = Path(sibling[0]).name
-                model_hdu.header["ORD"+str(sibling_ind)] = ",".join(([str(val) for val in sibling[1]]))
-                model_hdu.header.comments["SIB"+str(sibling_ind)] = f"Sibling {str(sibling_ind)} file name"
-                model_hdu.header.comments["ORD"+str(sibling_ind)] = f"Sibling {str(sibling_ind)} order in the model unlock paraameters"
-                
+            model_hdu.header["FIT_ID"] = fit_id
+            base_comments["FIT_ID"] = "Unique ID for the window fit process"
+
+            for sibling_ind, sibling in enumerate(Siblings):
+                model_hdu.header["SIB" +
+                                 str(sibling_ind)] = Path(sibling[0]).name
+                model_hdu.header["ORD"+str(sibling_ind)
+                                 ] = ",".join(([str(val) for val in sibling[1]]))
+                model_hdu.header.comments["SIB"+str(sibling_ind)
+                                          ] = f"Sibling {str(sibling_ind)} file name"
+                model_hdu.header.comments["ORD"+str(
+                    sibling_ind)] = f"Sibling {str(sibling_ind)} order in the model unlock paraameters"
+
             for ind_hdul in range(len(hdul_list)):
                 hdul_list[ind_hdul][0].append(model_hdu)
-        
+
         # Saving the files
         data_save_dir = (
             Path(self.data_save_dir).resolve()
@@ -1750,7 +1849,8 @@ class WindowFit:
             print(f"saving_to {data_save_dir/col[1]}")
             if not (data_save_dir / col[1]).parent.exists():
                 print("parent folder doesn't exists... Proceeding creating it")
-                (data_save_dir / col[1]).parent.mkdir(exist_ok=True, parents=True)
+                (data_save_dir / col[1]
+                 ).parent.mkdir(exist_ok=True, parents=True)
             if np.all(np.isnan(col[0][0].data)):
                 print(Fore.RED + "Data is full of NaNs not saving it")
                 print(Style.RESET_ALL)
@@ -1759,12 +1859,6 @@ class WindowFit:
                 paths.append(data_save_dir / col[1])
                 col[0].close()
         return paths
-
-
-
-
-
-
 
         # iter = 0
         # bg_filenames = []
@@ -1903,13 +1997,14 @@ class WindowFit:
         #         print(Style.RESET_ALL)
         #     else:
         #         col[0].writeto(data_save_dir / col[1], overwrite=True)
-    
+
     def fit_window(self, progress_follower=None):
         warnings.filterwarnings(("ignore" if self.verbose <= -2 else "always"))
         if progress_follower is None:
             progress_follower = ProgressFollower()
 
-        progress_follower.append(name=None, con=self._con, window_size=self.window_size,time_size=self.time_size)
+        progress_follower.append(
+            name=None, con=self._con, window_size=self.window_size, time_size=self.time_size)
         try:
             if not progress_follower.is_launched:
                 progress_follower.launch()
@@ -1923,17 +2018,18 @@ class WindowFit:
             print("con", self._con)
         if self.verbose >= -2:
             print('Saving the shared memory data to the disk')
-            temp_filename = Path("./tmp")/datetime.datetime.now().strftime("Shmm_%Y%m%d%H%M%S.pkl")
+            temp_filename = Path(
+                "./tmp")/datetime.datetime.now().strftime("Shmm_%Y%m%d%H%M%S.pkl")
             with open(temp_filename, "wb") as f:
                 pickle.dump(
-                    [self._par,self.model],
+                    [self._par, self.model],
                     f,
                 )
         Processes = []
         _now = datetime.datetime.now()
         fit_func = self.model.callables['function']
         jac_func = self.model.callables['jacobian']
-        
+
         for i in range(len(self.Job_index_list)):  # preparing processes:
             # Remove callables to render the class picklable
             self.model._callables = None
@@ -1945,20 +2041,22 @@ class WindowFit:
                 "cov": self._cov,
                 "con": self._con,
                 "wgt": self._sgm,
-                "model" : self.model,
+                "model": self.model,
                 "convolution_threshold": self.convolution_threshold,
                 "convolution_extent_list": self.convolution_extent_list,
                 "verbose": self.verbose,
                 'fit_func': fit_func,
                 'jac_func': jac_func,
-                
+
             }
             if False:
                 if i == 0 and self.verbose >= -1:
-                    colored_text("Multiprocessing deactivated for debugging purposes","red")
+                    colored_text(
+                        "Multiprocessing deactivated for debugging purposes", "red")
                 self.task_fit_pixel(**keywords)
             else:
-                Processes.append(Process(target=self.task_fit_pixel, kwargs=keywords))
+                Processes.append(
+                    Process(target=self.task_fit_pixel, kwargs=keywords))
                 Processes[-1].start()
                 if self.verbose >= 1:
                     print(
@@ -1974,9 +2072,9 @@ class WindowFit:
                     if np.sum([1 for p in Processes if p.is_alive()]) >= self.Jobs:
                         if self.verbose >= 1:
                             data = self.data_con[
-                                self.time_size[0] : self.time_size[1],
-                                self.window_size[0, 0] : self.window_size[0, 1],
-                                self.window_size[1, 0] : self.window_size[1, 1],
+                                self.time_size[0]: self.time_size[1],
+                                self.window_size[0, 0]: self.window_size[0, 1],
+                                self.window_size[1, 0]: self.window_size[1, 1],
                             ].copy()
                             nan_size = data[(np.isnan(data))].size
                         # sleep(0.5)
@@ -1995,14 +2093,15 @@ class WindowFit:
                 and np.abs((_now - datetime.datetime.now()).total_seconds()) >= 5
             ):
                 print(
-                    "Live Processes: ", np.sum([1 for p in Processes if p.is_alive()])
+                    "Live Processes: ", np.sum(
+                        [1 for p in Processes if p.is_alive()])
                 )
                 _now = datetime.datetime.now()
 
             data = self.data_con[
                 0,
-                self.window_size[0, 0] : self.window_size[0, 1],
-                self.window_size[1, 0] : self.window_size[1, 1],
+                self.window_size[0, 0]: self.window_size[0, 1],
+                self.window_size[1, 0]: self.window_size[1, 1],
             ].copy()
             nan_size = data[(np.isnan(data))].size
             if (
@@ -2016,10 +2115,11 @@ class WindowFit:
         for process in Processes:
             process.join()
         if self.verbose >= -2:
-            print("finished par", self._par,'deleting the shared memory data')
+            print("finished par", self._par, 'deleting the shared memory data')
         try:
             os.remove(temp_filename)
-        except:pass
+        except:
+            pass
 
     @staticmethod
     def task_fit_pixel(
@@ -2035,8 +2135,8 @@ class WindowFit:
         convolution_threshold=None,
         convolution_extent_list=None,
         verbose=0,
-        fit_func = None,
-        jac_func = None,
+        fit_func=None,
+        jac_func=None,
         **kwargs,
     ):
 
@@ -2071,12 +2171,14 @@ class WindowFit:
             bounds = model.bounds
 
             for index in list_indeces:
-                i_t,i_y, i_x = index
+                i_t, i_y, i_x = index
                 if verbose >= 2:
                     print(f"fitting pixel [{i_t},{i_y},{i_x}]")
                 i_ad = -1
-                best_cov = np.zeros((*model.get_unlock_params().shape,)) * np.nan
-                best_par = np.zeros((*model.get_unlock_params().shape,)) * np.nan
+                best_cov = np.zeros(
+                    (*model.get_unlock_params().shape,)) * np.nan
+                best_par = np.zeros(
+                    (*model.get_unlock_params().shape,)) * np.nan
                 if verbose > 2:
                     print(f"y data: {data_war[i_ad,0,:,i_y,i_x]}")
 
@@ -2086,7 +2188,8 @@ class WindowFit:
                         break
                     if (
                         data_war[i_ad, i_t, :, i_y, i_x][
-                            np.logical_not(np.isnan(data_war[i_ad, i_t, :, i_y, i_x]))
+                            np.logical_not(
+                                np.isnan(data_war[i_ad, i_t, :, i_y, i_x]))
                         ].shape[0]
                         >= model.get_unlock_params().shape[0]
                     ):
@@ -2108,13 +2211,16 @@ class WindowFit:
                         )
                         last_par = model.get_unlock_params(locked_last_par)
                         unlocked_quentities = model.get_unlock_quentities()
-                        last_cov = np.diag(model.get_unlock_covariance(locked_last_cov))
-                        if any(np.isnan(locked_last_par)) and verbose>=1:
+                        last_cov = np.diag(
+                            model.get_unlock_covariance(locked_last_cov))
+                        if any(np.isnan(locked_last_par)) and verbose >= 1:
                             print(
                                 "no fitting possible",
                                 "xnans", len(x[np.isnan(x)]), "total", len(x),
-                                "ynans", len(data_war[i_ad, i_t, :, i_y, i_x][np.isnan(data_war[i_ad, i_t, :, i_y, i_x])]),
-                                "params", len(locked_last_par), "cov", len(locked_last_cov)
+                                "ynans", len(data_war[i_ad, i_t, :, i_y, i_x][np.isnan(
+                                    data_war[i_ad, i_t, :, i_y, i_x])]),
+                                "params", len(locked_last_par), "cov", len(
+                                    locked_last_cov)
                             )
                     else:
                         _s = unlocked_ini_params.shape[0]
@@ -2134,15 +2240,19 @@ class WindowFit:
                         else:
                             all_good = True
                             for i in range(len(best_par) // 3):
-                                if not ((np.sqrt((last_cov))) / last_par < conv_thresh)[i * 3 : (i + 1) * 3].all():
-                                    if ((np.sqrt((best_cov))) / best_par < conv_thresh)[i * 3 : (i + 1) * 3].all():
-                                        best_cov[i * 3 : (i + 1) * 3] = last_cov[i * 3 : (i + 1) * 3]
-                                        best_par[i * 3 : (i + 1) * 3] = last_par[i * 3 : (i + 1) * 3]
+                                if not ((np.sqrt((last_cov))) / last_par < conv_thresh)[i * 3: (i + 1) * 3].all():
+                                    if ((np.sqrt((best_cov))) / best_par < conv_thresh)[i * 3: (i + 1) * 3].all():
+                                        best_cov[i * 3: (i + 1) *
+                                                 3] = last_cov[i * 3: (i + 1) * 3]
+                                        best_par[i * 3: (i + 1) *
+                                                 3] = last_par[i * 3: (i + 1) * 3]
                                         best_cov[-1] = last_cov[-1]
                                         best_par[-1] = last_par[-1]
-                                    elif np.nansum(((np.sqrt((last_cov))) / last_par / conv_thresh)[i * 3 : (i + 1) * 3]) < np.nansum(((np.sqrt((best_cov))) / best_par / conv_thresh)[i * 3 : (i + 1) * 3]):
-                                        best_cov[i * 3 : (i + 1) * 3] = last_cov[i * 3 : (i + 1) * 3]
-                                        best_par[i * 3 : (i + 1) * 3] = last_par[i * 3 : (i + 1) * 3]
+                                    elif np.nansum(((np.sqrt((last_cov))) / last_par / conv_thresh)[i * 3: (i + 1) * 3]) < np.nansum(((np.sqrt((best_cov))) / best_par / conv_thresh)[i * 3: (i + 1) * 3]):
+                                        best_cov[i * 3: (i + 1) *
+                                                 3] = last_cov[i * 3: (i + 1) * 3]
+                                        best_par[i * 3: (i + 1) *
+                                                 3] = last_par[i * 3: (i + 1) * 3]
                                         best_cov[-1] = last_cov[-1]
                                         best_par[-1] = last_par[-1]
                                         all_good = False
@@ -2166,12 +2276,13 @@ class WindowFit:
                     pass
 
 
-def run_one_window_preparations(window_fit_obj, redo=False,without_shared_memory=False):
+def run_one_window_preparations(window_fit_obj, redo=False, without_shared_memory=False):
     """
     Helper function that simply calls `run_preparations` on a single WindowFit
     and returns the updated object.
     """
-    #print the process number in red 
+    # print the process number in red
     # print(f"\033[91mProcess {os.getpid()} is running window \n{window_fit_obj}\033[0m")
-    window_fit_obj.run_preparations(redo=redo,without_shared_memory=without_shared_memory)
+    window_fit_obj.run_preparations(
+        redo=redo, without_shared_memory=without_shared_memory)
     return window_fit_obj

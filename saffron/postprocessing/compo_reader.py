@@ -11,7 +11,7 @@ from astropy.io import fits
 from pathlib import Path, WindowsPath, PosixPath
 import matplotlib.pyplot as plt
 import os
-from ..utils import normit, suppress_output, gen_axes_side2side, get_coord_mat,get_corner_HLP,get_lims,get_frame,reduce_largeMap_SmallMapFOV,get_extnames
+from ..utils import normit, suppress_output, gen_axes_side2side, get_coord_mat, get_corner_HLP, get_lims, get_frame, reduce_largeMap_SmallMapFOV, get_extnames
 from ..utils.fits_clone import HDUClone, HDUListClone
 from ..utils import get_specaxis
 from ..utils.utils import colored_text
@@ -67,8 +67,9 @@ def FIP_error(ll, Errors, Datas):
     for i in range(len(ll.lines)):
 
         if i < ll.xLF.shape[1]:
-            S_delLF += ll.ionsLF[i].coeff_map / ll.ionsLF[i].ph_abund * Errors[i]
-            S_LF    += ll.ionsLF[i].coeff_map / ll.ionsLF[i].ph_abund * Datas[i]
+            S_delLF += ll.ionsLF[i].coeff_map / \
+                ll.ionsLF[i].ph_abund * Errors[i]
+            S_LF += ll.ionsLF[i].coeff_map / ll.ionsLF[i].ph_abund * Datas[i]
             # plt.figure()
             # plt.pcolormesh(S_delLF,vmin=0,vmax=150);plt.colorbar()
             # plt.title("S_delLF")
@@ -194,6 +195,7 @@ def FIP_error(ll, Errors, Datas):
 
     return FIP_error
 
+
 class SPECLine:
     def _vprint(self, level: int, *args, **kwargs) -> None:
         """
@@ -209,8 +211,8 @@ class SPECLine:
         """
         if self.verbose >= level:
             print(*args, **kwargs)
-    
-    def __init__(self, hdul_or_path,verbose=0,parent_raster = None):
+
+    def __init__(self, hdul_or_path, verbose=0, parent_raster=None):
         self._all = {
             "int": None,
             "wav": None,
@@ -223,9 +225,10 @@ class SPECLine:
         }
         self.data_path = None
         self.uncorrected_wavelength = None
-        self.verbose= verbose
+        self.verbose = verbose
         self.parent_raster = parent_raster
         self._prepare_data(hdul_or_path)
+
     @property
     def wavelength(self):
         return self.headers["int"]["WAVELENGTH"]
@@ -266,32 +269,32 @@ class SPECLine:
     @property
     def filename(self):
         return Path(self.data_path).name
-    
+
     @property
     def model(self):
         return self._FIT_MODEL[0]
-    
+
     @property
     def model_header(self):
         return self._FIT_MODEL[1]
-    
-    def get_map(self, param="rad",remove_dumbells=False):
+
+    def get_map(self, param="rad", remove_dumbells=False):
         data = self[param].copy()
         if remove_dumbells:
-            if len(data.shape)==2:
+            if len(data.shape) == 2:
                 data[:100] = np.nan
                 data[700:] = np.nan
-            else:    
-                data[:,:100] = np.nan
-                data[:,700:] = np.nan
-        
+            else:
+                data[:, :100] = np.nan
+                data[:, 700:] = np.nan
+
         # _map = Map(data, self.headers[param if "rad" in param else "int"])
-        _map = Map(data, self.headers.get(param,'int'))
+        _map = Map(data, self.headers.get(param, 'int'))
         if param in ["int", "rad", "wid"] or "err" in param:
             _map.plot_settings["cmap"] = "magma" if "err" not in param else "gray"
             _map.plot_settings["norm"] = normit(
-                self[param][:,200:700][self[param][:,200:700]<100],
-                )
+                self[param][:, 200:700][self[param][:, 200:700] < 100],
+            )
         else:
             _map.plot_settings["cmap"] = "twilight_shifted"
             mean_val = np.nanmean(data)
@@ -310,13 +313,16 @@ class SPECLine:
             return a * x + b
 
         if direction not in ["x", "y", "xy"]:
-            raise ValueError("direction should be one of these values: 'x','y','xy'")
+            raise ValueError(
+                "direction should be one of these values: 'x','y','xy'")
         if self.uncorrected_wavelength is None:
             self.uncorrected_wavelength = self["wav"].copy()
         corrected_wavelength = self["wav"].copy() * np.nan
         data = self["wav"].copy()
-        if len(data.shape)==3:
-            if data.shape[2]==1: raise Exception("This is a sit and stare observation it does not make sense to correct doppler trends on them") 
+        if len(data.shape) == 3:
+            if data.shape[2] == 1:
+                raise Exception(
+                    "This is a sit and stare observation it does not make sense to correct doppler trends on them")
             data = data[0]
         # print warndataing in red
         if data.shape[-1] <= 10 and "x" in direction and verbose > -2:
@@ -330,7 +336,7 @@ class SPECLine:
         if data.shape[1] >= 500:
             print("Chopping the dumbells of the map to avoid the dumbells effects")
             data = data[:, 120:700]  # cut the edges of the map
-            
+
         coeffs = np.empty((len(direction),))
         errors = np.empty((len(direction),))
         if verbose > 2:
@@ -374,7 +380,8 @@ class SPECLine:
                     errors[ind] = (var.diagonal() ** 0.5)[0]
                     if verbose > 2:
                         axis[ind + 1].pcolormesh(data, norm=norm, cmap=cmap)
-                        axis[(ind + len(direction)) + 1].plot(curve_fit_x, curve_fit_y)
+                        axis[(ind + len(direction)) +
+                             1].plot(curve_fit_x, curve_fit_y)
                         axis[(ind + len(direction)) + 1].plot(
                             curve_fit_x, linear_func(curve_fit_x, *coeff)
                         )
@@ -448,7 +455,8 @@ class SPECLine:
     def get_coord_mat(self, as_skycoord=False):
         data = self["int"]
         header = self.headers["int"]
-        coord_matrix = get_coord_mat(Map(data, header), as_skycoord=as_skycoord)
+        coord_matrix = get_coord_mat(
+            Map(data, header), as_skycoord=as_skycoord)
         return coord_matrix
 
     def __getitem__(
@@ -493,26 +501,30 @@ class SPECLine:
         else:
             raise TypeError(str(hdul_or_path))
         all_background = True
-        for ind,hdu in enumerate(hdul):
+        for ind, hdu in enumerate(hdul):
             if hdu.name == "FIT_MODEL":
                 self._FIT_MODEL = [ModelFactory.from_hdu(hdu), hdu.header]
                 continue
             if hdu.header["MEASRMNT"] == "bg":
                 if self.parent_raster is not None and self.data_path is not None:
                     if Path(self.data_path).name not in self.parent_raster.backgrounds:
-                        self.parent_raster.backgrounds[Path(self.data_path).name] = []
-                    self.parent_raster.backgrounds[Path(self.data_path).name].append(HDUClone.from_hdu(hdu))
-                    
-                else:  
-                    raise Exception("The background is not needed in this Object")
+                        self.parent_raster.backgrounds[Path(
+                            self.data_path).name] = []
+                    self.parent_raster.backgrounds[Path(self.data_path).name].append(
+                        HDUClone.from_hdu(hdu))
+
+                else:
+                    raise Exception(
+                        "The background is not needed in this Object")
             else:
                 all_background = False
             self._all[hdu.header["MEASRMNT"]] = [hdu.data.copy(), hdu.header]
-        if all_background: raise Exception("tactical exit")
-            
+        if all_background:
+            raise Exception("tactical exit")
+
         if isinstance(hdul_or_path, (str, PosixPath, WindowsPath, pathlib.WindowsPath)):
             hdul.close()
-        
+
     def compute_params(
         self,
     ):
@@ -521,39 +533,39 @@ class SPECLine:
                 f"Call self.charge_data first because there is no {[key for key in ['int','wav','wid'] if self._all[key] is None]}"
             )
         if (self._all["rad"] is None) or (self._all["rad_err"] is None):
-            self._all["rad"] = [None,None]
-            self._all["rad_err"] = [None,None]
-            
+            self._all["rad"] = [None, None]
+            self._all["rad_err"] = [None, None]
+
             # with warnings.catch_warnings():
             warnings.filterwarnings("ignore")
             if True:
                 # warnings.filterwarnings("ignore", category=[UnitsWarning,RuntimeWarning])
                 # warnings.filterwarnings("ignore", category=[UnitsWarning])
                 self._all["rad"][0] = (
-                    (u.Unit(self.headers['int']["BUNIT"]) * self["int"]).to(u.W / (u.m**2 * u.sr* u.nm)) * 
-                    (u.Unit(self.headers['wid']["BUNIT"]) * self["wid"]).to(u.nm)
-                ).to(u.W / (u.m**2 * u.sr)).value * np.sqrt(2* np.pi)
-            
+                    (u.Unit(self.headers['int']["BUNIT"]) * self["int"]).to(u.W / (u.m**2 * u.sr * u.nm)) *
+                    (u.Unit(self.headers['wid']["BUNIT"])
+                     * self["wid"]).to(u.nm)
+                ).to(u.W / (u.m**2 * u.sr)).value * np.sqrt(2 * np.pi)
+
             self._all["rad_err"][0] = (
                 self["int_err"] / self["int"] + self["wid_err"] / self["wid"]
             ) * self["rad"]
-            warnings.filterwarnings("default")    
-            
-            
-            self._all["rad"]    [1] = self.headers["int"].copy()
+            warnings.filterwarnings("default")
+
+            self._all["rad"][1] = self.headers["int"].copy()
             self._all["rad_err"][1] = self.headers["int_err"].copy()
-            
-            self._all["rad"]    [1]["MEASRMNT"] = "rad"
-            self._all["rad"]    [1]["BTYPE"]    = 'Radiance'
-            self._all["rad"]    [1]["BUNIT"]    = 'W/m2/sr' 
+
+            self._all["rad"][1]["MEASRMNT"] = "rad"
+            self._all["rad"][1]["BTYPE"] = 'Radiance'
+            self._all["rad"][1]["BUNIT"] = 'W/m2/sr'
             self._all["rad_err"][1]["MEASRMNT"] = "rad_err"
-            self._all["rad_err"][1]["BTYPE"]    = 'Radiance'
-            self._all["rad_err"][1]["BUNIT"]    = 'W/m2/sr' 
+            self._all["rad_err"][1]["BTYPE"] = 'Radiance'
+            self._all["rad_err"][1]["BUNIT"] = 'W/m2/sr'
         else:
             if self.verbose > 0:
-                print("The rad and rad_err are already computed")                                            
+                print("The rad and rad_err are already computed")
             pass
-            
+
     def plot(self, params="rad", axes=None, add_keywords=False):
         """_summary_
 
@@ -566,7 +578,8 @@ class SPECLine:
         if isinstance(params, str):
             params = [params]
         if axes is None:
-            fig, axes = plt.subplots(1, len(params), figsize=(len(params) * 4, 4))
+            fig, axes = plt.subplots(
+                1, len(params), figsize=(len(params) * 4, 4))
         if not isinstance(axes, Iterable):
             axes = [axes]
         if len(params) != 1:
@@ -602,7 +615,8 @@ class SPECLine:
 
             # map = Map(self['int'],self.headers['int'])
             lon, lat, time = get_celestial_L3(self)
-            im = axes[0].pcolormesh(lon, lat, data, norm=norm, zorder=-1, cmap="magma")
+            im = axes[0].pcolormesh(
+                lon, lat, data, norm=norm, zorder=-1, cmap="magma")
             axes[0].set_title(self.line_id + "\n" + params[0])
             if add_keywords:
                 pass
@@ -622,34 +636,38 @@ class SPECLine:
             ""
         )
 
-    def write_data(self,file_name =None,overwrite=False):
-        #create HDUList
+    def write_data(self, file_name=None, overwrite=False):
+        # create HDUList
         if file_name is None:
             if self.data_path is None:
-                raise Exception("self.data_path is None and self.data_path is None")
+                raise Exception(
+                    "self.data_path is None and self.data_path is None")
             else:
                 file_name = self.data_path
-        
+
         hdu_list = [
             fits.PrimaryHDU(data=self['int'], header=self.headers['int'])
-            ]
-        for key in ["wav","wid","rad","int_err","wav_err","wid_err","rad_err"]:
-            hdu_list.append(fits.ImageHDU(data=self[key], header=self.headers[key])) 
+        ]
+        for key in ["wav", "wid", "rad", "int_err", "wav_err", "wid_err", "rad_err"]:
+            hdu_list.append(fits.ImageHDU(
+                data=self[key], header=self.headers[key]))
         hdul = fits.HDUList(hdu_list)
         hdul.writeto(file_name, overwrite=overwrite)
-    
-    # define equality of lines 
+
+    # define equality of lines
     def __eq__(self, other):
         if not isinstance(other, SPECLine):
             return False
         return (
-            self.observatory == other.observatory and 
-            self.instrument == other.instrument and 
-            self.obs_date == other.obs_date and 
-            self.ion == other.ion and 
-            self.wavelength == other.wavelength and 
+            self.observatory == other.observatory and
+            self.instrument == other.instrument and
+            self.obs_date == other.obs_date and
+            self.ion == other.ion and
+            self.wavelength == other.wavelength and
             self.filename == other.filename
-            )
+        )
+
+
 class SPICEL3Raster:
     def _vprint(self, level: int, *args, **kwargs) -> None:
         """
@@ -665,7 +683,7 @@ class SPICEL3Raster:
         """
         if self.verbose >= level:
             print(*args, **kwargs)
-    
+
     def __init__(self, list_paths=None, folder_path=None, verbose=0):
         if (list_paths is None and folder_path is None) or (
             list_paths is not None and folder_path is not None
@@ -674,38 +692,41 @@ class SPICEL3Raster:
                 "you need to specify strictly one of these arguments list_paths or folder_path"
             )
         elif folder_path is not None:
-            list_paths = [str(file) for file in Path(folder_path).glob("*.fits")]
+            list_paths = [str(file)
+                          for file in Path(folder_path).glob("*.fits")]
             list_paths.sort()
         else:
             # nothing to do if the list is given
             pass
         self.lines = []
-        self.ll             = None
-        self.backgrounds    = {}
-        self.FIP_err        = None
-        self.FIP_header     = None    
+        self.ll = None
+        self.backgrounds = {}
+        self.FIP_err = None
+        self.FIP_header = None
         self.FIP_err_header = None
         self.density_header = None
         self.verbose = verbose
-        
+
         self._prepare_data(list_paths)
-        
+
         self.HFLines = None
         self.LFLines = None
-        self.new_crvals = {"CRVAL1":None,"CRVAL2":None}
-        self.old_crvals = {"CRVAL1":None,"CRVAL2":None}
+        self.new_crvals = {"CRVAL1": None, "CRVAL2": None}
+        self.old_crvals = {"CRVAL1": None, "CRVAL2": None}
         self.old_crvals['CRVAL1'] = self.lines[0].headers["int"]["CRVAL1"]
         self.old_crvals['CRVAL2'] = self.lines[0].headers["int"]["CRVAL2"]
-        self.fsi174_path =  None
+        self.fsi174_path = None
         self.L2_data = None
         self.L2_path = None
-        self.L2_data_clean = None 
+        self.L2_data_clean = None
         self.params_matrix = None
+
     def _prepare_data(self, list_paths):
         for paths in list_paths:
             try:
-            # if True:
-                line = SPECLine(paths,verbose=self.verbose,parent_raster=self)
+                # if True:
+                line = SPECLine(paths, verbose=self.verbose,
+                                parent_raster=self)
                 self.lines.append(line)
             except Exception as e:
                 # print(f"Couldn't load {paths} because of {e}")
@@ -722,70 +743,69 @@ class SPICEL3Raster:
             if res is None:
                 res = self.FIP_err.copy() + 1
                 return res
-            
+
             if len(rad_shape) == 2:
                 FIP_data = res
-            elif len(rad_shape) == 3 and rad_shape[0]==1:
+            elif len(rad_shape) == 3 and rad_shape[0] == 1:
                 FIP_data[0] = res
-            elif len(rad_shape) == 3 and rad_shape[2]==1:
-                FIP_data[:,:,0] = res
+            elif len(rad_shape) == 3 and rad_shape[2] == 1:
+                FIP_data[:, :, 0] = res
             else:
                 raise Exception("The line data shape is not recognized")
-            
+
             return FIP_data
         except:
             return self.FIP_err.copy() + 1
-    
-    def _gen_FIP_header(self,HFLines,LFLines):    
+
+    def _gen_FIP_header(self, HFLines, LFLines):
         "_______________________________________________________"
-        #FIP header
+        # FIP header
         FIP_header = self.lines[0].headers["int"].copy()
         FIP_header["MEASRMNT"] = "fip"
         FIP_header["BTYPE"] = "FIP Bias"
-        FIP_header["BUNIT"] = "" #it's a ratio so no unit
-        del FIP_header['ION'] 
-        del FIP_header['LINE_ID']  
-        del FIP_header['WAVELENGTH'] 
+        FIP_header["BUNIT"] = ""  # it's a ratio so no unit
+        del FIP_header['ION']
+        del FIP_header['LINE_ID']
+        del FIP_header['WAVELENGTH']
         for i in range(len(HFLines)):
             FIP_header[f'HF_WAVE{i}'] = HFLines[i][1]
-            FIP_header[f'HF_ION{i}' ] = HFLines[i][0]
-            
+            FIP_header[f'HF_ION{i}'] = HFLines[i][0]
+
         for i in range(len(LFLines)):
             FIP_header[f'LF_WAVE{i}'] = LFLines[i][1]
-            FIP_header[f'LF_ION{i}' ] = LFLines[i][0]
-        
+            FIP_header[f'LF_ION{i}'] = LFLines[i][0]
+
         "_______________________________________________________"
-        #FIP error header
+        # FIP error header
         FIP_err_header = self.lines[0].headers["int"].copy()
         FIP_err_header["MEASRMNT"] = "fip_err"
         FIP_err_header["BTYPE"] = "FIP Bias error"
-        FIP_err_header["BUNIT"] = "" #it's a ratio so no unit
-        del FIP_err_header['ION'] 
-        del FIP_err_header['LINE_ID']  
-        del FIP_err_header['WAVELENGTH'] 
+        FIP_err_header["BUNIT"] = ""  # it's a ratio so no unit
+        del FIP_err_header['ION']
+        del FIP_err_header['LINE_ID']
+        del FIP_err_header['WAVELENGTH']
         for i in range(len(HFLines)):
             FIP_err_header[f'HF_WAVE{i}'] = HFLines[i][1]
-            FIP_err_header[f'HF_ION{i}' ] = HFLines[i][0]
-        
+            FIP_err_header[f'HF_ION{i}'] = HFLines[i][0]
+
         for i in range(len(LFLines)):
             FIP_err_header[f'LF_WAVE{i}'] = LFLines[i][1]
-            FIP_err_header[f'LF_ION{i}' ] = LFLines[i][0]
-        
+            FIP_err_header[f'LF_ION{i}'] = LFLines[i][0]
+
         "_______________________________________________________"
-        #density header
+        # density header
         density_header = self.lines[0].headers["int"].copy()
         density_header["MEASRMNT"] = "den"
-        density_header["BTYPE"]    = "Density"
-        density_header["BUNIT"]    = "cm^-3"
+        density_header["BTYPE"] = "Density"
+        density_header["BUNIT"] = "cm^-3"
         del density_header['ION']
         del density_header['LINE_ID']
         del density_header['WAVELENGTH']
-        
-        self.FIP_header     = FIP_header    
+
+        self.FIP_header = FIP_header
         self.FIP_err_header = FIP_err_header
         self.density_header = density_header
 
-        
     def gen_compo_LCR(
         self,
         HFLines=None,
@@ -793,7 +813,7 @@ class SPICEL3Raster:
         ll=None,
         suppressOutput=True,
         using_S_as_LF=True,
-        density = 10**10,
+        density=10**10,
     ):
         self.HFLines = HFLines
         self.LFLines = LFLines
@@ -803,7 +823,7 @@ class SPICEL3Raster:
             self.ll = lc(
                 [Line(ionid, wvl) for ionid, wvl in All_lines],
                 using_S_as_LF=using_S_as_LF,
-                
+
             )
 
             if suppressOutput:
@@ -815,11 +835,12 @@ class SPICEL3Raster:
             self.ll = copy.deepcopy(ll)
         # logdens = 8.3  # try  9.5
         # idens = np.argmin(abs(self.ll.density_array.value - 10**logdens))
-        if isinstance(density,Iterable):
+        if isinstance(density, Iterable):
             density_map = density
         else:
             density_map = (
-                density * np.ones(self.lines[0]["int"].shape, dtype=float) * u.cm**-3
+                density *
+                np.ones(self.lines[0]["int"].shape, dtype=float) * u.cm**-3
             )
         self.density = density_map.copy()
         wvls = np.empty(shape=(len(self.lines),))
@@ -828,24 +849,24 @@ class SPICEL3Raster:
 
         data = []
         err = []
-        
+
         rad_shape = np.array(self.lines[0]['rad'].shape)
         if len(rad_shape) == 2:
-            slice_2D = [slice(None),slice(None)]
-        elif len(rad_shape) == 3 and rad_shape[0]==1:
-            slice_2D = [0,slice(None),slice(None)]
-        elif len(rad_shape) == 3 and rad_shape[2]==1:
-            slice_2D = [slice(None),slice(None),0]
+            slice_2D = [slice(None), slice(None)]
+        elif len(rad_shape) == 3 and rad_shape[0] == 1:
+            slice_2D = [0, slice(None), slice(None)]
+        elif len(rad_shape) == 3 and rad_shape[2] == 1:
+            slice_2D = [slice(None), slice(None), 0]
         else:
             raise Exception("The line data shape is not recognized")
-        
-        
+
         for ind, ionLF in enumerate(self.ll.ionsLF):
             diff = np.abs(ionLF.wvl.value - wvls)
             argmin = np.argmin(diff)
             if diff[argmin] > 0.1:
                 raise Exception(f"Haven't found an ion for: {ionLF} {wvls}")
-            self.ll.ionsLF[ind].int_map = self.lines[argmin]["rad"][*slice_2D] * u.W * u.m**-2 / 10
+            self.ll.ionsLF[ind].int_map = self.lines[argmin]["rad"][*
+                                                                    slice_2D] * u.W * u.m**-2 / 10
             data.append(self.lines[argmin]["rad"][*slice_2D])
             err.append(self.lines[argmin]["rad_err"][*slice_2D])
             # print(f"rad: {self.lines[argmin].hdul['int'][0].header['wavelength']},lc: {ionLF.wvl.value}")
@@ -854,12 +875,13 @@ class SPICEL3Raster:
             argmin = np.argmin(diff)
             if diff[argmin] > 0.1:
                 raise Exception(f"Haven't found a for: {ionHF} {wvls}")
-            self.ll.ionsHF[ind].int_map = self.lines[argmin]["rad"][*slice_2D] * u.W * u.m**-2 / 10
+            self.ll.ionsHF[ind].int_map = self.lines[argmin]["rad"][*
+                                                                    slice_2D] * u.W * u.m**-2 / 10
             data.append(self.lines[argmin]["rad"][*slice_2D])
             err.append(self.lines[argmin]["rad_err"][*slice_2D])
             # print(f"rad: {self.lines[argmin].hdul['int'][0].header['wavelength']},lc: {ionHF.wvl.value}")
         density_map = density_map[*slice_2D]
-        
+
         fip_map(self.ll, density_map)
         if True:  # Complete calculation of error based on differentiation method
             self.FIP_err = (
@@ -868,7 +890,7 @@ class SPICEL3Raster:
                     err,
                     data,
                 )
-                
+
             )
             _FIP_error = np.empty(rad_shape)
             if len(_FIP_error.shape) == 2:
@@ -876,13 +898,14 @@ class SPICEL3Raster:
             elif len(_FIP_error.shape) == 3 and _FIP_error.shape[0] == 1:
                 _FIP_error[0] = self.FIP_err
             elif len(_FIP_error.shape) == 3 and _FIP_error.shape[2] == 1:
-                _FIP_error[:,:,0] = self.FIP_err
+                _FIP_error[:, :, 0] = self.FIP_err
             else:
-                raise Exception("The line data shape is not recognized. it should be 2D or 3D if 3D either the first or last dimension should be 1")
-            self.FIP_err = _FIP_error#/ self.FIP
-            
-        self._gen_FIP_header(HFLines=HFLines,LFLines=LFLines)
-        
+                raise Exception(
+                    "The line data shape is not recognized. it should be 2D or 3D if 3D either the first or last dimension should be 1")
+            self.FIP_err = _FIP_error  # / self.FIP
+
+        self._gen_FIP_header(HFLines=HFLines, LFLines=LFLines)
+
     def find_line(self, wvl):
         wvls = np.empty(shape=(len(self.lines),))
         for ind, line in enumerate(self.lines):
@@ -1030,7 +1053,8 @@ class SPICEL3Raster:
                 "You need to specify one of these arguments ion or wavelength or both)"
             )
         if wavelength is not None and closest_wavelength is not None:
-            raise Exception("Either specify wavelength or closest_wavelength not both")
+            raise Exception(
+                "Either specify wavelength or closest_wavelength not both")
         line_selection = self.lines
 
         if ion is not None:
@@ -1085,7 +1109,8 @@ class SPICEL3Raster:
         else:
             ref_line = ref_line[0]
 
-        coeff = ref_line.correct_doppler_gradient(direction=direction, verbose=verbose)
+        coeff = ref_line.correct_doppler_gradient(
+            direction=direction, verbose=verbose)
         for i in range(len(self.lines)):
             self.lines[i].correct_doppler_gradient(
                 direction=direction, verbose=verbose, coeff=coeff[0]
@@ -1153,7 +1178,8 @@ class SPICEL3Raster:
                     r = col_row[1]
 
                 inch_size = 2
-                aspect = (np.max(lon) - np.min(lon)) / (np.max(lat) - np.min(lat))
+                aspect = (np.max(lon) - np.min(lon)) / \
+                    (np.max(lat) - np.min(lat))
                 _axes = gen_axes_side2side(
                     r,
                     c,
@@ -1205,9 +1231,10 @@ class SPICEL3Raster:
                 map_ = line.get_map(param)
                 norm = map_.plot_settings["norm"]
                 cmap = map_.plot_settings["cmap"]
-                if len (data.shape)==3 and data.shape[0]==1:
-                    data=data[0]
-                axes[ind, ind2].pcolormesh(lon, lat, data, norm=norm, cmap=cmap)
+                if len(data.shape) == 3 and data.shape[0] == 1:
+                    data = data[0]
+                axes[ind, ind2].pcolormesh(
+                    lon, lat, data, norm=norm, cmap=cmap)
                 axes[ind, ind2].text(
                     0.5,
                     0.95,
@@ -1231,46 +1258,48 @@ class SPICEL3Raster:
 
         return axes
 
-    def get_FIP_map(self,remove_dumbells=False,cutoff_threshold = np.inf):
-        
-        
+    def get_FIP_map(self, remove_dumbells=False, cutoff_threshold=np.inf):
+
         from matplotlib.colors import LogNorm
         FIP = self.FIP.copy()
-        
+
         if remove_dumbells:
-            if len(FIP.shape)==2:
+            if len(FIP.shape) == 2:
                 FIP[:100] = np.nan
                 FIP[700:] = np.nan
-            else:    
-                FIP[:,:100] = np.nan
-                FIP[:,700:] = np.nan
-        FIP[self.FIP_err>cutoff_threshold] = np.nan
-        
+            else:
+                FIP[:, :100] = np.nan
+                FIP[:, 700:] = np.nan
+        FIP[self.FIP_err > cutoff_threshold] = np.nan
+
         FIP_map = Map(FIP, self.FIP_header)
         FIP_map.plot_settings = {
             "cmap": "RdYlBu_r",
-            "norm": LogNorm(1/2,2),
+            "norm": LogNorm(1/2, 2),
             "aspect": "auto",
-            }
-        
+        }
+
         return FIP_map
-    
-    def write_FIP_data(self,file_name ,overwrite=False):
-        hdu = fits.PrimaryHDU(data=self.FIP    , header=self.FIP_header)
-        hdu2 = fits.ImageHDU  (data=self.FIP_err, header=self.FIP_err_header)
-        hdu3 = fits.ImageHDU  (data=self.density, header=self.density_header)
+
+    def write_FIP_data(self, file_name, overwrite=False):
+        hdu = fits.PrimaryHDU(data=self.FIP, header=self.FIP_header)
+        hdu2 = fits.ImageHDU(data=self.FIP_err, header=self.FIP_err_header)
+        hdu3 = fits.ImageHDU(data=self.density, header=self.density_header)
         if self.FIP_header is None:
             raise Exception("FIP is not yet computed run gen_compo_LCR")
-        hdul = fits.HDUList([hdu,hdu2,hdu3])
+        hdul = fits.HDUList([hdu, hdu2, hdu3])
         hdul.writeto(file_name, overwrite=overwrite)
-    
-    def _get_from_fido_closest_fsi174(self,raise_error=True):
+
+    def _get_from_fido_closest_fsi174(self, raise_error=True):
         # Assuming self has an attribute or method to get the observation time
         if type(self).__name__ == SPICEL3Raster.__name__:
-          obs_time = np.datetime64(np.datetime64(self.lines[0].headers['rad']['DATE-AVG']))  # Replace with actual method to get time
+            # Replace with actual method to get time
+            obs_time = np.datetime64(np.datetime64(
+                self.lines[0].headers['rad']['DATE-AVG']))
         else:
-          obs_time = np.datetime64(self)
-        time_range = a.Time(obs_time, obs_time + np.timedelta64(1,"h"))  # 1 hour range for example
+            obs_time = np.datetime64(self)
+        # 1 hour range for example
+        time_range = a.Time(obs_time, obs_time + np.timedelta64(1, "h"))
         # Search for FSI data close to the self observation time
         instrument = a.Instrument('EUI')
         level = a.Level(1)
@@ -1278,162 +1307,184 @@ class SPICEL3Raster:
         query = Fido.search(instrument & time_range & level & product)
 
         if len(query) == 0:
-          if raise_error:
-            raise ValueError("No FSI data found close to the specified time.")
-          else:
-            print("No FSI data found close to the specified time.")
-            return None
+            if raise_error:
+                raise ValueError(
+                    "No FSI data found close to the specified time.")
+            else:
+                print("No FSI data found close to the specified time.")
+                return None
         # Download the data
         downloaded_files = Fido.fetch(query[0][0])  # Download the first result
 
         if len(downloaded_files) == 0:
-          if raise_error:
-            raise ValueError("Failed to download FSI data.")
-          else:
-            print("Failed to download FSI data.")
-            return None
+            if raise_error:
+                raise ValueError("Failed to download FSI data.")
+            else:
+                print("Failed to download FSI data.")
+                return None
         # Load the first downloaded file into an HDU list
         hdu_list = fits.open(downloaded_files[0])
         self.fsi174_path = downloaded_files[0]
         return hdu_list
-    
-    def coaline_with_FSI_171(self,source=None,index=1,verbose=0,):
-      try:
-        from euispice_coreg.hdrshift.alignment import Alignment
-        from euispice_coreg.plot.plot import PlotFunctions
-        from euispice_coreg.utils.Util import AlignCommonUtil
-      except:
-        raise Exception("Please install the euispice_coreg package by running the forked version of the package from the following link:\npip install git+https://github.com/slimguat/euispice_coreg.git")
-        
-      if True: #Get the large_FOV
-        def _check_index(hdul,index):
-          if index >= len(hdul):
-            raise ValueError(f"Index {index} out of range. HDU list has {len(hdul)} HDUs.")
-        if source is None:
-          if self.fsi174_path is not None:
-            if verbose>=1:print("Using the previously available FSI 174 image in self.fsi174_path")
-            hdul = fits.open(self.fsi174_path)
-            _check_index(hdul,index)
-            hdu = hdul[index]
-            header = hdu.header
-            data = hdu.data
-          else:
-            if verbose>=1:print("No source provided, trying to get the closest FSI 174 image using sunpy.Fido.")
-            hdul = self._get_from_fido_closest_fsi174(self)
-            _check_index(hdul,index)
-            hdu = hdul[index]
-            header = hdu.header
-            data = hdu.data
-        elif isinstance(source, (str, PosixPath, WindowsPath,)):
-          if verbose>=1:print("Source is a path to a fits file.")
-          hdul = fits.open(source)
-          _check_index(hdul,index)
-          hdu = hdul[index] 
-          header = hdu.header
-          data = hdu.data
-        elif isinstance(source,astropy.io.fits.hdu.hdulist.HDUList):
-          if verbose>=1:print("Source is an HDUList.")
-          hdul = source
-          _check_index(hdul,index)
-          hdu = hdul[index] 
-          header = hdu.header
-          data = hdu.data
-        elif isinstance(source, astropy.io.fits.hdu.compressed.compressed.CompImageHDU):
-          if verbose>=1:print('Source is a compressed image HDU.')
-          hdu = source
-          header = hdu.header
-          data = hdu.data
-        elif isinstance(source, GenericMap):
-          if verbose>=1:print("Source is a GenericMap.")
-          header = source.meta
-          data = source.data
-        else:
-          raise ValueError("source must be a path to a fits file or an HDUList or HDU or a a GenericMap")
-      if True:#cut_down_the_FOV 
-        corrected_map = reduce_largeMap_SmallMapFOV(large_map = Map(hdu.data,hdu.header),small_map = self.lines[0].get_map(param='rad'),offset={"left": -150,"right":150,"top":150,"bottom":-150})
-      "_________________________________________________________________________________" 
-      "_________________________________________________________________________________"
-      "_________________________________________________________________________________" 
-      alignement_lines = [{'ion' : 'mg_9',"closest_wavelength": 706}, {"ion" : 'ne_8'}]
-      "_________________________________________________________________________________"
-      "_________________________________________________________________________________"
-      "_________________________________________________________________________________"  
-      selected_line = None
-      for line in alignement_lines:
-        lines = self.search_lines(**line)
-        if len( lines) == 0:
-          continue
-        elif 'closest_wavelength' in line.keys():
-          for line_ in lines: 
-            if line_.wavelength- line['closest_wavelength'] < 1:
-              selected_line = line_
-              break
-        else:
-          selected_line = lines[0]
-        if selected_line is not None:
-          break
-      if  selected_line is None:
-        raise Exception('No lines match the list of lines to coalign with FSI 171')
-      if verbose>=1: print('selected line for alignement', selected_line)
-      if True:#Save the result into a temporary file
-        tmp_location = Path('./tmp')
-        tmp_location.mkdir(exist_ok=True)
-        tobecorrected_map = selected_line.get_map()
-        tobecorrected_path = tmp_location/f"{int(np.random.rand()*100000)}.fits"
-        corrected_path = tmp_location/f"{int(np.random.rand()*100000)}.fits"
-        if verbose>=1:
-          print(f"saving the two maps into {tobecorrected_path} and  {corrected_path}")
-        tobecorrected_map.save(tobecorrected_path )
-        corrected_map    .save(corrected_path     )
-      tobecorrected_path_ = tobecorrected_path 
-      if True: #start aligning (Second round)
-        lag_crval1s = [
-          [-300,300,20],      [-50,50,4], [-10,10,1],
-        ]
-        lag_crval2s = [
-          [-300,300,20],      [-50,50,4], [-10,10,1],
-        ]
-        for ind,(lag_crval1_,lag_crval2_) in enumerate(zip(lag_crval1s,lag_crval2s)): 
-          print(f"correlation {ind+1}/{len(lag_crval1s)}: {lag_crval1_} {lag_crval2_}")
-          lag_crval1 = np.arange(*lag_crval1_)
-          lag_crval2 = np.arange(*lag_crval2_)    
-          lag_cdelta1 = [0]
-          lag_cdelta2 = [0]
-          lag_crota = [0]
-          A = Alignment(large_fov_known_pointing=corrected_path, small_fov_to_correct=tobecorrected_path_, lag_crval1=lag_crval1,
-                    lag_crval2=lag_crval2, lag_cdelta1=lag_cdelta1, lag_cdelta2=lag_cdelta2, lag_crota=lag_crota,
-                    parallelism=True, use_tqdm=True, counts_cpu_max=os.cpu_count(),
-                    )
-          corr = A.align_using_helioprojective(method='correlation')
-          max_index = np.unravel_index(corr.argmax(), corr.shape)
 
+    def coaline_with_FSI_171(self, source=None, index=1, verbose=0,):
+        try:
+            from euispice_coreg.hdrshift.alignment import Alignment
+            from euispice_coreg.plot.plot import PlotFunctions
+            from euispice_coreg.utils.Util import AlignCommonUtil
+        except:
+            raise Exception(
+                "Please install the euispice_coreg package by running the forked version of the package from the following link:\npip install git+https://github.com/slimguat/euispice_coreg.git")
 
-          parameter_alignment = {
-          "lag_crval1": lag_crval1,
-          "lag_crval2": lag_crval2,
-          "lag_crota": lag_crota,
-          "lag_cdelta1": lag_cdelta1,
-          "lag_cdelta2": lag_cdelta2,
-          }
+        if True:  # Get the large_FOV
+            def _check_index(hdul, index):
+                if index >= len(hdul):
+                    raise ValueError(
+                        f"Index {index} out of range. HDU list has {len(hdul)} HDUs.")
+            if source is None:
+                if self.fsi174_path is not None:
+                    if verbose >= 1:
+                        print(
+                            "Using the previously available FSI 174 image in self.fsi174_path")
+                    hdul = fits.open(self.fsi174_path)
+                    _check_index(hdul, index)
+                    hdu = hdul[index]
+                    header = hdu.header
+                    data = hdu.data
+                else:
+                    if verbose >= 1:
+                        print(
+                            "No source provided, trying to get the closest FSI 174 image using sunpy.Fido.")
+                    hdul = self._get_from_fido_closest_fsi174(self)
+                    _check_index(hdul, index)
+                    hdu = hdul[index]
+                    header = hdu.header
+                    data = hdu.data
+            elif isinstance(source, (str, PosixPath, WindowsPath,)):
+                if verbose >= 1:
+                    print("Source is a path to a fits file.")
+                hdul = fits.open(source)
+                _check_index(hdul, index)
+                hdu = hdul[index]
+                header = hdu.header
+                data = hdu.data
+            elif isinstance(source, astropy.io.fits.hdu.hdulist.HDUList):
+                if verbose >= 1:
+                    print("Source is an HDUList.")
+                hdul = source
+                _check_index(hdul, index)
+                hdu = hdul[index]
+                header = hdu.header
+                data = hdu.data
+            elif isinstance(source, astropy.io.fits.hdu.compressed.compressed.CompImageHDU):
+                if verbose >= 1:
+                    print('Source is a compressed image HDU.')
+                hdu = source
+                header = hdu.header
+                data = hdu.data
+            elif isinstance(source, GenericMap):
+                if verbose >= 1:
+                    print("Source is a GenericMap.")
+                header = source.meta
+                data = source.data
+            else:
+                raise ValueError(
+                    "source must be a path to a fits file or an HDUList or HDU or a a GenericMap")
+        if True:  # cut_down_the_FOV
+            corrected_map = reduce_largeMap_SmallMapFOV(large_map=Map(hdu.data, hdu.header), small_map=self.lines[0].get_map(
+                param='rad'), offset={"left": -150, "right": 150, "top": 150, "bottom": -150})
+        "_________________________________________________________________________________"
+        "_________________________________________________________________________________"
+        "_________________________________________________________________________________"
+        alignement_lines = [
+            {'ion': 'mg_9', "closest_wavelength": 706}, {"ion": 'ne_8'}]
+        "_________________________________________________________________________________"
+        "_________________________________________________________________________________"
+        "_________________________________________________________________________________"
+        selected_line = None
+        for line in alignement_lines:
+            lines = self.search_lines(**line)
+            if len(lines) == 0:
+                continue
+            elif 'closest_wavelength' in line.keys():
+                for line_ in lines:
+                    if line_.wavelength - line['closest_wavelength'] < 1:
+                        selected_line = line_
+                        break
+            else:
+                selected_line = lines[0]
+            if selected_line is not None:
+                break
+        if selected_line is None:
+            raise Exception(
+                'No lines match the list of lines to coalign with FSI 171')
+        if verbose >= 1:
+            print('selected line for alignement', selected_line)
+        if True:  # Save the result into a temporary file
+            tmp_location = Path('./tmp')
+            tmp_location.mkdir(exist_ok=True)
+            tobecorrected_map = selected_line.get_map()
+            tobecorrected_path = tmp_location / \
+                f"{int(np.random.rand()*100000)}.fits"
+            corrected_path = tmp_location / \
+                f"{int(np.random.rand()*100000)}.fits"
+            if verbose >= 1:
+                print(
+                    f"saving the two maps into {tobecorrected_path} and  {corrected_path}")
+            tobecorrected_map.save(tobecorrected_path)
+            corrected_map    .save(corrected_path)
+        tobecorrected_path_ = tobecorrected_path
+        if True:  # start aligning (Second round)
+            lag_crval1s = [
+                [-300, 300, 20],      [-50, 50, 4], [-10, 10, 1],
+            ]
+            lag_crval2s = [
+                [-300, 300, 20],      [-50, 50, 4], [-10, 10, 1],
+            ]
+            for ind, (lag_crval1_, lag_crval2_) in enumerate(zip(lag_crval1s, lag_crval2s)):
+                print(
+                    f"correlation {ind+1}/{len(lag_crval1s)}: {lag_crval1_} {lag_crval2_}")
+                lag_crval1 = np.arange(*lag_crval1_)
+                lag_crval2 = np.arange(*lag_crval2_)
+                lag_cdelta1 = [0]
+                lag_cdelta2 = [0]
+                lag_crota = [0]
+                A = Alignment(large_fov_known_pointing=corrected_path, small_fov_to_correct=tobecorrected_path_, lag_crval1=lag_crval1,
+                              lag_crval2=lag_crval2, lag_cdelta1=lag_cdelta1, lag_cdelta2=lag_cdelta2, lag_crota=lag_crota,
+                              parallelism=True, use_tqdm=True, counts_cpu_max=os.cpu_count(),
+                              )
+                corr = A.align_using_helioprojective(method='correlation')
+                max_index = np.unravel_index(corr.argmax(), corr.shape)
 
-          PlotFunctions.plot_correlation(corr,  show=True,
-                                path_save=os.path.join(tmp_location, f"{tobecorrected_path_.stem}_{lag_crval1[2]}_arcsec_correlation.pdf"), **parameter_alignment)
-          PlotFunctions.plot_co_alignment(small_fov_window=-1, large_fov_window=-1, corr=corr,
-                                      small_fov_path=tobecorrected_path_, large_fov_path=corrected_path, show=True,
-                                      results_folder=tmp_location, levels_percentile=[95],
-                                      **parameter_alignment)
-          AlignCommonUtil.write_corrected_fits(path_l2_input=tobecorrected_path, window_list=[-1],
-                                          path_l3_output=tobecorrected_path.parent/f'{tobecorrected_path.stem}_corrected_{lag_crval1[2]}_arcsec.fits', corr=corr,
-                                          **parameter_alignment)
-          tobecorrected_path_ = tobecorrected_path.parent/f'{tobecorrected_path.stem}_corrected_{lag_crval1[2]}_arcsec.fits'
-        with fits.open(tobecorrected_path.parent/f'{tobecorrected_path.stem}_corrected_{lag_crval1[2]}_arcsec.fits') as hdul:
-            self.new_crvals['CRVAL1'] = hdul[0].header['CRVAL1']
-            self.new_crvals['CRVAL2'] = hdul[0].header['CRVAL2']
-        return tobecorrected_map,corrected_map,A
-    
+                parameter_alignment = {
+                    "lag_crval1": lag_crval1,
+                    "lag_crval2": lag_crval2,
+                    "lag_crota": lag_crota,
+                    "lag_cdelta1": lag_cdelta1,
+                    "lag_cdelta2": lag_cdelta2,
+                }
+
+                PlotFunctions.plot_correlation(corr,  show=True,
+                                               path_save=os.path.join(tmp_location, f"{tobecorrected_path_.stem}_{lag_crval1[2]}_arcsec_correlation.pdf"), **parameter_alignment)
+                PlotFunctions.plot_co_alignment(small_fov_window=-1, large_fov_window=-1, corr=corr,
+                                                small_fov_path=tobecorrected_path_, large_fov_path=corrected_path, show=True,
+                                                results_folder=tmp_location, levels_percentile=[
+                                                    95],
+                                                **parameter_alignment)
+                AlignCommonUtil.write_corrected_fits(path_l2_input=tobecorrected_path, window_list=[-1],
+                                                     path_l3_output=tobecorrected_path.parent/f'{tobecorrected_path.stem}_corrected_{lag_crval1[2]}_arcsec.fits', corr=corr,
+                                                     **parameter_alignment)
+                tobecorrected_path_ = tobecorrected_path.parent / \
+                    f'{tobecorrected_path.stem}_corrected_{lag_crval1[2]}_arcsec.fits'
+            with fits.open(tobecorrected_path.parent/f'{tobecorrected_path.stem}_corrected_{lag_crval1[2]}_arcsec.fits') as hdul:
+                self.new_crvals['CRVAL1'] = hdul[0].header['CRVAL1']
+                self.new_crvals['CRVAL2'] = hdul[0].header['CRVAL2']
+            return tobecorrected_map, corrected_map, A
+
     def set_coaligned_crvals(self):
         if self.new_crvals['CRVAL1'] is None:
-            raise Exception('No new crvals are set run coaline_with_FSI_171 first')
+            raise Exception(
+                'No new crvals are set run coaline_with_FSI_171 first')
         for i in range(len(self.lines)):
             for key in self.lines[i]._all.keys():
                 self.lines[i]._all[key][1]['CRVAL1'] = self.new_crvals['CRVAL1']
@@ -1442,11 +1493,11 @@ class SPICEL3Raster:
             self.FIP_header['CRVAL1'] = self.new_crvals['CRVAL1']
             self.FIP_err_header['CRVAL1'] = self.new_crvals['CRVAL1']
             self.density_header['CRVAL1'] = self.new_crvals['CRVAL1']
-            
+
             self.FIP_header['CRVAL2'] = self.new_crvals['CRVAL2']
             self.FIP_err_header['CRVAL2'] = self.new_crvals['CRVAL2']
             self.density_header['CRVAL2'] = self.new_crvals['CRVAL2']
-    
+
     def reset_crvals(self):
         for i in range(len(self.lines)):
             for key in self.lines[i]._all.keys():
@@ -1456,13 +1507,13 @@ class SPICEL3Raster:
             self.FIP_header['CRVAL1'] = self.old_crvals['CRVAL1']
             self.FIP_err_header['CRVAL1'] = self.old_crvals['CRVAL1']
             self.density_header['CRVAL1'] = self.old_crvals['CRVAL1']
-            
+
             self.FIP_header['CRVAL2'] = self.old_crvals['CRVAL2']
             self.FIP_err_header['CRVAL2'] = self.old_crvals['CRVAL2']
             self.density_header['CRVAL2'] = self.old_crvals['CRVAL2']
-    
-    def init_L2_recall(self,L2_data=None):
-        #starting by loading the L2_data
+
+    def init_L2_recall(self, L2_data=None):
+        # starting by loading the L2_data
         if L2_data is None and self.L2_data is None:
             raise Exception('No L2 data is provided')
         elif L2_data is None:
@@ -1479,100 +1530,112 @@ class SPICEL3Raster:
             # session.geninits_verbose = -2
             # session.convolute = True
             # # print(session)
-            
+
             # session.build_rasters()
             # session.run_preparations()
-            
-            
-            convolution_extent_list = np.array([self.lines[0].headers['int']['con0']])
-            hdul =  copy.deepcopy(fits.open(self.L2_data))
-            expanded_convolution_list = np.empty([convolution_extent_list.shape[0], 4], dtype=int)
+
+            convolution_extent_list = np.array(
+                [self.lines[0].headers['int']['con0']])
+            hdul = copy.deepcopy(fits.open(self.L2_data))
+            expanded_convolution_list = np.empty(
+                [convolution_extent_list.shape[0], 4], dtype=int)
             CDELT1 = hdul[0].header["CDELT1"]
             CDELT2 = hdul[0].header["CDELT2"]
             shape = hdul[0].data.shape
             ratio = float(CDELT1/CDELT2)
+
             for i in range(convolution_extent_list.shape[0]):
                 size = np.array(
                     [
-                        1 + 6,
+                        1,  # TODO: why I added 6 here?
                         1,
                         1 + (convolution_extent_list[i]),
-                        1 + (convolution_extent_list[i])* np.nanmin([ratio,1/ratio]),
+                        (1 + convolution_extent_list[i]
+                         ) * np.nanmin([ratio, 1/ratio]),
                     ],
                     dtype=int,
                 )
-            
-                for dim in range(len(size)): 
+
+                for dim in range(len(size)):
                     if shape[dim] < size[dim]:
                         size[dim] = shape[dim]
                 expanded_convolution_list[i] = size
-            print(size)
+            self._vprint(-1, f"size: {size}")
+
+            self.L2_path = self.L2_data
+            self.L2_data = fits.open(self.L2_data)
+            self.convoluted_L2_data = HDUListClone.from_hdulist(self.L2_data)
+            self.L2_data = copy.deepcopy(self.convoluted_L2_data)
             for ind in range(len(get_extnames(hdul))):
                 conv_data = convolve_4D(
                     window=hdul[ind].data.copy(),
                     mode="box",
                     convolution_extent_list=expanded_convolution_list,
                 )
-                conv_data[0] *= 1/np.sqrt(np.prod(expanded_convolution_list[i]))
+                conv_data[0] *= 1 / \
+                    np.sqrt(np.prod(expanded_convolution_list[i]))
                 conv_data[0][np.isnan(hdul[ind].data)] = np.nan
-                hdul[ind].data = conv_data[0].copy()
-                
-            self.convoluted_L2_data = copy.deepcopy(hdul)
-            self.L2_path = self.L2_data
-            self.L2_data = fits.open(self.L2_data)
+                # hdul[ind].data = conv_data[0].copy()
+                self.convoluted_L2_data[ind].data = conv_data[0].copy()
+
+            # self.L2_path = self.L2_data
+            # self.L2_data = fits.open(self.L2_data)
             # self.convoluted_L2_data = copy.deepcopy(self.L2_data)
             # for ind in range(len(get_extnames(self.L2_data))):
             #     self.convoluted_L2_data[ind].data = session.rasters[0].windows[ind].conv_data[0].copy()
-                
 
         else:
-            self.L2_path = None
+            raise Exception("L2_data should be a path to a fits file")
+
         # for each window we load the model
         # we search for all FIT_IDs so we can reconstruct the windows and the models
         FIT_IDs = set([line.model_header['FIT_ID'] for line in self.lines])
         if self.params_matrix is None:
-            self.params_matrix = {FIT_ID:None for FIT_ID in FIT_IDs}
-        # retrieving the windows 
-        #first assemble each line with a FIT_ID
-        window_fit = {FIT_ID:None for FIT_ID in FIT_IDs}
-        
-        #searching foir the lines that have the same FIT_ID
+            self.params_matrix = {FIT_ID: None for FIT_ID in FIT_IDs}
+        # retrieving the windows
+        # first assemble each line with a FIT_ID
+        window_fit = {FIT_ID: None for FIT_ID in FIT_IDs}
+
+        # searching foir the lines that have the same FIT_ID
         for line in self.lines:
-            #search the MODEL's FIT_ID
+            # search the MODEL's FIT_ID
             FIT_ID = line.model_header['FIT_ID']
             SIB_keys = [key for key in line.model_header if 'SIB' in key]
             # print(SIB_keys)
             if window_fit[FIT_ID] is not None:
                 continue
-            
-            #expeted siblings 
-            siblings = np.array([[line.model_header[SIB_key],line.model_header["ORD"+SIB_key[3:]]] for SIB_key in SIB_keys],dtype=object).T
+
+            # expeted siblings
+            siblings = np.array([[line.model_header[SIB_key], line.model_header["ORD"+SIB_key[3:]]]
+                                for SIB_key in SIB_keys], dtype=object).T
             # this will be filled with the lines index in SPICERaster object, and the oreders of the parameters of this line
-            window_fit[FIT_ID] = np.empty((3,siblings.shape[1]),dtype=object)
-            
-            
-            #search for the siblings
-            for ind,line2 in enumerate(self.lines):
+            window_fit[FIT_ID] = np.empty((3, siblings.shape[1]), dtype=object)
+
+            # search for the siblings
+            for ind, line2 in enumerate(self.lines):
                 if line2.filename in siblings[0]:
                     position = np.where(siblings[0] == line2.filename)[0][0]
                     order = siblings[1][position]
-                    window_fit[FIT_ID][:,position] = ["line",ind,order]
-            #searching for the backgrounds that have the same FIT_ID
+                    window_fit[FIT_ID][:, position] = ["line", ind, order]
+            # searching for the backgrounds that have the same FIT_ID
             for background_name in self.backgrounds:
                 if background_name in siblings[0]:
                     position = np.where(siblings[0] == background_name)[0][0]
                     order = siblings[1][position]
-                    window_fit[FIT_ID][:,position] = ["background",background_name,order]
-                
-        #turning to multi index dataframe
+                    window_fit[FIT_ID][:, position] = [
+                        "background", background_name, order]
+
+        # turning to multi index dataframe
         window_fit_rows = []
         for FIT_ID, fit_data in window_fit.items():
             if fit_data is not None:
-                for col in range(fit_data.shape[1]):  # Iterate over the columns (siblings)
+                # Iterate over the columns (siblings)
+                for col in range(fit_data.shape[1]):
                     row = {
                         "FIT_ID": FIT_ID,
                         "FILE_TYPE": fit_data[0, col],  # Sibling filename
-                        "LINE_ARG": fit_data[1, col],  # Line index in SPICERaster
+                        # Line index in SPICERaster
+                        "LINE_ARG": fit_data[1, col],
                         "ORDER": fit_data[2, col],  # Order of parameters
                     }
                     window_fit_rows.append(row)
@@ -1580,64 +1643,74 @@ class SPICEL3Raster:
         # Convert to  DataFrame
         self.window_fit_df = pd.DataFrame(window_fit_rows)
 
-    def reconstruct_window(self,windowindex=None,line=None,redo=False):
-        #assertions not to call this function without initializing the L2 data either windowindex or line should be provided
+    def reconstruct_window(self, windowindex=None, line=None, redo=False):
+        # assertions not to call this function without initializing the L2 data either windowindex or line should be provided
         assert self.window_fit_df is not None, "init_L2_recall should be called first"
-        assert (windowindex is not None or line is not None) and not (windowindex is not None and line is not None), "either windowindex or line should be provided"
-        
-        #find the EXTNAME of the window
+        assert (windowindex is not None or line is not None) and not (
+            windowindex is not None and line is not None), "either windowindex or line should be provided"
+
+        # find the EXTNAME of the window
         if windowindex is None:
             EXTNAME = line.headers['int']['L2WINDOW']
-            WINDEX = [1 if hdu.header['EXTNAME'] == EXTNAME else 0 for hdu in self.L2_data].index(1)
-            #finding the FIT_ID of the sample line
+            WINDEX = [1 if hdu.header['EXTNAME'] ==
+                      EXTNAME else 0 for hdu in self.L2_data].index(1)
+            # finding the FIT_ID of the sample line
             FIT_ID = line.model_header['FIT_ID']
         else:
             EXTNAME = (self.L2_data[windowindex].header['EXTNAME'])
             WINDEX = windowindex
-        
+
             # finding at least on line that has the same EXTNAME
-            line = self.lines[[1 if (EXTNAME in (line.headers['int']['L2WINDOW'].split(',')))   else 0 for line in self.lines].index(1)]
-            #now finding the FIT_ID of the sample line
+            # line = self.lines[[1 if (EXTNAME in (line.headers['int']['L2WINDOW'].split(',')))   else 0 for line in self.lines].index(1)]
+            _list_indeces = [1 if (EXTNAME in (
+                line.headers['int']['L2WINDOW'].split(','))) else 0 for line in self.lines]
+            if np.all(np.array(_list_indeces) == 0):
+                self._vprint(
+                    -1, f"Couldn't find any line that was fit from the L2 window {EXTNAME} it is left empty and later it will raise error if you try to plot pixels from this window")
+                return None
+            else:
+                line = self.lines[_list_indeces.index(1)]
+            # now finding the FIT_ID of the sample line
             FIT_ID = line.model_header['FIT_ID']
-        #getting the model
+        # getting the model
         model = line.model
         len_model = len(model.get_unlock_params())
-        # model = ModelFactory.from_hdu(line._FIT_MODEL[1]      
+        # model = ModelFactory.from_hdu(line._FIT_MODEL[1]
         needed_lines = self.window_fit_df.query("FIT_ID == @FIT_ID")
         if self.params_matrix is not None and FIT_ID in self.params_matrix and not redo:
-            # the code to print in red color is \033[91m and the code to reset the color is \033[0m
             # print(f"\033[91mThe window {FIT_ID} is already reconstructed if you want to redo it set redo=True\033[0m")
-            colored_text(f"The window {FIT_ID} is already reconstructed if you want to redo it set redo=True","yellow")
+            colored_text(
+                f"The window {FIT_ID} is already reconstructed if you want to redo it set redo=True", "yellow")
             return needed_lines
-        data = np.empty(([len_model,*line["int"].shape]),dtype=float)*0
-        
+        data = np.empty(([len_model, *line["int"].shape]), dtype=float)*0
+
         for row in needed_lines.iterrows():
             if row[1]["FILE_TYPE"] == "line":
-                _line = self.lines[row[1]["LINE_ARG"]]
+                _line = self.lines[int(row[1]["LINE_ARG"])]
                 order = [int(i) for i in (row[1]["ORDER"]).split(',')]
                 keys = list(_line._all.keys())
                 for ind in range(len(order)):
                     data[order[ind]] = _line[keys[ind]]
                 L2window_index = _line.headers['int']['L2WINDOW'].split(",")
             elif row[1]["FILE_TYPE"] == "background":
-                _background = self.backgrounds[row[1]["LINE_ARG"]]
+                _background = self.backgrounds[(row[1]["LINE_ARG"])]
                 order = [int(i) for i in (row[1]["ORDER"]).split(',')]
                 for ind in range(len(order)):
                     data[order[ind]] = _background[ind].data[0]
                 L2window_index = _background[ind].header['L2WINDOW'].split(",")
-                    
+
             self.params_matrix[FIT_ID] = {
-                'data':data,
-                'model':model,
-                'L2window_name':L2window_index,
+                'data': data,
+                'model': model,
+                'L2window_name': L2window_index,
                 'L2window_index': [[hdu.header['EXTNAME'] for hdu in self.L2_data].index(L2window_index_) for L2window_index_ in L2window_index],
-                }
+            }
         return needed_lines
-    
-    def reconstruct_raster(self,redo=False):
+
+    def reconstruct_raster(self, redo=False):
         unq = get_extnames(self.L2_data)
-        for window_index,EXTNAME in enumerate(unq):
-            self.reconstruct_window(window_index,redo=redo)
+        for window_index, EXTNAME in enumerate(unq):
+            self.reconstruct_window(window_index, redo=redo)
 
     def plot_pixels(self, list_indices, window_index, axis=None):
         """
@@ -1654,22 +1727,24 @@ class SPICEL3Raster:
         FIT_ID = self._get_fit_id(window_index)
         involved_windows = self.params_matrix[FIT_ID]['L2window_index']
         if len(involved_windows) > 1:
-            colored_text("The fit is involved in more than one window\nNot plotting them all", "green")
+            colored_text(
+                "The fit is involved in more than one window\nNot plotting them all", "green")
 
         # Validate list_indices shape
-        assert len(list_indices.shape) == 2 and list_indices.shape[1] in [2,3], "list_indices should be of shape N,2 or N,3"
+        assert len(list_indices.shape) == 2 and list_indices.shape[1] in [
+            2, 3], "list_indices should be of shape N,2 or N,3"
 
         # Prepare axes
         fig, axes = self._prepare_axes(len(list_indices), axis)
 
         # Plot each pixel using _plot_pixel
-        print("L2 EXTNAME : ",self.L2_data[window_index].header['EXTNAME'])
-        print("L2 FIT_ID : ",FIT_ID)
-        print("L2 window index : ",involved_windows)
+        print("L2 EXTNAME : ", self.L2_data[window_index].header['EXTNAME'])
+        print("L2 FIT_ID : ", FIT_ID)
+        print("L2 window index : ", involved_windows)
         for ind, index in enumerate(list_indices):
-            self._plot_pixel(index, window_index, FIT_ID, axes[ind]) 
+            self._plot_pixel(index, window_index, FIT_ID, axes[ind])
         return axes
-    
+
     def plot_random_pixels(self, num_lines, window_index, axis=None, exclude_nans=True):
         """
         Plot a random selection of pixel fits from a given window.
@@ -1682,8 +1757,9 @@ class SPICEL3Raster:
         """
         # Get the data for the window and the corresponding FIT_ID
         FIT_ID = self._get_fit_id(window_index)
-        params_data = self.params_matrix[FIT_ID]['data']  # Shape: (num_params, y, x)
-        
+        # Shape: (num_params, y, x)
+        params_data = self.params_matrix[FIT_ID]['data']
+
         # Get the data for the window
         hdu = self.convoluted_L2_data[window_index]
         data = hdu.data  # Shape: (spectra, y, x)
@@ -1691,12 +1767,15 @@ class SPICEL3Raster:
         # Efficiently generate all indices using NumPy
         y_size, x_size = data.shape[2:]  # Assume shape is (spectra, y, x)
         t_size = data.shape[0]
-        t_coords, y_coords, x_coords = np.meshgrid(np.arange(t_size), np.arange(y_size), np.arange(x_size), indexing='ij')
-        all_indices = np.stack((t_coords.ravel(), y_coords.ravel(), x_coords.ravel()), axis=-1)  # Shape: (total_pixels, 2)
+        t_coords, y_coords, x_coords = np.meshgrid(
+            np.arange(t_size), np.arange(y_size), np.arange(x_size), indexing='ij')
+        all_indices = np.stack((t_coords.ravel(), y_coords.ravel(
+        ), x_coords.ravel()), axis=-1)  # Shape: (total_pixels, 2)
         # print(t_coords.shape, y_coords.shape, x_coords.shape)
         if exclude_nans:
             # Create a mask for NaN values and filter indices
-            nan_mask = ~np.any(np.isnan(params_data), axis=0).ravel()  # Shape: (total_pixels,)
+            # Shape: (total_pixels,)
+            nan_mask = ~np.any(np.isnan(params_data), axis=0).ravel()
             # print(params_data.shape)
             # print(all_indices.shape)
             all_indices = all_indices[nan_mask]
@@ -1707,17 +1786,17 @@ class SPICEL3Raster:
         )
 
         # Randomly select `num_lines` indices
-        random_indices = all_indices[np.random.choice(len(all_indices), num_lines, replace=False)]
+        random_indices = all_indices[np.random.choice(
+            len(all_indices), num_lines, replace=False)]
 
         # Convert to list of tuples for compatibility with `plot_pixels`
         random_indices = [tuple(index) for index in random_indices]
 
         # Call `plot_pixels` with the random indices
-        self.plot_pixels(random_indices, window_index, axis=axis)
-    
-    
+        axes = self.plot_pixels(random_indices, window_index, axis=axis)
+        return axes, random_indices,
 
-    def _prepare_axes(self,num_plots, axis=None):
+    def _prepare_axes(self, num_plots, axis=None):
         """
         Prepare axes for plotting.
 
@@ -1739,7 +1818,6 @@ class SPICEL3Raster:
         else:
             return None, axis
 
-
     def _get_fit_id(self, window_index):
         """
         Get the FIT_ID corresponding to a window index.
@@ -1751,10 +1829,11 @@ class SPICEL3Raster:
             str: The FIT_ID for the given window index.
         """
         FIT_IDs = list(self.params_matrix.keys())
-        window_indices = [self.params_matrix[FIT_ID]['L2window_index'] for FIT_ID in FIT_IDs]
-        FIT_ID = FIT_IDs[[1 if window_index in windex else 0 for windex in window_indices].index(1)]
+        window_indices = [self.params_matrix[FIT_ID]
+                          ['L2window_index'] for FIT_ID in FIT_IDs]
+        FIT_ID = FIT_IDs[[
+            1 if window_index in windex else 0 for windex in window_indices].index(1)]
         return FIT_ID
-
 
     def _plot_pixel(self, index, window_index, FIT_ID, ax):
         """
@@ -1766,55 +1845,62 @@ class SPICEL3Raster:
             FIT_ID (str): Identifier for the fitting model.
             ax (matplotlib axis): Axis to plot on.
         """
-        if True:#Get the data
+        if True:  # Get the data
             hdu = self.convoluted_L2_data[window_index]
             specaxis = get_specaxis(hdu)
-            if index.shape[0]==3:
+            if index.shape[0] == 3:
                 data = hdu.data[index[0], :, index[1], index[2]]
             else:
                 data = hdu.data[0, :, index[0], index[1]]
-            
-            param_dim= len(self.params_matrix[FIT_ID]['data'].shape[1:])
-            if param_dim == index.shape[0] :
-                params = self.params_matrix[FIT_ID]['data'][:,*index]
+
+            param_dim = len(self.params_matrix[FIT_ID]['data'].shape[1:])
+            if param_dim == index.shape[0]:
+                params = self.params_matrix[FIT_ID]['data'][:, *index]
             elif param_dim == 2 and index.shape[0] == 3:
-                params = self.params_matrix[FIT_ID]['data'][:,*index[1:]]
+                params = self.params_matrix[FIT_ID]['data'][:, *index[1:]]
             elif param_dim == 3 and index.shape[0] == 2:
-                params = self.params_matrix[FIT_ID]['data'][:,0,*index]
+                params = self.params_matrix[FIT_ID]['data'][:, 0, *index]
             else:
-                raise ValueError("The index shape doesn't match the data shape")
-            
-            
+                raise ValueError(
+                    "The index shape doesn't match the data shape")
+
             model = self.params_matrix[FIT_ID]['model']
             function = model.callables['function']
             lock_params = model.get_lock_params(params)
             quentities = model.get_unlock_quentities()
             fitted_values = function(specaxis, *lock_params)
-            fitted_values[np.isnan(data)] = np.nan  # Ensure fitted values match data NaNs 
+            # Ensure fitted values match data NaNs
+            fitted_values[np.isnan(data)] = np.nan
 
         ax.step(specaxis, data, ls='--', color='black', where='mid')
         ax.plot(specaxis, fitted_values, color='red')
-        for param in params[quentities=="x"]:
-            if np.nanmin(specaxis)<=param<=np.nanmax(specaxis):
-                ax.axvline(param,ls=':',color='blue')
-        for param in params[quentities=="B0"]:
-                ax.axhline(param,ls=':',color='green')
+        for param in params[quentities == "x"]:
+            if np.nanmin(specaxis) <= param <= np.nanmax(specaxis):
+                ax.axvline(param, ls=':', color='blue')
+        for param in params[quentities == "B0"]:
+            ax.axhline(param, ls=':', color='green')
         ax.set_title(f"index: {index}")
-    
-    #define larger and smaller than based on wether the date is after or before the data of the other
+
+    # define larger and smaller than based on wether the date is after or before the data of the other
     def __lt__(self, other):
         return self.lines[0].obs_date < other.lines[0].obs_date
+
     def __le__(self, other):
         return self.lines[0].obs_date <= other.lines[0].obs_date
+
     def __eq__(self, other):
         return self.lines[0].obs_date == other.lines[0].obs_date
+
     def __ne__(self, other):
         return self.lines[0].obs_date != other.lines[0].obs_date
+
     def __gt__(self, other):
         return self.lines[0].obs_date > other.lines[0].obs_date
+
     def __ge__(self, other):
         return self.lines[0].obs_date >= other.lines[0].obs_date
-    
+
+
 def get_celestial_L3(raster, **kwargs):
     if type(raster) == HDUList:
 
@@ -1882,7 +1968,8 @@ def filePath_manager(data_dir):
     for ind_ID, ID in enumerate(IDset):
         file_cluster.append([])
         filesByID = [file for file in files if file[42:51] in ID]
-        ionIDset = set([file[73:-9] for file in filesByID if "B" not in file[73:-9]])
+        ionIDset = set([file[73:-9]
+                       for file in filesByID if "B" not in file[73:-9]])
         ionIDset = list(ionIDset)
         ionIDset.sort()
         for ionID in ionIDset:
