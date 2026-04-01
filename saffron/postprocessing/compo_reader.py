@@ -1876,9 +1876,18 @@ class SPICEL3Raster:
         ax.plot(specaxis, fitted_values, color='red')
         for param in params[quentities == "x"]:
             if np.nanmin(specaxis) <= param <= np.nanmax(specaxis):
-                ax.axvline(param, ls=':', color='blue')
-        for param in params[quentities == "B0"]:
-            ax.axhline(param, ls=':', color='green')
+                ax.axvline(param, ls=':', color='blue', zorder=-1)
+        # for param in params[quentities == "B0"]:
+        #     ax.axhline(param, ls=':', color='green')
+        # plot the background only
+        # poly = sum(p * specaxis**int(q[1:])
+                #    for p, q in zip(params, quentities) if q.startswith("B"))
+        params_bg = [p if q.startswith(
+            "B") else 0 for p, q in zip(params, quentities)]
+        bg = model.callables["function"](
+            specaxis, *model.get_lock_params(unlocked_params=params_bg))
+        ax.plot(specaxis, bg, color='green', zorder=-1)
+
         ax.set_title(f"index: {index}")
 
     # define larger and smaller than based on wether the date is after or before the data of the other

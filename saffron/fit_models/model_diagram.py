@@ -2259,7 +2259,6 @@ def _format_ion_label(ion_text: Any) -> str:
         roman_charge = roman.toRoman(int(charge)).lower()
     except Exception:
         roman_charge = str(charge).lower()
-
     if mpl.rcParams.get("text.usetex", False):
         return rf"{element}\,\bfseries{{\textsc{{{roman_charge}}}}}"
 
