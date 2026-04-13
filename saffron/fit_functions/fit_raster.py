@@ -1223,22 +1223,32 @@ class WindowFit:
                         if shape[dim] < size[dim]:
                             size[dim] = shape[dim]
                     expanded_convolution_list[i] = size
-            self.conv_data = convolve_4D(
+            # self.conv_data = convolve_4D(
+            #     window=self.clean_data,
+            #     mode=self.mode,
+            #     convolution_extent_list=expanded_convolution_list,
+            # )
+            # self.conv_sigma = convolve_4D(
+            #     window=self.sigma**2,
+            #     mode=self.mode,
+            #     convolution_extent_list=expanded_convolution_list
+            # )
+            # self.conv_sigma = np.sqrt(self.conv_sigma)
+
+            # for i in range(self.conv_sigma.shape[0]):
+            #     self.conv_sigma[i] *= 1 / \
+            #         np.sqrt(np.prod(expanded_convolution_list[i]))
+            #     self.conv_sigma[i][np.isnan(self.clean_data)] = np.nan
+            from ..utils.nan_convolution import convolve_4D_nan_aware
+            self.conv_data, self.conv_sigma = convolve_4D_nan_aware(
                 window=self.clean_data,
+                sigma=self.sigma,
                 mode=self.mode,
                 convolution_extent_list=expanded_convolution_list,
+                min_valid_fraction=0.5,
+                verbose=self.verbose,
+                drop_reflect_boundaries=True,
             )
-            self.conv_sigma = convolve_4D(
-                window=self.sigma**2,
-                mode=self.mode,
-                convolution_extent_list=expanded_convolution_list
-            )
-            self.conv_sigma = np.sqrt(self.conv_sigma)
-
-            for i in range(self.conv_data.shape[0]):
-                self.conv_data[i] *= 1 / \
-                    np.sqrt(np.prod(expanded_convolution_list[i]))
-                self.conv_data[i][np.isnan(self.clean_data)] = np.nan
 
             self.has_treated["convolve"] = True
             if self.verbose >= 1:
