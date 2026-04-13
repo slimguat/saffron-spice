@@ -23,6 +23,7 @@ import pandas as pd
 from saffron.fit_models import ModelFactory
 import warnings
 from astropy.units import UnitsWarning
+from ..utils.nan_convolution import convolve_4D_nan_aware
 
 # from euispice_coreg.hdrshift.alignment import Alignment
 # from euispice_coreg.plot.plot import PlotFunctions
@@ -1567,14 +1568,23 @@ class SPICEL3Raster:
             self.convoluted_L2_data = HDUListClone.from_hdulist(self.L2_data)
             self.L2_data = copy.deepcopy(self.convoluted_L2_data)
             for ind in range(len(get_extnames(hdul))):
-                conv_data = convolve_4D(
+                conv_data, _ = convolve_4D_nan_aware(
                     window=hdul[ind].data.copy(),
+                    sigma=None,
                     mode="box",
                     convolution_extent_list=expanded_convolution_list,
+                    min_valid_fraction=0.5,
+                    verbose=self.verbose,
+                    drop_reflect_boundaries=True,
                 )
-                conv_data[0] *= 1 / \
-                    np.sqrt(np.prod(expanded_convolution_list[i]))
-                conv_data[0][np.isnan(hdul[ind].data)] = np.nan
+                # conv_data = convolve_4D(
+                #     window=hdul[ind].data.copy(),
+                #     mode="box",
+                #     convolution_extent_list=expanded_convolution_list,
+                # )
+                # conv_data[0] *= 1 / \
+                #     np.sqrt(np.prod(expanded_convolution_list[i]))
+                # conv_data[0][np.isnan(hdul[ind].data)] = np.nan
                 # hdul[ind].data = conv_data[0].copy()
                 self.convoluted_L2_data[ind].data = conv_data[0].copy()
 
