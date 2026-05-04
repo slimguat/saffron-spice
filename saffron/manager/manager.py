@@ -41,8 +41,8 @@ class Manager:
         self.clipping_iterations = 3
         self.mode = "box"
         self.conv_errors = {"I": 0.01, "x": 0.0001, "s": 0.01, "B": 100}
-        self.convolution_extent_list = np.array([0])
-        self.t_convolution_index = 0
+        self.convolution_extent_list = np.array([1])
+        self.t_convolution_index = 1
         self.save_data = True
         self.data_filename = "::SAMENAMEL2.5/con-::CONV_tcon-::TCONV/::SAMENAMEL2.5_::PARAMPLACEHOLDER_con.fits"
         self.data_save_dir = Path("./SAFFRON_results/")
@@ -86,6 +86,11 @@ class Manager:
             self.geninits_verbose = cfgd.get(
                 "geninits_verbose", self.geninits_verbose)
             self.fit_verbose = cfgd.get("fit_verbose", self.fit_verbose)
+            if np.any(self.convolution_extent_list <= 0):
+                raise ValueError(
+                    'convolution_extent_list must contain only positive values')
+            if self.t_convolution_index <= 0:
+                raise ValueError('t_convolution_index must be positive')
 
     def build_files_list(self):
         """

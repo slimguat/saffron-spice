@@ -23,7 +23,7 @@ import pandas as pd
 from saffron.fit_models import ModelFactory
 import warnings
 from astropy.units import UnitsWarning
-from ..utils.nan_convolution import convolve_4D_nan_aware
+from ..utils.nan_convolution import convolve_4D_nan_aware, get_expanded_convolution_list
 
 # from euispice_coreg.hdrshift.alignment import Alignment
 # from euispice_coreg.plot.plot import PlotFunctions
@@ -1522,46 +1522,21 @@ class SPICEL3Raster:
         else:
             self.L2_data = L2_data
         if isinstance(self.L2_data, (str, PosixPath, WindowsPath, pathlib.WindowsPath)):
-            # session = Manager()
-            # session.selected_fits = [self.L2_data]
-            # session.weights = False
-            # session.denoise = False
-            # session.convolution_extent_list = np.array([self.lines[0].headers['int']['con0']])
-            # session.fit_verbose = -2
-            # session.geninits_verbose = -2
-            # session.convolute = True
-            # # print(session)
-
-            # session.build_rasters()
-            # session.run_preparations()
-
-            convolution_extent_list = np.array(
-                [self.lines[0].headers['int']['con0']])
             hdul = copy.deepcopy(fits.open(self.L2_data))
-            expanded_convolution_list = np.empty(
-                [convolution_extent_list.shape[0], 4], dtype=int)
-            CDELT1 = hdul[0].header["CDELT1"]
-            CDELT2 = hdul[0].header["CDELT2"]
-            shape = hdul[0].data.shape
-            ratio = float(CDELT1/CDELT2)
-
-            for i in range(convolution_extent_list.shape[0]):
-                size = np.array(
-                    [
-                        1,  # TODO: why I added 6 here?
-                        1,
-                        1 + (convolution_extent_list[i]),
-                        (1 + convolution_extent_list[i]
-                         ) * np.nanmin([ratio, 1/ratio]),
-                    ],
-                    dtype=int,
-                )
-
-                for dim in range(len(size)):
-                    if shape[dim] < size[dim]:
-                        size[dim] = shape[dim]
-                expanded_convolution_list[i] = size
-            self._vprint(-1, f"size: {size}")
+            con_val = {int(key[3:]): item for key, item in self.lines[0].headers['int'].items(
+            ) if "con" == key.lower()[:3]}
+            convolution_extent_list = np.zeros(
+                max(con_val.keys())+1, dtype=int)
+            for key, value in con_val.items():
+                convolution_extent_list[key] = value
+            expanded_convolution_list = get_expanded_convolution_list(
+                convolution_extent_list=convolution_extent_list,
+                t_convolution_index=self.lines[0].headers['int'].get(
+                    't_con', 1),
+                data_shape=hdul[0].data.shape,
+                cdelt1=self.lines[0].headers['int']['cdelt1'],
+                cdelt2=self.lines[0].headers['int']['cdelt2'],
+            )
 
             self.L2_path = self.L2_data
             self.L2_data = fits.open(self.L2_data)
@@ -1577,23 +1552,7 @@ class SPICEL3Raster:
                     verbose=self.verbose,
                     drop_reflect_boundaries=True,
                 )
-                # conv_data = convolve_4D(
-                #     window=hdul[ind].data.copy(),
-                #     mode="box",
-                #     convolution_extent_list=expanded_convolution_list,
-                # )
-                # conv_data[0] *= 1 / \
-                #     np.sqrt(np.prod(expanded_convolution_list[i]))
-                # conv_data[0][np.isnan(hdul[ind].data)] = np.nan
-                # hdul[ind].data = conv_data[0].copy()
                 self.convoluted_L2_data[ind].data = conv_data[0].copy()
-
-            # self.L2_path = self.L2_data
-            # self.L2_data = fits.open(self.L2_data)
-            # self.convoluted_L2_data = copy.deepcopy(self.L2_data)
-            # for ind in range(len(get_extnames(self.L2_data))):
-            #     self.convoluted_L2_data[ind].data = session.rasters[0].windows[ind].conv_data[0].copy()
-
         else:
             raise Exception("L2_data should be a path to a fits file")
 

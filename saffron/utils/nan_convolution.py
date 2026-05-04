@@ -401,3 +401,107 @@ def convolve_4D_nan_aware(
             conv_sigma[kernel_index] = filtered_sigma
 
     return conv_data, conv_sigma
+
+
+def get_convolution_size(
+    convolution_extent: int,
+    t_convolution_index: int,
+    data_shape: tuple[int, ...],
+    cdelt1: float,
+    cdelt2: float,
+) -> np.ndarray:
+    """
+    Build the convolution size array for one convolution extent.
+
+    Parameters
+    ----------
+    convolution_extent : int
+        Requested convolution extent.
+    t_convolution_index : int
+        Convolution size along the time axis.
+    data_shape : tuple of int
+        Shape of the data array.
+    cdelt1 : float
+        Pixel scale along the first spatial axis.
+    cdelt2 : float
+        Pixel scale along the second spatial axis.
+
+    Returns
+    -------
+    np.ndarray
+        Integer array of shape (4,):
+        [t_convolution_index, 1, convolution_extent, matched_extent]
+    """
+    ratio = float(cdelt1 / cdelt2)
+
+    matched_extent = max(
+        1,
+        int(convolution_extent * min(ratio, 1.0 / ratio)),
+    )
+
+    size = np.array(
+        [
+            t_convolution_index,
+            1,
+            convolution_extent,
+            matched_extent,
+        ],
+        dtype=int,
+    )
+
+    for dim_index in range(len(size)):
+        if data_shape[dim_index] < size[dim_index]:
+            size[dim_index] = data_shape[dim_index]
+
+    if np.any(size <= 0):
+        raise ValueError(
+            f"Convolution size must be positive. "
+            f"Got size {size} for data shape {data_shape}."
+        )
+
+    return size
+
+
+def get_expanded_convolution_list(
+    convolution_extent_list: np.ndarray,
+    t_convolution_index: int,
+    data_shape: tuple[int, ...],
+    cdelt1: float,
+    cdelt2: float,
+) -> np.ndarray:
+    """
+    Build the convolution size array for all requested convolution extents.
+
+    Parameters
+    ----------
+    convolution_extent_list : np.ndarray
+        Array of requested convolution extents.
+    t_convolution_index : int
+        Convolution size along the time axis.
+    data_shape : tuple of int
+        Shape of the data array.
+    cdelt1 : float
+        Pixel scale along the first spatial axis.
+    cdelt2 : float
+        Pixel scale along the second spatial axis.
+
+    Returns
+    -------
+    np.ndarray
+        Integer array of shape (n_extents, 4).
+    """
+    expanded_convolution_list = np.empty(
+        (convolution_extent_list.shape[0], 4),
+        dtype=int,
+    )
+
+    for index, convolution_extent in enumerate(convolution_extent_list):
+        expanded_convolution_list[index] = get_convolution_size(
+            convolution_extent=convolution_extent,
+            t_convolution_index=t_convolution_index,
+            data_shape=data_shape,
+            cdelt1=cdelt1,
+            cdelt2=cdelt2,
+        )
+
+    return expanded_convolution_list

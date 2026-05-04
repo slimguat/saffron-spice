@@ -3,16 +3,18 @@ from ..utils.fits_clone import HDUClone, HDUListClone
 from ..utils.utils import (
     gen_shmm,
     Preclean,
-    Preclean,
     # convolve,
-    convolve_4D,
+    # convolve_4D,
     get_specaxis,
     flatten,
     # default_convolution_function,
-    get_extnames,
+    # get_extnames,
     get_data_raster,
-    colored_text
+    colored_text,
+    _vprint
 )
+
+from ..utils.nan_convolution import convolve_4D_nan_aware, get_convolution_size, get_expanded_convolution_list
 from ..utils.despike import despike_4D
 from ..utils.denoise import denoise_data
 from .fit_pixel import fit_pixel as fit_pixel_multi
@@ -1198,48 +1200,57 @@ class WindowFit:
                 print("already done")
             return
         elif self.convolute:
-            if True:
-                expanded_convolution_list = np.empty(
-                    [self.convolution_extent_list.shape[0], 4], dtype=int)
-                CDELT1 = self.hdu.header["CDELT1"] if isinstance(
-                    self.hdu, HDUClone) else self.hdu[0].header["CDELT1"]
-                CDELT2 = self.hdu.header["CDELT2"] if isinstance(
-                    self.hdu, HDUClone) else self.hdu[0].header["CDELT2"]
-                shape = self.hdu.data.shape if isinstance(
-                    self.hdu, HDUClone) else self.hdu[0].data.shape
-                ratio = float(CDELT1 / CDELT2)
-                for i in range(self.convolution_extent_list.shape[0]):
-                    size = np.array(
-                        [
-                            1 + self.t_convolution_index,
-                            1,
-                            1 + (self.convolution_extent_list[i]),
-                            (1 + self.convolution_extent_list[i]
-                             ) * np.nanmin([ratio, 1/ratio]),
-                        ],
-                        dtype=int,
-                    )
-                    for dim in range(len(size)):
-                        if shape[dim] < size[dim]:
-                            size[dim] = shape[dim]
-                    expanded_convolution_list[i] = size
-            # self.conv_data = convolve_4D(
-            #     window=self.clean_data,
-            #     mode=self.mode,
-            #     convolution_extent_list=expanded_convolution_list,
-            # )
-            # self.conv_sigma = convolve_4D(
-            #     window=self.sigma**2,
-            #     mode=self.mode,
-            #     convolution_extent_list=expanded_convolution_list
-            # )
-            # self.conv_sigma = np.sqrt(self.conv_sigma)
+            # if True:
+            #     expanded_convolution_list = np.empty(
+            #         [self.convolution_extent_list.shape[0], 4], dtype=int)
+            #     CDELT1 = self.hdu.header["CDELT1"] if isinstance(
+            #         self.hdu, HDUClone) else self.hdu[0].header["CDELT1"]
+            #     CDELT2 = self.hdu.header["CDELT2"] if isinstance(
+            #         self.hdu, HDUClone) else self.hdu[0].header["CDELT2"]
+            #     shape = self.hdu.data.shape if isinstance(
+            #         self.hdu, HDUClone) else self.hdu[0].data.shape
+            #     ratio = float(CDELT1 / CDELT2)
+            #     for i in range(self.convolution_extent_list.shape[0]):
+            #         size = np.array(
+            #             [
+            #                 self.t_convolution_index,
+            #                 1,
+            #                 self.convolution_extent_list[i],
+            #                 np.nanmax(
+            #                     1, int((self.convolution_extent_list[i]) * np.nanmin([ratio, 1/ratio]))),
+            #             ],
+            #             dtype=int,
+            #         )
+            #         # chceck convolution size is positive and not larger than the data shape
+            #         for dim in range(len(size)):
+            #             if shape[dim] < size[dim]:
+            #                 size[dim] = shape[dim]
+            #             if np.any(size <= 0):
+            #                 raise ValueError(
+            #                     f"Convolution size must be positive. Got size {size} for data shape {shape}."
+            #                 )
+            #         expanded_convolution_list[i] = size
 
-            # for i in range(self.conv_sigma.shape[0]):
-            #     self.conv_sigma[i] *= 1 / \
-            #         np.sqrt(np.prod(expanded_convolution_list[i]))
-            #     self.conv_sigma[i][np.isnan(self.clean_data)] = np.nan
-            from ..utils.nan_convolution import convolve_4D_nan_aware
+            if isinstance(self.hdu, HDUClone):
+                cdelt1 = self.hdu.header["CDELT1"]
+                cdelt2 = self.hdu.header["CDELT2"]
+                data_shape = self.hdu.data.shape
+            else:
+                cdelt1 = self.hdu[0].header["CDELT1"]
+                cdelt2 = self.hdu[0].header["CDELT2"]
+                data_shape = self.hdu[0].data.shape
+
+            expanded_convolution_list = get_expanded_convolution_list(
+                convolution_extent_list=self.convolution_extent_list,
+                t_convolution_index=self.t_convolution_index,
+                data_shape=data_shape,
+                cdelt1=cdelt1,
+                cdelt2=cdelt2,
+            )
+
+            _vprint(self.verbose, 2, "Expanded convolution list generated.")
+            _vprint(self.verbose, 2,
+                    f"Expanded convolution list: {expanded_convolution_list}")
             self.conv_data, self.conv_sigma = convolve_4D_nan_aware(
                 window=self.clean_data,
                 sigma=self.sigma,
@@ -1655,6 +1666,7 @@ class WindowFit:
                     headers[j]["WAVEUNIT"] = "Angstrom"
                     for k, con in enumerate(self.convolution_extent_list):
                         headers[j][f"con{k}"] = con
+                    headers[j]["t_con"] = self.t_convolution_index
 
                 headers[0]["BTYPE"] = I_BTYPE
                 headers[0]["BUNIT"] = I_BUNIT

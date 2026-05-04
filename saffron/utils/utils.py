@@ -42,7 +42,7 @@ from pathlib import Path, PosixPath, WindowsPath
 
 from pathlib import Path, WindowsPath, PosixPath
 from sunpy.map import GenericMap
-import astropy 
+import astropy
 from astropy.coordinates import SkyCoord
 from astropy import units as u
 from astropy.units.quantity import Quantity
@@ -52,16 +52,55 @@ import colorama
 import matplotlib.dates as mdates
 from matplotlib.colors import Normalize
 
+
+def _vprint(verbose: int, level: int, *args, **kwargs) -> None:
+    """
+    Print a message at a given verbosity level, prefixed by a label.
+
+    Parameters
+    ----------
+    verbose : int
+        Current verbosity setting.
+    level : int
+        The threshold level for this message:
+          -1 → "Warning"
+           0 → "Info"
+           1 → "Verbose"
+           2 → "Debug"
+           3 → "Debug_Plot"
+           4 → "Debug_Plot_Save"
+    *args, **kwargs
+        Passed to built-in print() after the prefix.
+    """
+    if verbose < level:
+        return
+
+    # Map levels to human-readable labels
+    labels = {
+        -1: ("Warning", "\033[91m"),  # bright red
+        #  0: ("Info", "\033[96m"),         # cyan
+        0: ("Info", "\033[0m"),  # default
+        1: ("Verbose", "\033[92m"),  # green
+        2: ("Debug", "\033[90m"),  # faint gray
+        3: ("Debug_Plot", "\033[90m"),
+        4: ("Debug_Plot", "\033[90m"),
+    }
+    prefix, color = labels.get(level, (f"Level_{level}", "\033[0m"))
+    reset = "\033[0m"
+    print(f"{color}[{prefix}]{reset}", *args, **kwargs)
+
+
 def colored_text(text, color):
     """
     Display colored text dynamically based on the environment (Jupyter or standard terminal).
-    
+
     Parameters:
         text (str): The text to display.
         color (str): The color name (e.g., 'red', 'green', 'blue') or a hex code (e.g., '#FF0000').
     """
     print(text)
     return
+
     def is_hex_color(c):
         """Check if the string is a valid hex color."""
         if c.startswith("#") and len(c) == 7:
@@ -90,16 +129,19 @@ def colored_text(text, color):
             # Jupyter Notebook, Google Colab, or Embedded Shell
             from IPython.display import HTML, display
             if is_hex_color(color):
-                display(HTML(f'<span style="color: {color}; font-weight: bold;">{text}</span>'))
+                display(
+                    HTML(f'<span style="color: {color}; font-weight: bold;">{text}</span>'))
             else:
-                display(HTML(f'<span style="color: {color}; font-weight: bold;">{text}</span>'))
+                display(
+                    HTML(f'<span style="color: {color}; font-weight: bold;">{text}</span>'))
         else:
             raise NameError("Not a Jupyter-like environment")
     except NameError:
         # Standard terminal or non-Jupyter environment
         try:
             from colorama import Fore, Style, init
-            init(autoreset=True)  # Initialize Colorama for Windows compatibility
+            # Initialize Colorama for Windows compatibility
+            init(autoreset=True)
 
             if is_hex_color(color):
                 # Use the enhanced hex-to-ANSI function for terminals
@@ -116,116 +158,141 @@ def colored_text(text, color):
                     'white': Fore.WHITE,
                     'black': Fore.BLACK,
                 }
-                print(colors.get(color.lower(), Fore.WHITE) + text + Style.RESET_ALL)
+                print(colors.get(color.lower(), Fore.WHITE) +
+                      text + Style.RESET_ALL)
         except ImportError:
             # Fallback if colorama is not available
             print(text)
 
-if True: #FOV functions
-  def draw_FOV(obj_map:Map):
-      
-      pix_vertices = np.array([
-          [0                    ,0                    ],
-          [0                    ,obj_map.data.shape[1]],
-          [obj_map.data.shape[0],obj_map.data.shape[1]],
-          [obj_map.data.shape[0],0                    ],
-      ])
-      
-      hlp_vertices =np.array(obj_map.wcs.wcs_pix2world(pix_vertices[:,1],pix_vertices[:,0],0))
-      
-      # Draw the rectangle around the FOV
-      hlp_vertices[hlp_vertices>180 ] -= 360
-      hlp_vertices[hlp_vertices<-180] += 360
-      hlp_vertices*=3600
-          
-      polygon = gen_polygone(
-          vertices = hlp_vertices.T
-          ,unit=u.arcsec
-          )
-      polySkycoord = SkyCoord(polygon[0],polygon[1],
-                          frame=obj_map.coordinate_frame)
-      return polySkycoord 
-  def gen_polygone(vertices,point_num_per_side=100,unit=1):
-      X,Y = [],[]
-      vertices = [*vertices]
-      vertices.append(vertices[0])
-      for i in range(1,len(vertices)):
-          x,y = gen_line(vertices[i-1],vertices[i],num=point_num_per_side,unit=1)
-          X.extend(list(x.copy()))
-          Y.extend(list(y.copy()))
-      try: return X*unit,Y*unit
-      except: return [x *unit for x in X],[y *unit for y in Y]
-  def gen_line(start,end,num=100,unit=1):
-      
-      a = (start[1]-end[1])/(start[0]-end[0]) 
-      b = start[1] - a*start[0]
-      x = np.linspace(start[0],end[0],num=num)
-      y = a*x+b
-      if np.isnan(y).any():
-          y,x = gen_line(start[::-1],end[::-1],num=num,unit=unit) 
-          
-      return x*unit,y*unit
 
-if True: #reduce map functions
-  def get_corner_HLP(FOV,outer_rectangle=True):
-      min_lon_arcsec = np.min(FOV.spherical.lon.arcsec)
-      max_lon_arcsec = np.max(FOV.spherical.lon.arcsec)
-      min_lat_arcsec = np.min(FOV.spherical.lat.arcsec)
-      max_lat_arcsec = np.max(FOV.spherical.lat.arcsec)
-      
-      if not outer_rectangle:
-          side_size= FOV.spherical.lon.arcsec.shape[0]//4
-          min_lon_arcsec  = np.max(FOV.spherical.lon.arcsec[3*side_size:3*side_size+99])
-          max_lon_arcsec  = np.min(FOV.spherical.lon.arcsec[1*side_size:1*side_size+99])
-          min_lat_arcsec  = np.max(FOV.spherical.lat.arcsec[0*side_size:0*side_size+99])
-          max_lat_arcsec  = np.min(FOV.spherical.lat.arcsec[2*side_size:2*side_size+99])
-          
-      corners = SkyCoord([min_lon_arcsec,min_lon_arcsec,max_lon_arcsec,max_lon_arcsec]*u.arcsec,
-                  [min_lat_arcsec,max_lat_arcsec,max_lat_arcsec,min_lat_arcsec]*u.arcsec,
-                  frame=FOV.frame)
-      return  corners
-  def get_lims(coords:SkyCoord,map):
-    """For Sunpy maps"""
-    xlim_pix1, ylim_pix1 = get_frame(
-        [min(coords.spherical.lon.arcsec), 
-        max(coords.spherical.lon.arcsec)]*u.arcsec,
-        [min(coords.spherical.lat.arcsec), 
-        max(coords.spherical.lat.arcsec)]*u.arcsec,
-        map=map)
-    return xlim_pix1, ylim_pix1
-  def get_frame(xlims_world=[0,0]*u.arcsec,ylims_world=[0,0]*u.arcsec,map=None):
-    try:
-        world_coords = SkyCoord(Tx=xlims_world, Ty=ylims_world, frame=map.coordinate_frame)
-    except:
-        world_coords = SkyCoord(lon=xlims_world, lat=ylims_world, frame=map.coordinate_frame)
+if True:  # FOV functions
+    def draw_FOV(obj_map: Map):
 
-    pixel_coords = map.world_to_pixel(world_coords)
+        pix_vertices = np.array([
+            [0, 0],
+            [0, obj_map.data.shape[1]],
+            [obj_map.data.shape[0], obj_map.data.shape[1]],
+            [obj_map.data.shape[0], 0],
+        ])
 
-    # we can then pull out the x and y values of these limits.
-    xlims_pixel = pixel_coords.x.value
-    ylims_pixel = pixel_coords.y.value
-    return xlims_pixel,ylims_pixel
-  def reduce_largeMap_SmallMapFOV(large_map,small_map,offset = None):
-      FOV = draw_FOV(small_map)
-      FOV_small_inlarge = FOV.transform_to(large_map.coordinate_frame)
-      small_corners_inlarge = get_corner_HLP(FOV_small_inlarge)
-      xlim, ylim = get_lims(small_corners_inlarge, large_map)
-      if type(offset) is not dict: offset = {"left":offset[0],"right":offset[0],"top":offset[1],"bottom":offset[1]}
-      # print(u.arcsec if isinstance(offset["left"],Quantity) else 1)
-      # print(1*(u.arcsec if isinstance(offset["left"],Quantity) else 1)).to(u.arcsec)
-      submap_bottom_left = SkyCoord(
-          np.min(FOV_small_inlarge.spherical.lon.arcsec)*u.arcsec + ((offset["left"]*(u.arcsec if not isinstance(offset["left"],Quantity) else 1)).to(u.arcsec) if offset is not None else 0),
-          np.min(FOV_small_inlarge.spherical.lat.arcsec)*u.arcsec + ((offset["bottom"]*(u.arcsec if not isinstance(offset["bottom"],Quantity) else 1)).to(u.arcsec) if offset is not None else 0),
-          frame = large_map.coordinate_frame,
-          )
-      submap_top_right   = SkyCoord(
-          np.max(FOV_small_inlarge.spherical.lon.arcsec)*u.arcsec + ((offset["right"]*(u.arcsec if not isinstance(offset["left"],Quantity) else 1)).to(u.arcsec) if offset is not None else 0),
-          np.max(FOV_small_inlarge.spherical.lat.arcsec)*u.arcsec + ((offset["top"]*(u.arcsec if not isinstance(offset["left"],Quantity) else 1)).to(u.arcsec) if offset is not None else 0),
-          frame = large_map.coordinate_frame,
-      )
-      
-      sublarge_map = large_map.submap(submap_bottom_left, top_right = submap_top_right)
-      return sublarge_map
+        hlp_vertices = np.array(obj_map.wcs.wcs_pix2world(
+            pix_vertices[:, 1], pix_vertices[:, 0], 0))
+
+        # Draw the rectangle around the FOV
+        hlp_vertices[hlp_vertices > 180] -= 360
+        hlp_vertices[hlp_vertices < -180] += 360
+        hlp_vertices *= 3600
+
+        polygon = gen_polygone(
+            vertices=hlp_vertices.T, unit=u.arcsec
+        )
+        polySkycoord = SkyCoord(polygon[0], polygon[1],
+                                frame=obj_map.coordinate_frame)
+        return polySkycoord
+
+    def gen_polygone(vertices, point_num_per_side=100, unit=1):
+        X, Y = [], []
+        vertices = [*vertices]
+        vertices.append(vertices[0])
+        for i in range(1, len(vertices)):
+            x, y = gen_line(vertices[i-1], vertices[i],
+                            num=point_num_per_side, unit=1)
+            X.extend(list(x.copy()))
+            Y.extend(list(y.copy()))
+        try:
+            return X*unit, Y*unit
+        except:
+            return [x * unit for x in X], [y * unit for y in Y]
+
+    def gen_line(start, end, num=100, unit=1):
+
+        a = (start[1]-end[1])/(start[0]-end[0])
+        b = start[1] - a*start[0]
+        x = np.linspace(start[0], end[0], num=num)
+        y = a*x+b
+        if np.isnan(y).any():
+            y, x = gen_line(start[::-1], end[::-1], num=num, unit=unit)
+
+        return x*unit, y*unit
+
+if True:  # reduce map functions
+    def get_corner_HLP(FOV, outer_rectangle=True):
+        min_lon_arcsec = np.min(FOV.spherical.lon.arcsec)
+        max_lon_arcsec = np.max(FOV.spherical.lon.arcsec)
+        min_lat_arcsec = np.min(FOV.spherical.lat.arcsec)
+        max_lat_arcsec = np.max(FOV.spherical.lat.arcsec)
+
+        if not outer_rectangle:
+            side_size = FOV.spherical.lon.arcsec.shape[0]//4
+            min_lon_arcsec = np.max(
+                FOV.spherical.lon.arcsec[3*side_size:3*side_size+99])
+            max_lon_arcsec = np.min(
+                FOV.spherical.lon.arcsec[1*side_size:1*side_size+99])
+            min_lat_arcsec = np.max(
+                FOV.spherical.lat.arcsec[0*side_size:0*side_size+99])
+            max_lat_arcsec = np.min(
+                FOV.spherical.lat.arcsec[2*side_size:2*side_size+99])
+
+        corners = SkyCoord([min_lon_arcsec, min_lon_arcsec, max_lon_arcsec, max_lon_arcsec]*u.arcsec,
+                           [min_lat_arcsec, max_lat_arcsec,
+                               max_lat_arcsec, min_lat_arcsec]*u.arcsec,
+                           frame=FOV.frame)
+        return corners
+
+    def get_lims(coords: SkyCoord, map):
+        """For Sunpy maps"""
+        xlim_pix1, ylim_pix1 = get_frame(
+            [min(coords.spherical.lon.arcsec),
+             max(coords.spherical.lon.arcsec)]*u.arcsec,
+            [min(coords.spherical.lat.arcsec),
+             max(coords.spherical.lat.arcsec)]*u.arcsec,
+            map=map)
+        return xlim_pix1, ylim_pix1
+
+    def get_frame(xlims_world=[0, 0]*u.arcsec, ylims_world=[0, 0]*u.arcsec, map=None):
+        try:
+            world_coords = SkyCoord(
+                Tx=xlims_world, Ty=ylims_world, frame=map.coordinate_frame)
+        except:
+            world_coords = SkyCoord(
+                lon=xlims_world, lat=ylims_world, frame=map.coordinate_frame)
+
+        pixel_coords = map.world_to_pixel(world_coords)
+
+        # we can then pull out the x and y values of these limits.
+        xlims_pixel = pixel_coords.x.value
+        ylims_pixel = pixel_coords.y.value
+        return xlims_pixel, ylims_pixel
+
+    def reduce_largeMap_SmallMapFOV(large_map, small_map, offset=None):
+        FOV = draw_FOV(small_map)
+        FOV_small_inlarge = FOV.transform_to(large_map.coordinate_frame)
+        small_corners_inlarge = get_corner_HLP(FOV_small_inlarge)
+        xlim, ylim = get_lims(small_corners_inlarge, large_map)
+        if type(offset) is not dict:
+            offset = {"left": offset[0], "right": offset[0],
+                      "top": offset[1], "bottom": offset[1]}
+        # print(u.arcsec if isinstance(offset["left"],Quantity) else 1)
+        # print(1*(u.arcsec if isinstance(offset["left"],Quantity) else 1)).to(u.arcsec)
+        submap_bottom_left = SkyCoord(
+            np.min(FOV_small_inlarge.spherical.lon.arcsec)*u.arcsec + ((offset["left"]*(
+                u.arcsec if not isinstance(offset["left"], Quantity) else 1)).to(u.arcsec) if offset is not None else 0),
+            np.min(FOV_small_inlarge.spherical.lat.arcsec)*u.arcsec + ((offset["bottom"]*(
+                u.arcsec if not isinstance(offset["bottom"], Quantity) else 1)).to(u.arcsec) if offset is not None else 0),
+            frame=large_map.coordinate_frame,
+        )
+        submap_top_right = SkyCoord(
+            np.max(FOV_small_inlarge.spherical.lon.arcsec)*u.arcsec + ((offset["right"]*(
+                u.arcsec if not isinstance(offset["left"], Quantity) else 1)).to(u.arcsec) if offset is not None else 0),
+            np.max(FOV_small_inlarge.spherical.lat.arcsec)*u.arcsec + ((offset["top"]*(u.arcsec if not isinstance(
+                offset["left"], Quantity) else 1)).to(u.arcsec) if offset is not None else 0),
+            frame=large_map.coordinate_frame,
+        )
+
+        sublarge_map = large_map.submap(
+            submap_bottom_left, top_right=submap_top_right)
+        return sublarge_map
+
 
 def gen_axes_side2side(
     row=1,
@@ -299,6 +366,7 @@ def gen_axes_side2side(
                     ax.set_yticklabels([])
     return axes
 
+
 def get_extnames(hdul: HDUList) -> List[str]:
     """
     Get a list of unique extension names from an HDUList, excluding specific extension names.
@@ -310,24 +378,26 @@ def get_extnames(hdul: HDUList) -> List[str]:
         List[str]: A list of unique extension names.
     """
     unq = [
-            hdu.header["EXTNAME"]
-            for hdu in hdul
-            if (hdu.header["EXTNAME"]
+        hdu.header["EXTNAME"]
+        for hdu in hdul
+        if (hdu.header["EXTNAME"]
             not in ["VARIABLE_KEYWORDS", "WCSDVARR"]
             and
             "SATPIXLIST" not in hdu.header["EXTNAME"]
             and
             "SPIKPIXLIST" not in hdu.header["EXTNAME"]
             )
-            #or use if hdu.is_image and hdu.header["EXTNAME"] != WCSDVARR
-        ]
+        # or use if hdu.is_image and hdu.header["EXTNAME"] != WCSDVARR
+    ]
     return unq
-    
+
+
 def get_data_raster(hdul: HDUList) -> List[np.ndarray]:
     unq = get_extnames(hdul)
-    raster = [hdu for hdu in hdul if hdu.header["EXTNAME"] in unq] 
-    return raster    
-    
+    raster = [hdu for hdu in hdul if hdu.header["EXTNAME"] in unq]
+    return raster
+
+
 def get_coord_mat(map, as_skycoord=False):
     res = sunpy.map.maputils.all_coordinates_from_map(map)
     if as_skycoord:
@@ -340,9 +410,11 @@ def get_coord_mat(map, as_skycoord=False):
         lat = res.lat.value
     return lon, lat
 
+
 def function_to_string(func):
     source_lines, _ = inspect.getsourcelines(func)
     return "".join(source_lines)
+
 
 def flatten(iterable):
     flattened = []
@@ -353,6 +425,7 @@ def flatten(iterable):
             flattened.append(item)
     return flattened
 
+
 def ArrToCode(arr):
     # Check if the input is a numpy array
     if not isinstance(arr, np.ndarray):
@@ -361,6 +434,7 @@ def ArrToCode(arr):
     arr_str = f"np.array({arr.tolist()})"
     arr_str = arr_str.replace("nan", "np.nan")
     return arr_str
+
 
 def prepare_filenames(
     prefix=None,
@@ -461,6 +535,7 @@ def prepare_filenames(
     # print(filename_a,filename_b,filename)
     return filename, filename_a, filename_b
 
+
 def clean_nans(
     xdata: np.ndarray,
     ydata: np.ndarray,
@@ -536,6 +611,7 @@ def clean_nans(
         sigma = 1 / (np.ones(len(clean_y)) / len(clean_y))
     return clean_x, clean_y, sigma
 
+
 @jit(nopython=True)
 def fst_neigbors(
     extent: float,
@@ -565,6 +641,7 @@ def fst_neigbors(
                 nm_list.append([n, m, s])
     return nm_list
 
+
 @jit(nopython=True)
 def join_px(data, i, j, ijc_list):
     res_px = float(0.0)
@@ -587,6 +664,7 @@ def join_px(data, i, j, ijc_list):
     else:
         return np.nan
 
+
 def _cv2blur(data, size):
     try:
         len(size)
@@ -597,8 +675,10 @@ def _cv2blur(data, size):
         data,
     )
     for i in range(data.shape[1]):
-        blured[0, i] = cv2.blur(data[0, i] * 1, size, borderType=cv2.BORDER_REFLECT_101)
+        blured[0, i] = cv2.blur(data[0, i] * 1, size,
+                                borderType=cv2.BORDER_REFLECT_101)
     return blured
+
 
 def get_specaxis(hdu: PrimaryHDU or ImageHDU) -> np.ndarray:
     """
@@ -616,13 +696,14 @@ def get_specaxis(hdu: PrimaryHDU or ImageHDU) -> np.ndarray:
     specaxis *= 10**10
     return specaxis
 
+
 def _sciunif(data, size):
     if not isinstance(size, Iterable):
         # len(size)
-        size = [1,1,size, size]
+        size = [1, 1, size, size]
     else:
         pass
-    
+
     blured = uniform_filter(data, size, mode="reflect")
     # print(size, blured.shape)
     return blured
@@ -672,8 +753,8 @@ def _sciunif(data, size):
 #         else:
 #             min_lat = np.min(np.where(np.logical_not(np.isnan(yNaN))))
 #             max_lat = np.max(np.where(np.logical_not(np.isnan(yNaN)))) + 1
-        
-        
+
+
 #         min_lat = min_lat + (size[1] // 2 + (1 if size[1] % 2 != 0 else 0))
 #         min_lon = min_lon + (size[2] // 2 + (1 if size[2] % 2 != 0 else 0))
 #         max_lat = max_lat - (size[1] // 2 + (1 if size[1] % 2 != 0 else 0))
@@ -688,39 +769,40 @@ def _sciunif(data, size):
 #         max_lon = np.max([max_lon, 0])
 #         max_tim = np.max([max_tim, 0])
 #         min_tim = np.min([min_tim, data.shape[0]-1])
-        
-        
+
+
 #         reclean_data[:            , i,  : min_lat - 1, :            ] = np.nan
 #         reclean_data[:            , i, :             , : min_lon - 1] = np.nan
 #         reclean_data[:            , i, max_lat + 1 : , :            ] = np.nan
 #         reclean_data[:            , i, :             , max_lon + 1 :] = np.nan
 #         reclean_data[: min_tim - 1, i, :             , :            ] = np.nan
 #         reclean_data[max_tim + 1 :, i, :             , :            ] = np.nan
-        
+
 
 #     return reclean_data
 
-def boundary_size(size,data_shape):
-  boundary = np.zeros((len(data_shape),2),dtype=int)
-  for ind in range(len(size)):
-    si = size[ind]
-    sh = data_shape[ind]
-    if si %2 == 0:
-      boundary[ind] = [si//2,sh-si//2+1]
-    else:
-      boundary[ind] = [(si-1)//2,sh-(si-1)//2]
-  return boundary
+def boundary_size(size, data_shape):
+    boundary = np.zeros((len(data_shape), 2), dtype=int)
+    for ind in range(len(size)):
+        si = size[ind]
+        sh = data_shape[ind]
+        if si % 2 == 0:
+            boundary[ind] = [si//2, sh-si//2+1]
+        else:
+            boundary[ind] = [(si-1)//2, sh-(si-1)//2]
+    return boundary
 
-def reNaN(raw_data,conv_data,mask_data,size):
-    boundaries = boundary_size(size,raw_data.shape)
-    naned_data = np.empty_like(conv_data,dtype=float)*np.nan
+
+def reNaN(raw_data, conv_data, mask_data, size):
+    boundaries = boundary_size(size, raw_data.shape)
+    naned_data = np.empty_like(conv_data, dtype=float)*np.nan
     # first we remove all the reflected data in the boudaries
-    slices = [slice(boundaries[ind][0],boundaries[ind][1]) for ind in range(len(size))]
+    slices = [slice(boundaries[ind][0], boundaries[ind][1])
+              for ind in range(len(size))]
     naned_data[*slices] = conv_data[*slices]
     # then we remove all the previous nan values
-    naned_data[mask_data<1] = np.nan
+    naned_data[mask_data < 1] = np.nan
     return naned_data
-
 
 
 @jit(nopython=True)
@@ -742,7 +824,7 @@ def convolve(
     lat_pixel_size,
     convolution_extent_list,
     convolution_function,
-    
+
     verbose=0,
 ):
     if verbose >= 1:
@@ -804,10 +886,13 @@ def convolve(
                     conv_data[i] = window.copy()
                     continue
                 else:
-                    conv_data[i] = reNaN(window, _sciunif(clean_window, size), size[1:])
+                    conv_data[i] = reNaN(window, _sciunif(
+                        clean_window, size), size[1:])
     else:
-        raise ValueError(f"mode:{mode} is not implemented or there is a misspelling")
+        raise ValueError(
+            f"mode:{mode} is not implemented or there is a misspelling")
     return conv_data
+
 
 def convolve_4D(
     window,
@@ -827,29 +912,33 @@ def convolve_4D(
         clean_window[np.isnan(clean_window)] = 0
         data_mask = np.ones_like(window)
         data_mask[np.isnan(window)] = 0
-        for i,size in enumerate(convolution_extent_list):
-            for j in size: 
-                if size[i]>window.shape[i]:
-                    colored_text(f'Warning:One of the dimentions of convolution kernel size {size} is larger than that of the window size {window.shape}','yellow')
+        for i, size in enumerate(convolution_extent_list):
+            for j in size:
+                if size[i] > window.shape[i]:
+                    colored_text(
+                        f'Warning:One of the dimentions of convolution kernel size {size} is larger than that of the window size {window.shape}', 'yellow')
                     break
             if verbose >= 2:
                 print("creating convolution list...")
                 print(f"convolving with size {size}")
-            if (np.array(size)==1).all():
+            if (np.array(size) == 1).all():
                 conv_data[i] = window.copy()
                 continue
             else:
-                blured = _sciunif(clean_window[:,:,:,:], size)
-                blured_mask = _sciunif(data_mask[:,:,:,:], size)
+                blured = _sciunif(clean_window[:, :, :, :], size)
+                blured_mask = _sciunif(data_mask[:, :, :, :], size)
                 # print(blured.shape,conv_data[j].shape)
                 # conv_data[i] = reNaN(window, blured, [size[0],size[2],size[3]])
-                conv_data[i] = reNaN(window, blured,blured_mask, size)
-                
+                conv_data[i] = reNaN(window, blured, blured_mask, size)
+
     else:
-        raise ValueError(f"mode:{mode} is not implemented or there is a misspelling")
+        raise ValueError(
+            f"mode:{mode} is not implemented or there is a misspelling")
     return conv_data
 
 # @jit(nopython=True) #not tryed yet
+
+
 def Preclean(cube):
     cube2 = cube.copy()
     # logic=np.logical_or(np.isinf(cube2),cube2<-10**10)
@@ -871,7 +960,8 @@ def round_up(n, decimals=0):
 
 
 def gen_shmm(create=False, name=None, ndarray=None, size=0, shape=None, dtype=float):
-    assert (type(ndarray) != type(None) or size != 0) or type(name) != type(None)
+    assert (type(ndarray) != type(None) or size !=
+            0) or type(name) != type(None)
     assert type(ndarray) != type(None) or type(shape) != type(None)
     if ndarray is not None:
         dtype = ndarray.dtype
@@ -928,7 +1018,7 @@ def gen_velocity(
     get_0lbdd=False,
 ):
     qs = quite_sun
-    mean_doppler = np.nanmean(doppler_data[qs[2] : qs[3], qs[0] : qs[1]])
+    mean_doppler = np.nanmean(doppler_data[qs[2]: qs[3], qs[0]: qs[1]])
     # print("mean_doppler",mean_doppler)
     results = (doppler_data - mean_doppler) / mean_doppler * 3 * 10**5
     if correction:
@@ -962,7 +1052,8 @@ def gen_velocity(
 
 def gen_velocity_hist(velocity_data, axis=None, bins=None, verbose=0):
     if type(bins) == type(None):
-        bins = np.linspace(np.nanmin(velocity_data), np.nanmax(velocity_data), num=200)
+        bins = np.linspace(np.nanmin(velocity_data),
+                           np.nanmax(velocity_data), num=200)
     hist, bins = np.histogram(velocity_data, bins=bins)
     bins = (bins[:-1] + bins[1:]) / 2
     if verbose > 1:
@@ -993,23 +1084,24 @@ def correct_velocity(velocity_hist, velocity_values, verbose=0):
     return velocity_values_corr, ref_velocity
 
 
-def get_all_celestials(raster,**kwargs):
+def get_all_celestials(raster, **kwargs):
     if isinstance(raster, WCS):
         shape = np.array(kwargs["shape"])
-        if len(shape) == 3:pass
+        if len(shape) == 3:
+            pass
         elif len(shape) == 4:
             shape[1] = 1
         else:
             raise ValueError("The shape of the raster is not acceptable")
         wcs = raster
-        
+
         t = np.arange(shape[0], dtype=int)
-        lbd= np.array([0], dtype=int)
+        lbd = np.array([0], dtype=int)
         y = np.arange(shape[2], dtype=int)
         x = np.arange(shape[3], dtype=int)
         # Generate the meshgrid
-        tlbdxy = np.array(np.meshgrid(x,y,lbd,t , indexing='ij'))  
-        res = wcs.pixel_to_world(tlbdxy[0], tlbdxy[1], tlbdxy[2],tlbdxy[3])
+        tlbdxy = np.array(np.meshgrid(x, y, lbd, t, indexing='ij'))
+        res = wcs.pixel_to_world(tlbdxy[0], tlbdxy[1], tlbdxy[2], tlbdxy[3])
         coords = res[0].reshape(shape[::-1], )
         time = res[2].reshape(shape[::-1],)
         datetime64_array = time.to_value('datetime64')
@@ -1019,9 +1111,9 @@ def get_all_celestials(raster,**kwargs):
 
         shape = raster[0].data.shape
         wcs = WCS(raster[0].header)
-        return (get_all_celestials(wcs,shape= shape))
+        return (get_all_celestials(wcs, shape=shape))
         # specoords = res[1].reshape(shape[::-1],)
-        
+
     else:
         print(
             f"The raster passed doesn't match any known types: {type(raster)} but it has to be one of these types: \n{ndcube.ndcollection.NDCollection}\n{astropy.io.fits.hdu.hdulist.HDUList}"
@@ -1030,20 +1122,20 @@ def get_all_celestials(raster,**kwargs):
         print("--------------------------------")
         print(type(raster), isinstance(raster, Iterable))
         raise ValueError("inacceptable type")
-    
-    return coords,datetime64_array
-    
+
+    return coords, datetime64_array
+
 
 def get_celestial(raster, include_time=False, **kwargs):
-    lonlat,time = get_all_celestials(raster,**kwargs)
-    if lonlat.shape[3] == 1:# dealing wwith a raster
-        lon = lonlat.spherical.lon.arcsec[:,:,0,0]
-        lat = lonlat.spherical.lat.arcsec[:,:,0,0]
-        time = time[:,:,0,0]
-    else:# dealing wwith a time series
-        lon = lonlat.spherical.lon.arcsec[0,:,0,:]
-        lat = lonlat.spherical.lat.arcsec[0,:,0,:]
-        time = time[0,:,0,:]
+    lonlat, time = get_all_celestials(raster, **kwargs)
+    if lonlat.shape[3] == 1:  # dealing wwith a raster
+        lon = lonlat.spherical.lon.arcsec[:, :, 0, 0]
+        lat = lonlat.spherical.lat.arcsec[:, :, 0, 0]
+        time = time[:, :, 0, 0]
+    else:  # dealing wwith a time series
+        lon = lonlat.spherical.lon.arcsec[0, :, 0, :]
+        lat = lonlat.spherical.lat.arcsec[0, :, 0, :]
+        time = time[0, :, 0, :]
     return (lon.T, lat.T, time.T) if include_time else (lon.T, lat.T)
 
 
@@ -1053,7 +1145,7 @@ def quickview(
     imag_ax=None,
     fig2=None,
     spec_ax=None,
-    remove_dumbles = slice(None,None,None),
+    remove_dumbles=slice(None, None, None),
 ):
     from pathlib import PosixPath, WindowsPath, Path
 
@@ -1061,18 +1153,20 @@ def quickview(
         raster = fits_reader.open(RasterOrPath)
     else:
         raster = RasterOrPath
-    
+
     raster = get_data_raster(raster)
-    
-    lon, lat,time = get_celestial(raster,include_time=True)
+
+    lon, lat, time = get_celestial(raster, include_time=True)
     n = 3
     m = len(raster) // 3 + (1 if len(raster) % 3 != 0 else 0)
 
     if type(imag_ax) == type(None):
-        fig1, ax1 = plt.subplots(m, n, figsize=(n * 3, m * 3), sharex=True, sharey=True)
+        fig1, ax1 = plt.subplots(m, n, figsize=(
+            n * 3, m * 3), sharex=True, sharey=True)
         ax1 = ax1.flatten()
-        #reduce inter space in h and w 
-        plt.subplots_adjust(wspace=0.1, hspace=0.1, left=0.1, right=0.9, top=0.9, bottom=0.1)
+        # reduce inter space in h and w
+        plt.subplots_adjust(wspace=0.1, hspace=0.1, left=0.1,
+                            right=0.9, top=0.9, bottom=0.1)
         for ax in range(len(raster), len(ax1)):
             ax1[ax].remove()
     else:
@@ -1081,7 +1175,8 @@ def quickview(
     if type(spec_ax) == type(None):
         fig2, ax2 = plt.subplots(m, n, figsize=(n * 3, m * 3))
         ax2 = ax2.flatten()
-        plt.subplots_adjust(wspace=0.1, hspace=0.1, left=0.1, right=0.9, top=0.9, bottom=0.1)
+        plt.subplots_adjust(wspace=0.1, hspace=0.1, left=0.1,
+                            right=0.9, top=0.9, bottom=0.1)
         for ax in range(len(raster), len(ax2)):
             ax2[ax].remove()
     else:
@@ -1089,37 +1184,38 @@ def quickview(
         fig2 = fig2 if type(fig2) != type(None) else spec_ax[0].figure
     fig1.suptitle(raster[0].header["DATE-OBS"])
     fig2.suptitle(raster[0].header["DATE-OBS"])
-    
-    #Dealing with a raster
+
+    # Dealing with a raster
     for i in range(len(raster)):
         data = raster[i].data
-        if raster[0].data.shape[0]==1:
+        if raster[0].data.shape[0] == 1:
             image = np.nanmean(data, axis=(0, 1))
         else:
             image = np.nanmean(data, axis=(1, 3))
         spect = np.nanmean(data, axis=(0, 2, 3))
         spec_ax = get_specaxis(raster[i])
         kw = raster[i].header["EXTNAME"]
-        
-        if raster[0].data.shape[0]==1:    
+
+        if raster[0].data.shape[0] == 1:
             norm = normit(image[200:700])
-            ax1[i].pcolormesh(lon[remove_dumbles,:], lat[remove_dumbles,:], image[remove_dumbles,:], norm=norm, cmap="magma")
+            ax1[i].pcolormesh(lon[remove_dumbles, :], lat[remove_dumbles, :],
+                              image[remove_dumbles, :], norm=norm, cmap="magma")
         else:
             norm = normit(image.T[200:700])
-            ax1[i].pcolormesh(time[:,remove_dumbles],lat[:,remove_dumbles],image[:,remove_dumbles], norm=norm, cmap="magma")
-            # make the locators for the time axis of order of 1 hour 
+            ax1[i].pcolormesh(time[:, remove_dumbles], lat[:, remove_dumbles],
+                              image[:, remove_dumbles], norm=norm, cmap="magma")
+            # make the locators for the time axis of order of 1 hour
             # ax1[i].xaxis.set_major_locator(plt.MaxNLocator(3))
-            #Hour locator 
+            # Hour locator
             from matplotlib.dates import HourLocator
             ax1[i].xaxis.set_major_locator(HourLocator())
-            # change the date format to be dayThour:min 
+            # change the date format to be dayThour:min
             ax1[i].xaxis.set_major_formatter(mdates.DateFormatter('%d %H:%M'))
-        
+
         ax2[i].step(spec_ax, spect)
         ax1[i].set_title(kw)
         ax2[i].set_title(kw)
-    
-            
+
     return ((fig1, ax1), (fig2, ax2))
 
 
@@ -1251,12 +1347,13 @@ def getfiles(
     return selected_fits
 
 
-def get_input_template(where="./input_config_template.json",overwrite=False):
+def get_input_template(where="./input_config_template.json", overwrite=False):
     PATH = pkg_resources.resource_filename(
         "saffron", "manager/input_config_template.json"
     )
     if Path(where).exists() and not overwrite:
-        raise FileExistsError(f"{where} already exists, set overwrite to True to overwrite it")    
+        raise FileExistsError(
+            f"{where} already exists, set overwrite to True to overwrite it")
     else:
         shutil.copy(PATH, where)
 
