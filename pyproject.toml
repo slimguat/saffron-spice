@@ -1,60 +1,60 @@
 [tool.poetry]
-name = "saffron-spice"
-version = "0.3.0"
-description = "SAFFRON: Spectral Analysis Fitting Framework, Reduction Of Noise."
 authors = [
-    "Slimane MZERGUAT <slimane.mzerguat@universite-paris-saclay.fr>",
-    "Slimane MZERGUAT <mzerguat.sl@gmail.com>"
+  "Slimane MZERGUAT <slimane.mzerguat@universite-paris-saclay.fr>",
+  "Slimane MZERGUAT <mzerguat.sl@gmail.com>",
 ]
-license = "MIT"
-readme = "README.md"
+description = "SAFFRON: Spectral Analysis Fitting Framework, Reduction Of Noise."
 homepage = "https://github.com/slimguat/SAFFRON"
+license = "MIT"
+name = "saffron-spice"
+readme = "README.md"
+version = "0.3.1"
 
 packages = [
-    { include = "saffron" }
+  {include = "saffron"},
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.9.10,<4.0"
-numpy = "*"
-scipy = "*"
-matplotlib = "*"
-numba = "*"
-astropy = "*"
-sunpy = "*"
-ndcube = "*"
-opencv-python = "*"
-multiprocess = "*"
-ipympl = "*"
-ipywidgets = "*"
-pandas = "*"
-rich = "*"
-roman = "*"
-setuptools = "*"
-sospice = "*"
-colorama = "*"
-watroo = "*"
-fiplcr = "*"
-docutils = ">=0.14,<0.21"
-requests = "*"
-tqdm = "*"
+astropy = "*" 
+colorama = "*" 
+docutils = ">=0.14,<0.21" 
+fiplcr = "*" 
+ipympl = "*" 
 ipyparallel = "*" #Chiantipy needs it but it is not in the dependencies
+ipywidgets = "*" 
+matplotlib = "*" 
+multiprocess = "*" 
+ndcube = "*" 
+numba = "*" 
+numpy = "*" 
+opencv-python = "*" 
+pandas = "*" 
+python = ">=3.9.10,<4.0" 
+requests = "*" 
+rich = "*" 
+roman = "*" 
+scipy = "*" 
+setuptools = "*" 
+sospice = "*" 
+sunpy = "*" 
+tqdm = "*" 
+watroo = "*" 
 
 [tool.poetry.dev-dependencies]
-pytest = "*"
 black = "*"
 flake8 = "*"
 mypy = "*"
+pytest = "*"
 setuptools_scm = "*"
 
 [tool.poetry.scripts]
-setup-chianti = "saffron.__main__:setup_chianti_database"
 saffron-gui = "saffron.__main__:GUI_init"
+setup-chianti = "saffron.__main__:setup_chianti_database"
 
 [build-system]
-requires = ["poetry-core>=1.0.0", "setuptools_scm"]
 build-backend = "poetry.core.masonry.api"
+requires = ["poetry-core>=1.0.0", "setuptools_scm"]
 
 [tool.setuptools_scm]
-version_scheme = "guess-next-dev"
 local_scheme = "dirty-tag"
+version_scheme = "guess-next-dev"
