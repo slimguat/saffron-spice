@@ -1,3 +1,14 @@
+from matplotlib.colors import Normalize
+import matplotlib.dates as mdates
+import colorama
+from IPython.display import HTML, display
+from sunpy.map import Map
+from astropy.units.quantity import Quantity
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+from sunpy.map import GenericMap
+from pathlib import Path, WindowsPath, PosixPath
+from pathlib import Path, PosixPath, WindowsPath
 import math
 import numpy as np
 from scipy.ndimage import uniform_filter
@@ -38,19 +49,7 @@ import os
 import contextlib
 import shutil
 # import pkg_resources
-from pathlib import Path, PosixPath, WindowsPath
-
-from pathlib import Path, WindowsPath, PosixPath
-from sunpy.map import GenericMap
-import astropy
-from astropy.coordinates import SkyCoord
-from astropy import units as u
-from astropy.units.quantity import Quantity
-from sunpy.map import Map
-from IPython.display import HTML, display
-import colorama
-import matplotlib.dates as mdates
-from matplotlib.colors import Normalize
+from importlib.resources import files, as_file
 
 
 def _vprint(verbose: int, level: int, *args, **kwargs) -> None:
@@ -1348,9 +1347,8 @@ def getfiles(
 
 
 def get_input_template(where="./input_config_template.json", overwrite=False):
-    PATH = pkg_resources.resource_filename(
-        "saffron", "manager/input_config_template.json"
-    )
+    PATH = files(
+        "saffron.manager").joinpath("input_config_template.json")
     if Path(where).exists() and not overwrite:
         raise FileExistsError(
             f"{where} already exists, set overwrite to True to overwrite it")
@@ -1373,6 +1371,8 @@ def normit(
     vmax: float = None,
     clip: bool = False,
     invalid=-1.0,
+
+
 ) -> Normalize:
     """Normalize the data using the specified interval, stretch, vmin, and vmax.
 

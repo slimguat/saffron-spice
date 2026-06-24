@@ -5,6 +5,7 @@ import numpy as np
 from collections.abc import Iterable
 import pandas as pd
 from pathlib import Path
+from importlib.resources import files, as_file
 
 
 class LineCatalog:
@@ -30,9 +31,8 @@ class LineCatalog:
         # import os
         # print("current working directory: "+os.getcwd())
         if self.PATH is None:
-            self.PATH = pkg_resources.resource_filename(
-                "saffron", "line_catalog/SPICE_SpecLines.json"
-            )
+            self.PATH = files("saffron.line_catalog").joinpath(
+                "SPICE_SpecLines.json")
         # with open(self.PATH, "r") as f:
         path__ = Path(self.PATH).resolve()
         print(path__)
