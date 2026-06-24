@@ -37,7 +37,7 @@ import matplotlib.pyplot as plt
 import os
 import contextlib
 import shutil
-import pkg_resources
+# import pkg_resources
 from pathlib import Path, PosixPath, WindowsPath
 
 from pathlib import Path, WindowsPath, PosixPath

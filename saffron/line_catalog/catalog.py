@@ -1,10 +1,11 @@
 import json
-from typing import Dict, List,Tuple, Union
-import pkg_resources
+from typing import Dict, List, Tuple, Union
+# import pkg_resources
 import numpy as np
 from collections.abc import Iterable
 import pandas as pd
 from pathlib import Path
+
 
 class LineCatalog:
     def __init__(self, file_location: str = None, verbose: int = 0) -> None:
@@ -18,7 +19,8 @@ class LineCatalog:
         self.verbose = verbose
         self.load()
         self._LINES = pd.DataFrame(self._CATALOGUE["LINES"])
-        self._WINDOWS = pd.DataFrame(self._CATALOGUE["SPECTRAL_WINDOWS_CATALOGUE"])
+        self._WINDOWS = pd.DataFrame(
+            self._CATALOGUE["SPECTRAL_WINDOWS_CATALOGUE"])
         self.verbose = verbose
 
     def load(self) -> None:
@@ -32,7 +34,7 @@ class LineCatalog:
                 "saffron", "line_catalog/SPICE_SpecLines.json"
             )
         # with open(self.PATH, "r") as f:
-        path__= Path(self.PATH).resolve()
+        path__ = Path(self.PATH).resolve()
         print(path__)
         with open(path__, "r") as f:
             if self.verbose >= 1:
@@ -55,7 +57,8 @@ class LineCatalog:
                 for line_id, name, wvl in zip(self._LINES["ID"], self._LINES["name"], self._LINES["wvl"])
             ],
             "SPECTRAL_WINDOWS_CATALOGUE": [
-                {"lines": [int(line_id) for line_id in lines], "max_line": int(max_line)}
+                {"lines": [int(line_id) for line_id in lines],
+                 "max_line": int(max_line)}
                 for lines, max_line in zip(self._WINDOWS["lines"], self._WINDOWS["max_line"])
             ]
         }
@@ -67,7 +70,7 @@ class LineCatalog:
         # Create the JSON with the required formatting
         with open(new_path, "w") as f:
             f.write("{\n")
-            
+
             # Writing the "LINES" section
             f.write('  "LINES": [\n')
             for line in dumpable["LINES"]:
@@ -83,7 +86,8 @@ class LineCatalog:
                 lines = ", ".join(map(str, window["lines"]))
                 f.write(
                     f'      {{"lines": [{lines}], "max_line": {window["max_line"]}}}'
-                    + (",\n" if window != dumpable["SPECTRAL_WINDOWS_CATALOGUE"][-1] else "\n")
+                    + (",\n" if window !=
+                       dumpable["SPECTRAL_WINDOWS_CATALOGUE"][-1] else "\n")
                 )
             f.write('  ],\n')
 
@@ -94,7 +98,8 @@ class LineCatalog:
                     lines = ", ".join(map(str, window["lines"]))
                     f.write(
                         f'      {{"lines": [{lines}], "max_line": {window["max_line"]}}}'
-                        + (",\n" if window != dumpable["Deleted"][-1] else "\n")
+                        + (",\n" if window !=
+                           dumpable["Deleted"][-1] else "\n")
                     )
                 f.write('  ]\n')
 
@@ -115,58 +120,68 @@ class LineCatalog:
         :param max_line: The maximum line in the window, either as [name, wavelength] or a line ID.
         """
         # Validate that the lines are all of the same type [name,wvl] or [ID]
-        if (not np.all([isinstance(line,Iterable) for line in lines]) ) and (not np.all([isinstance(line,int) for line in lines]) ):
-            raise ValueError(f"lines should be of the form [[name,wvl],...] or [ID,....]")
-        if not isinstance(max_line[0],int) and not isinstance(max_line[0],Iterable):
-            raise ValueError(f"max_line should be of the form [name,wvl] or [ID]")
-        
+        if (not np.all([isinstance(line, Iterable) for line in lines])) and (not np.all([isinstance(line, int) for line in lines])):
+            raise ValueError(
+                f"lines should be of the form [[name,wvl],...] or [ID,....]")
+        if not isinstance(max_line[0], int) and not isinstance(max_line[0], Iterable):
+            raise ValueError(
+                f"max_line should be of the form [name,wvl] or [ID]")
+
         # Convert the lines to IDs
-        if isinstance(lines[0],Iterable):
+        if isinstance(lines[0], Iterable):
             lines_ID = []
-            for line in lines :
-                assert  self._check_valide_ion_name(line[0]), f"The name: {line} is not a valid ion name according to the CHIANTI format."
-                try: 
-                    lineID = self.line2ID(line[0],line[1])
-                except: 
-                    raise AssertionError(f"the line with name: {line[0]} and wvl: {line[1]} doesn't exist in the line catalog, please make sure you picked the right line or add it if it doesn't exist.\nline catalog: {self._LINES}")
+            for line in lines:
+                assert self._check_valide_ion_name(
+                    line[0]), f"The name: {line} is not a valid ion name according to the CHIANTI format."
+                try:
+                    lineID = self.line2ID(line[0], line[1])
+                except:
+                    raise AssertionError(
+                        f"the line with name: {line[0]} and wvl: {line[1]} doesn't exist in the line catalog, please make sure you picked the right line or add it if it doesn't exist.\nline catalog: {self._LINES}")
                 lines_ID.append(lineID)
         else:
             for line in lines:
-                try: self.ID2line(line)
-                except: raise ValueError(f"the line with ID: {line} doesn't exist in the line catalog, please make sure you picked the right line or add it if it doesn't exist")
+                try:
+                    self.ID2line(line)
+                except:
+                    raise ValueError(
+                        f"the line with ID: {line} doesn't exist in the line catalog, please make sure you picked the right line or add it if it doesn't exist")
             lines_ID = lines
-        
+
         # Convert the max_line to ID
-        if isinstance(max_line[0],Iterable):
-            max_line_ID = self.line2ID(max_line[0],max_line[1])
+        if isinstance(max_line[0], Iterable):
+            max_line_ID = self.line2ID(max_line[0], max_line[1])
         else:
             max_line_ID = max_line
-        
+
         # Check if the max_line is in the lines
         assert max_line_ID in lines_ID, f"the max_line: {max_line} should be in the lines: {lines}"
-        
+
         # Check if the lines are valid according to the CHIANTI format
         for line in lines:
-            assert self._check_valide_ion_name(line[0]), f"The name: {line} is not a valid ion name according to the CHIANTI format."
-            
+            assert self._check_valide_ion_name(
+                line[0]), f"The name: {line} is not a valid ion name according to the CHIANTI format."
+
         # Check if the exact window already exists (same lines and max_line)
         for window in self._WINDOWS.iterrows():
             if set(window[1]["lines"]) == set(lines_ID):
-                raise ValueError(f"The window with lines '{lines}' already exists.")
-        
+                raise ValueError(
+                    f"The window with lines '{lines}' already exists.")
 
         # Create a new DataFrame for the new window
-        new_window_df = pd.DataFrame({"lines": [lines_ID], "max_line": [max_line_ID]})
+        new_window_df = pd.DataFrame(
+            {"lines": [lines_ID], "max_line": [max_line_ID]})
 
         # Append the new window to the _WINDOWS DataFrame
-        self._WINDOWS = pd.concat([self._WINDOWS, new_window_df], axis=0, ignore_index=True)
-        
+        self._WINDOWS = pd.concat(
+            [self._WINDOWS, new_window_df], axis=0, ignore_index=True)
+
         # # Append the new window to the _WINDOWS DataFrame
         # self._WINDOWS = pd.concat([self._WINDOWS, new_window_df], axis=0, ignore_index=True)
 
         # Update the catalog data
         self._update_catalog()
-    
+
     def add_line(self, name: str, wvl: float) -> None:
         """
         Adds a new line to the line catalog.
@@ -176,12 +191,15 @@ class LineCatalog:
         """
         # Validate the ion name using the CHIANTI format
         if not self._check_valide_ion_name(name):
-            raise ValueError(f"The name: {name} is not a valid ion name according to the CHIANTI format.")
+            raise ValueError(
+                f"The name: {name} is not a valid ion name according to the CHIANTI format.")
 
         # Check if the exact line already exists (same name and wavelength)
-        existing_line = self._LINES[(self._LINES["name"] == name) & (self._LINES["wvl"] == wvl)]
+        existing_line = self._LINES[(self._LINES["name"] == name) & (
+            self._LINES["wvl"] == wvl)]
         if not existing_line.empty:
-            raise ValueError(f"The line with name '{name}' and wavelength '{wvl}' already exists.")
+            raise ValueError(
+                f"The line with name '{name}' and wavelength '{wvl}' already exists.")
 
         # Determine the new ID by finding the smallest available integer
         existing_ids = set(self._LINES["ID"])
@@ -190,40 +208,44 @@ class LineCatalog:
             new_id += 1
 
         # Create a new DataFrame for the new line
-        new_line_df = pd.DataFrame({"ID": [new_id], "name": [name], "wvl": [wvl]})
+        new_line_df = pd.DataFrame(
+            {"ID": [new_id], "name": [name], "wvl": [wvl]})
 
         # Append the new line to the _LINES DataFrame
-        self._LINES = pd.concat([self._LINES, new_line_df], axis=0, ignore_index=True)
+        self._LINES = pd.concat(
+            [self._LINES, new_line_df], axis=0, ignore_index=True)
 
         # Sort the DataFrame by wavelength
         self._LINES = self._LINES.sort_values(by="wvl", ignore_index=True)
 
         # Update the catalog data
         self._update_catalog()
-    
+
     def remove_window(self, lines: List[str]) -> None:
         """
         Removes a spectral window from the line catalog.
 
         :param lines: List of lines in the window to be removed, either as line IDs or [name, wavelength].
         """
-        #turn lines from names to IDs if it is not already the case
-        if    np.all([isinstance(line,int) for line in lines]): 
+        # turn lines from names to IDs if it is not already the case
+        if np.all([isinstance(line, int) for line in lines]):
             lines_ID = lines
-        elif  np.all([isinstance(line[0],str) and isinstance(line[1],float) for line in lines]):
+        elif np.all([isinstance(line[0], str) and isinstance(line[1], float) for line in lines]):
             lines_ID = []
             for line in lines:
-                if isinstance(line,Iterable):
-                    assert  self._check_valide_ion_name(line[0]), f"The name: {line} is not a valid ion name according to the CHIANTI format."
-                    try: 
-                        lineID = self.line2ID(line[0],line[1])
-                    except: 
-                        raise AssertionError(f"the line with name: {line[0]} and wvl: {line[1]} doesn't exist in the line catalog, please make sure you picked the right line or add it if it doesn't exist.\nline catalog: {self._LINES}")
+                if isinstance(line, Iterable):
+                    assert self._check_valide_ion_name(
+                        line[0]), f"The name: {line} is not a valid ion name according to the CHIANTI format."
+                    try:
+                        lineID = self.line2ID(line[0], line[1])
+                    except:
+                        raise AssertionError(
+                            f"the line with name: {line[0]} and wvl: {line[1]} doesn't exist in the line catalog, please make sure you picked the right line or add it if it doesn't exist.\nline catalog: {self._LINES}")
                     lines_ID.append(lineID)
-        
-        else: 
-            raise ValueError(f"lines should be of the form [[name,wvl],...] or [ID,....]")
 
+        else:
+            raise ValueError(
+                f"lines should be of the form [[name,wvl],...] or [ID,....]")
 
         found = self._WINDOWS.lines.apply(lambda x: set(x) == set(lines_ID))
         if not found.any():
@@ -244,14 +266,17 @@ class LineCatalog:
         """
         assert (name is not None and wvl is not None) or ID is not None, "you should provide either the name and wvl or the ID"
         if name is not None and wvl is not None:
-            line_ID = self.line2ID(name=name,wvl=wvl)
+            line_ID = self.line2ID(name=name, wvl=wvl)
         else:
             line_ID = ID
-        
+
         found = self._LINES.ID.apply(lambda x: x == line_ID)
-        windows_with_line_in = self._WINDOWS.lines.apply(lambda x: line_ID in x)
-        assert found.any(), f"the line with ID: {line_ID} doesn't exist in the catalog"
-        assert not windows_with_line_in.any(), f"The line:{line_ID} is in some windows\n{self._WINDOWS[windows_with_line_in]}\n you should delete them first"
+        windows_with_line_in = self._WINDOWS.lines.apply(
+            lambda x: line_ID in x)
+        assert found.any(
+        ), f"the line with ID: {line_ID} doesn't exist in the catalog"
+        assert not windows_with_line_in.any(
+        ), f"The line:{line_ID} is in some windows\n{self._WINDOWS[windows_with_line_in]}\n you should delete them first"
         self._LINES = self._LINES[np.logical_not(found)]
         self._update_catalog()
 
@@ -259,7 +284,7 @@ class LineCatalog:
     def get_catalog(self) -> pd.DataFrame:
         """
         Retrieves the full catalog of lines and spectral windows.
-        
+
         :return: The catalog as a pandas DataFrame.
         """
         return self._CATALOGUE
@@ -267,7 +292,7 @@ class LineCatalog:
     def get_catalog_lines(self) -> pd.DataFrame:
         """
         Retrieves the catalog of spectral lines.
-        
+
         :return: A pandas DataFrame of lines.
         """
         return self._LINES
@@ -284,21 +309,22 @@ class LineCatalog:
         else:
             window_value = []
             for window in self._WINDOWS.iterrows():
-                lines= [self.ID2line(ID) for ID in window[1]["lines"]]
+                lines = [self.ID2line(ID) for ID in window[1]["lines"]]
                 max_line = self.ID2line(window[1]["max_line"])
-                window_value.append({"lines":lines,"max_line":max_line})
-            return (window_value) 
-    
+                window_value.append({"lines": lines, "max_line": max_line})
+            return (window_value)
+
     # representations
     def show_catalog_windows(self) -> None:
         """
         Displays the spectral windows catalog in a readable format.
         """
-        
+
         dic_value = self.get_catalog_windows(byID=False)
         for window in dic_value:
-            
-            print(f"lines: {' '.join([str(tuple(line.values())[1:]) for line in window['lines']])},\nmax_line: {tuple(window['max_line'].values())[1:]}")
+
+            print(
+                f"lines: {' '.join([str(tuple(line.values())[1:]) for line in window['lines']])},\nmax_line: {tuple(window['max_line'].values())[1:]}")
 
     def _check_valide_ion_name(self, ion: str) -> bool:
         """
@@ -329,7 +355,7 @@ class LineCatalog:
             return True
         except:
             return False
-    
+
     def line2ID(self, name: str = None, wvl: float = None, list_names: List[Tuple[str, float] | int] = None) -> int:
         """
         Converts a line name and wavelength or a list of names and wavelengths to their corresponding IDs.
@@ -341,25 +367,31 @@ class LineCatalog:
         """
         assert (name is not None and wvl is not None) or list_names is not None, "you should provide either the name and wvl or the list of names"
         if list_names is None:
-            #check if lines contain the line
-            assert self._check_valide_ion_name(name), (f"the name: {name} is not a valid ion name according to the CHIANTI format.")
-            slected_lines = self._LINES[(self._LINES["name"]==name)&(self._LINES["wvl"]==wvl)]
+            # check if lines contain the line
+            assert self._check_valide_ion_name(
+                name), (f"the name: {name} is not a valid ion name according to the CHIANTI format.")
+            slected_lines = self._LINES[(self._LINES["name"] == name) & (
+                self._LINES["wvl"] == wvl)]
             if slected_lines.empty:
-                raise ValueError(f"the line with name: {name} and wvl: {wvl} doesn't exist in the catalog")
-            elif len(slected_lines)>=2:
-                raise ValueError(f"the line with name: {name} and wvl: {wvl} is not unique in the catalog")
+                raise ValueError(
+                    f"the line with name: {name} and wvl: {wvl} doesn't exist in the catalog")
+            elif len(slected_lines) >= 2:
+                raise ValueError(
+                    f"the line with name: {name} and wvl: {wvl} is not unique in the catalog")
             return slected_lines.iloc[0]["ID"]
-        else: 
+        else:
             list_ID = []
             for line in list_names:
-                assert self._check_valide_ion_name(line[0]), f"The name: {line} is not a valid ion name according to the CHIANTI format."
-                try: 
-                    lineID = self.line2ID(name=line[0],wvl=line[1])
-                except: 
-                    raise AssertionError(f"the line with name: {line[0]} and wvl: {line[1]} doesn't exist in the line catalog, please make sure you picked the right line or add it if it doesn't exist.\nline catalog: {self._LINES}")
+                assert self._check_valide_ion_name(
+                    line[0]), f"The name: {line} is not a valid ion name according to the CHIANTI format."
+                try:
+                    lineID = self.line2ID(name=line[0], wvl=line[1])
+                except:
+                    raise AssertionError(
+                        f"the line with name: {line[0]} and wvl: {line[1]} doesn't exist in the line catalog, please make sure you picked the right line or add it if it doesn't exist.\nline catalog: {self._LINES}")
                 list_ID.append(lineID)
             return list_ID
-    
+
     def ID2line(self, ID: int | List[int]) -> Dict:
         """
         Converts a line ID or list of IDs to their corresponding names and wavelengths.
@@ -367,22 +399,26 @@ class LineCatalog:
         :param ID: The line ID or list of line IDs.
         :return: A dictionary of line attributes.
         """
-        if not isinstance(ID,Iterable):
-            #check if lines contain the line
-            slected_lines = self._LINES[self._LINES["ID"]==ID]
+        if not isinstance(ID, Iterable):
+            # check if lines contain the line
+            slected_lines = self._LINES[self._LINES["ID"] == ID]
             if slected_lines.empty:
-                raise ValueError(f"the line with ID: {ID} doesn't exist in the catalog")
-            elif len(slected_lines)>=2:
-                raise ValueError(f"the line with ID: {ID} is not unique in the catalog")
+                raise ValueError(
+                    f"the line with ID: {ID} doesn't exist in the catalog")
+            elif len(slected_lines) >= 2:
+                raise ValueError(
+                    f"the line with ID: {ID} is not unique in the catalog")
             return slected_lines.iloc[0].to_dict()
         else:
             list_lines = []
             ID_list = ID
             for ID in ID_list:
-                slected_lines = self._LINES[self._LINES["ID"]==ID]
+                slected_lines = self._LINES[self._LINES["ID"] == ID]
                 if slected_lines.empty:
-                    raise ValueError(f"the line with ID: {ID} doesn't exist in the catalog")
-                elif len(slected_lines)>=2:
-                    raise ValueError(f"the line with ID: {ID} is not unique in the catalog")
+                    raise ValueError(
+                        f"the line with ID: {ID} doesn't exist in the catalog")
+                elif len(slected_lines) >= 2:
+                    raise ValueError(
+                        f"the line with ID: {ID} is not unique in the catalog")
                 list_lines.append(slected_lines.iloc[0].to_dict())
             return list_lines
